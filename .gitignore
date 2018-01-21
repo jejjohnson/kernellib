@@ -60,3 +60,9 @@ target/
 
 # pyenv python configuration file
 .python-version
+.vscode/launch.json
+.vscode/settings.json
+kernellib/bin/deactivate
+kernellib/bin/conda
+kernellib/bin/activate
+\.ipynb_checkpoints/
