@@ -1,16 +1,23 @@
-
+from sklearn.datasets import load_boston, make_regression
 import numpy as np
 import pandas as pd
+from time import time
+
 import warnings
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import pdist
-from scipy.linalg import cholesky
+from scipy.linalg import cho_factor, cho_solve
+from sklearn.utils import check_random_state
+from sklearn.model_selection import KFold
+import multiprocessing as mp
+
+
+
 import scipy as scio
 from matplotlib import pyplot as plt
-from .derivatives import rbf_derivative_cy, rbf_derivative
 
 
 
@@ -23,14 +30,11 @@ class KRR(BaseEstimator, RegressorMixin):
 
     Parameters
     ----------
-    reg : str, {'w', 'df', 'df2'}, (default='w')
-        the regularization parameter associated with the
-        KRR solution
-        
-        alpha = inv(K + lam * reg) * y
-
-    solver : str, {'reg', 'chol'}, (default='reg')
+    solver : str, {'reg', 'chol', 'batch'}, (default='reg')
         the Ax=b solver used for the weights
+
+    n_batches : int, default=None
+        the number of samples used per batch
 
     sigma : float, optional(default=None)
         the parameter for the kernel function.
@@ -40,9 +44,9 @@ class KRR(BaseEstimator, RegressorMixin):
     lam : float, options(default=None)
         the trade-off parameter between the mean squared error
         and the regularization term.
-        
-    rbf_solver : 'py', 'py_mem', cy', optional (default='py')
-        the solver used to calculate the rbf derivative
+
+        alpha = inv(K + lam * reg) * y
+
     Attributes
     ----------
     weights_ : array, [N x D]
@@ -52,18 +56,14 @@ class KRR(BaseEstimator, RegressorMixin):
         the kernel matrix with sigma parameter
     """
 
-    def __init__(self, reg='w', solver='reg', sigma=None, lam=None, rbf_solver='py'):
-        self.reg = reg
-        self.solver = solver
+    def __init__(self, sigma=None, lam=None, calculate_variance=False, n_batches=1, n_jobs=1):
+        self.n_batches = n_batches
         self.sigma = sigma
         self.lam = lam
-        self.rbf_solver = rbf_solver
+        self.calculate_variance = calculate_variance
+        self.n_jobs = n_jobs
 
     def fit(self, x, y=None):
-
-        # regularization
-        if self.reg not in ['w', 'df', 'd2f']:
-            raise ValueError('Unrecognized regularization.')
 
         # regularization trade off parameter
         if self.lam is None:
@@ -77,13 +77,9 @@ class KRR(BaseEstimator, RegressorMixin):
             # common heuristic for finding the sigma value
             self.sigma = np.mean(pdist(x, metric='euclidean'))
 
-        # check solver
-        if self.solver not in ['reg', 'chol']:
-            raise ValueError('Unrecognized solver. Please chose "chol" or "reg".')
-            
-        # check rbf solver
-        if self.rbf_solver not in ['py', 'cy']:
-            raise ValueError('Unrecognized rbf solver. Please choose "py" or "cy".')
+        # check batch processes
+        if ( self.n_batches < 0 or self.n_batches > np.inf):
+            raise ValueError('n_batches should be between 0 and a reasonable number.')
 
         # gamma parameter for the kernel matrix
         self.gamma = 1 / (2 * self.sigma ** 2)
@@ -91,184 +87,380 @@ class KRR(BaseEstimator, RegressorMixin):
         # calculate kernel function
         self.X_fit_ = x
         self.K_ = rbf_kernel(self.X_fit_, Y=self.X_fit_, gamma=self.gamma)
+        self.K_inverse_ = np.linalg.inv(self.K_)
 
-        # Regularization with the weights
-        if self.reg is 'w':
+        # Try the cholesky factor method
+        try:
 
-            # regularization simple
-            regularization = np.eye(np.size(self.X_fit_))
+            # Cholesky Factor Method
+            R, lower = cho_factor(self.K_ + self.lam * np.eye(self.K_.shape[0], 1))
 
-            # K + lambda Identity
-            mat_A = self.K_ + self.lam * regularization
-            mat_b = y
+            # Cholesky Solve Method
+            self.weights_ = cho_solve((R, lower), y)
 
-        # Regularization with the 1st derivative
-        elif self.reg is 'df':
+        except np.linalg.LinAlgError:
+            warnings.warn("Singular Matrix. Trying Regular Solver.")
 
-            temp_weights = np.ones(self.X_fit_.shape[0])
+            self.weights_ = scio.linalg.solve(self.K_ + self.lam * np.eye(self.K_.shape[0], 1),
+                                              y)
 
-            # calculate the derivative
-            if self.rbf_solver == "cy":
-                try:
-
-                    from rbf_derivative_cy import rbf_derivative as rbf_derivative_cy
-                    self.derivative_ = \
-                        rbf_derivative_cy(x_train=np.float64(self.X_fit_),
-                        x_function=np.float64(self.X_fit_),
-                        kernel_mat=np.float64(self.K_),
-                        weights=np.float64(temp_weights).squeeze(),
-                        gamma=np.float64(self.gamma),
-                        n_derivative=1)
-
-                except ImportError:
-
-                    warnings.warn("Chose 'cy' solver but not available.")
-
-                    self.derivative_ = rbf_derivative(x_train=self.X_fit_,
-                                                      x_function=self.X_fit_,
-                                                      kernel_mat=self.K_,
-                                                      weights=temp_weights,
-                                                      gamma=self.gamma,
-                                                      n_derivative=1)
-            elif self.rbf_solver == "py":
-                
-                self.derivative_ = rbf_derivative(x_train=self.X_fit_,
-                                                  x_function=self.X_fit_,
-                                                  kernel_mat=self.K_,
-                                                  weights=temp_weights,
-                                                  gamma=self.gamma,
-                                                  n_derivative=2)
-
-            # K * K.T + lambda * Df * Df.T
-            mat_A = np.dot(self.K_, self.K_) + self.lam * \
-                    np.matmul(self.derivative_.T, self.derivative_)
-
-            # K * y
-            mat_b = np.dot(self.K_, y)
-
-        # Regularization with the 2nd derivative
-        elif self.reg is 'd2f':
-
-            temp_weights = np.ones(self.X_fit_.shape[0])
-
-            # calculate the derivative
-            if self.rbf_solver == "cy":
-                try:
-
-                    from rbf_derivative_cy import rbf_derivative as rbf_derivative_cy
-                    self.derivative2_ = rbf_derivative_cy(x_train=np.float64(x_train_transformed),
-                                                         x_function=np.float64(x_test_transformed[ibatch_index]),
-                                                         kernel_mat=np.float64(K_traintest),
-                                                         weights=np.float64(KRR_model.dual_coef_).squeeze(),
-                                                         gamma=np.float64(gamma),
-                                                         n_derivative=2)
-                except ImportError:
-
-                    warnings.warn("Chose 'cy' solver but not available.")
-
-                    self.derivative2_ = rbf_derivative(x_train=self.X_fit_,
-                                                      x_function=self.X_fit_,
-                                                      kernel_mat=self.K_,
-                                                      weights=temp_weights,
-                                                      gamma=self.gamma,
-                                                      n_derivative=2)
-            elif self.rbf_solver == "py":
-                
-                self.derivative2_ = rbf_derivative(x_train=self.X_fit_,
-                                                      x_function=self.X_fit_,
-                                                      kernel_mat=self.K_,
-                                                      weights=temp_weights,
-                                                      gamma=self.gamma,
-                                                      n_derivative=2)
-
-            # K * K.T + lambda * D2f * D2f.T
-            mat_A = np.dot(self.K_, self.K_) + self.lam * \
-                    np.matmul(self.derivative2_.T, self.derivative2_)
-            # K * y
-            mat_b = np.dot(self.K_, y)
-
-        else:
-            raise ValueError('Unrecognized regularization parameter.')
-
-        # solve for the weights
-        if self.solver is 'reg':
-
-            # regular linalg solver
-            self.weights_ = np.linalg.solve(mat_A, mat_b)
-
-        elif self.solver is 'chol':
-
-            try:
-                # cholesky decomposition
-                L = cholesky(mat_A)
-                self.weights_ = scio.linalg.solve(L.T, scio.linalg.solve(L, mat_b))
-
-            except np.linalg.LinAlgError:
-
-                # if cholesky fails, use regular solver
-                warnings.warn("Not Positive Definite. Trying regular solver.")
-                self.weights_ = np.linalg.solve(mat_A, mat_b)
-
-        else:
-            # the case of an unrecognized solver
-            raise ValueError('Unrecognized solver. Please chose "chol" or "reg".')
+        # make sure weights is a 2d array
+        if self.weights_.ndim == 1:
+            self.weights_ = self.weights_[:, np.newaxis]
 
         return self
 
     def predict(self, x):
 
-        # calculate the kernel function with new points
-        K = rbf_kernel(X=x, Y=self.X_fit_, gamma=self.gamma)
+        # check for batch processing
+        if self.n_batches > 1:
+
+            if self.n_jobs == 1:
+
+                # perform batch_processing
+                predictions, self.variance = \
+                    krr_batch_predictions(x_train=self.X_fit_,
+                                          x_test=x,
+                                          weights=self.weights_,
+                                          gamma=self.gamma,
+                                          n_batches=self.n_batches,
+                                          calculate_variance=self.calculate_variance)
+
+            else:
+                # perform multi-core batch processing
+                predictions, self.variance = \
+                    krr_batch_multi_pred(x_train=self.X_fit_,
+                                         x_test=x,
+                                         weights=self.weights_,
+                                         gamma=self.gamma,
+                                         n_batches=self.n_batches,
+                                         n_jobs=self.n_jobs,
+                                         calculate_variance=self.calculate_variance)
+
+        else:
+            # calculate the kernel function with new points
+            K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
+
+            # calculate the predictions
+            predictions = K_traintest.T @ self.weights_
+
+            if self.calculate_variance is True:
+                K_test = rbf_kernel(x, gamma=self.gamma)
+
+                self.variance_ = np.diag(K_test) - \
+                                 np.diag(K_traintest.T @ self.K_inverse_ @ K_traintest)
 
         # return the project points
-        return np.matmul(K, self.weights_)
+        return predictions
+
+
+def krr_batch_predictions(x_train, x_test, weights, gamma,
+                          n_batches=None, n_jobs=1, calculate_variance=False):
+
+    # split the data into K folds
+    n_samples, n_dimensions = x_test.shape
+
+    # default batch number
+    if n_batches is None:
+        n_batches = int(np.round(n_samples / 500))
+
+    variance = None
+
+    # check variance
+    if calculate_variance is True:
+        K_train = rbf_kernel(x_train, gamma=gamma)
+        K_train_inverse = np.linalg.inv(K_train)
+        variance = np.empty(shape=(n_samples, 1))
+
+    # create a batch iterator object
+    BatchIterator = KFold(n_splits=n_batches)
+
+    # predefine matrices
+    y_pred = np.empty(shape=(n_samples, 1))
+
+    for (ibatch, (_, ibatch_index)) in enumerate(BatchIterator.split(x_test)):
+
+        # calculate the train_test kernel
+        K_traintest = rbf_kernel(x_train, x_test[ibatch_index], gamma=gamma)
+
+        # calculate the predictions
+        y_pred[ibatch_index] = K_traintest.T @ weights
+
+        if calculate_variance is True:
+
+            # calculate the Kbatch
+            K_batch = rbf_kernel(x_test[ibatch_index], gamma=gamma)
+
+            # calculate the variance
+            variance[ibatch_index, 0] = np.diag(K_batch) - \
+                np.diag(K_traintest.T @ K_train_inverse @ K_traintest)
+
+
+    return y_pred, variance
+
+def _calculate_predictions(x_train, x_test, indices, weights, gamma):
+
+    # calculate train-test kernel
+    K_traintest = rbf_kernel(x_train, x_test[indices, :],
+                             gamma=gamma)
+
+    # calculate the predictions
+    return K_traintest.T @ weights
+
+def _calculate_variance(x_test, indices, K_traintest,
+                        K_train_inverse, gamma):
+    # TODO: Add optional x_train parameter,
+    K_batch = rbf_kernel(x_test[indices, :], gamma=gamma)
+
+
+    return np.diag(K_batch) - np.diag(K_traintest.T @
+                                      K_train_inverse @
+                                      K_traintest)
+
+def krr_batch_multi_pred(x_train, x_test, weights, gamma,
+                         n_batches=None, n_jobs=1,
+                         calculate_variance=None):
+
+    # check for num of proc vs n_jobs selected
+    num_procs = mp.cpu_count()
+
+    if num_procs < n_jobs:
+        Pool = mp.Pool(processes=num_procs)
+    else:
+        Pool = mp.Pool(processes=n_jobs)
+
+    # get dimensions of the data
+    n_samples, n_dimensions = x_test.shape
+
+    # default batch number
+    if n_batches is None:
+        n_batches = int(np.round(n_samples / 500))
+
+    # initialize variance
+    variance = None
+
+    # check for variance entry
+    if calculate_variance is True:
+        K_train = rbf_kernel(x_train, gamma=gamma)
+        K_train_inverse = np.linalg.inv(K_train)
+        variance = np.empty(shape=(n_samples, 1))
+
+    # create a batch iterator generator
+    BatchIterator = KFold(n_splits=n_batches)
+
+    # predefine matrices
+    y_pred = np.empty(shape=(n_samples, 1))
+
+    # Perform multiprocessing
+    pred_pool = \
+        [Pool.apply(_calculate_predictions, args=(
+            x_train, x_test, indices, weights, gamma))
+         for _, indices in BatchIterator.split(x_test)]
+
+    # get pooled results
+    for i, (_, indices) in enumerate(BatchIterator.split(x_test)):
+        y_pred[indices] = pred_pool[i]
+
+    # Calculate Variance
+    if calculate_variance is True:
+
+        # TODO: IMPORTANT - Combine prediction and variance to improve kernel
+        # calculation.
+
+        # calculate the train-test kernel
+        K_traintest = rbf_kernel(x_train, x_test, gamma=gamma)
+
+        # Perform Multiprocessing
+        var_pool = \
+            [Pool.apply(calculate_variance, args=(
+                x_train, x_test, indices, K_traintest,
+                K_train_inverse, gamma))
+             for _, indices in BatchIterator.split(x_test)]
+
+        # get pooled results
+        for i, (_, indices) in enumerate(BatchIterator.split(x_test)):
+            variance[indices] = var_pool[i]
+
+    return y_pred, variance
+
+def get_sample_data(random_state=123, num_points=1000, plot=None):
+
+    # generate datasets
+    x_data = np.linspace(-2 * np.pi, 2 * np.pi, num=num_points)
+    y_data = np.sin(x_data)
+
+    # add some noise
+    generator = check_random_state(random_state)
+    y_data += 0.2 * generator.randn(num_points)
+
+    # convert to 2D, float array for scikit-learn input
+    x_data = x_data[:, np.newaxis].astype(np.float)
+    y_data = y_data[:, np.newaxis].astype(np.float)
+
+    if plot:
+        fig, ax = plt.subplots()
+
+        # plot kernel model
+        ax.plot(x_data[::10], y_data[::10],
+                color='k', label='data')
+
+        ax.legend(fontsize=14)
+        plt.tight_layout()
+        plt.title('Original Data')
+
+        plt.show()
+
+    return x_data, y_data
+
+def boston_example():
+
+    x_data, y_data = load_boston(True)
+
+    random_state = 100
+
+    # split data into training and testing
+    train_percent = 0.4
+
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_data, y_data, train_size=train_percent,
+        random_state=random_state
+    )
+
+    # remove the mean from the training data
+    y_mean = np.mean(y_train)
+
+    y_train -= y_mean
+    y_test -= y_mean
+
+    # initialize the kernel ridge regression model
+    krr_model = KRR(n_batches=1)
+
+    # fit model to data
+    krr_model.fit(x_train, y_train)
+
+    # predict using the krr model
+    y_pred = krr_model.predict(x_test)
+
+
+    return None
+
+def times_multi_exp():
+
+    sample_sizes = 20000 * np.arange(1, 10)
+    print(sample_sizes)
+
+    n_features = 50
+    random_state = 123
+
+    batch_times = []
+    batch_n_times = []
+    naive_times = []
+
+    for iteration, n_samples in enumerate(sample_sizes):
+        print('Iteration: {:.2f} %'.format(100 * (iteration+1) / len(sample_sizes)))
+
+        # create data
+        x_data, y_data = make_regression(n_samples=n_samples,
+                                         n_features=n_features,
+                                         random_state=random_state)
+
+        # split data into training and testing
+        train_percent = 0.1
+
+        x_train, x_test, y_train, y_test = train_test_split(
+            x_data, y_data, train_size=train_percent,
+            random_state=random_state
+        )
+
+        # remove the mean from the training data
+        y_mean = np.mean(y_train)
+
+        y_train -= y_mean
+        y_test -= y_mean
+
+        # NAIVE KERNEL MODEL
+        # initialize the kernel ridge regression model
+        krr_model = KRR(n_batches=1)
+
+        # fit model to data
+        krr_model.fit(x_train, y_train)
+
+        # PREDICTING TIMES
+        # predict using the krr model
+        start = time()
+        _ = krr_model.predict(x_test)
+        naive_times.append(time() - start)
+
+        # BATCH PROCESSING
+        # initialize the kernel ridge regression model
+        n_samples_per_batch = 2000
+        n_batches = int(np.round(n_samples / n_samples_per_batch))
+
+        krr_model = KRR(n_batches=n_batches)
+
+        # fit model to data
+        krr_model.fit(x_train, y_train)
+
+        # PREDICTING TIMES
+        # predict using the krr model
+        start = time()
+        _ = krr_model.predict(x_test)
+        batch_times.append(time() - start)
+
+        # Multi-Core BATCH PROCESSING
+        # initialize the kernel ridge regression model
+        n_jobs = 20
+        n_batches = int(np.round(n_samples / n_samples_per_batch))
+
+        krr_model = KRR(n_batches=n_batches, n_jobs=n_jobs)
+
+        # fit model to data
+        krr_model.fit(x_train, y_train)
+
+        # PREDICTING TIMES
+        # predict using the krr model
+        start = time()
+        _ = krr_model.predict(x_test)
+        batch_n_times.append(time() - start)
+
+
+    fig, ax = plt.subplots()
+
+    ax.plot(sample_sizes, naive_times, color='k', label='Naive KRR')
+    ax.plot(sample_sizes, batch_times, color='r', label='Batch KRR')
+    ax.plot(sample_sizes, batch_n_times, color='g', label = str(n_jobs) + '-Core Batch KRR')
+
+    ax.legend(fontsize=20)
+    plt.tight_layout()
+    plt.title('Batch vs Regular KRR (sample, size)')
+    plt.savefig('/media/disk/users/emmanuel/code/kernelib/test_batch.png')
+
+
+    return None
 
 def main():
     """Example script to test the KRR function.
     """
     # generate dataset
-    random_state = 0
+    random_state = 123
     num_points = 1000
-    x_data = np.arange(0, num_points)
+    x_data, y_data = get_sample_data(random_state=random_state,
+                                     num_points=num_points)
 
-    datasets = {'x': x_data,
-                'sin': np.sin(0.01 * x_data),
-                'cos': np.cos(0.01 * x_data),
-                'tanh': np.tanh(x_data)}
-
-    # reshape into a pandas data frame
-    datasets = pd.DataFrame(data=datasets)
-
-    fig, ax = plt.subplots()
-
-    # plot kernel model
-    ax.plot(datasets['x'].values, datasets['cos'].values,
-            color='k', label='data')
-
-    ax.legend(fontsize=14)
-    plt.tight_layout()
-    plt.title('Original Data')
-
-    plt.show()
 
     # Split Data into Training and Testing
-    func_test = 'cos'
-    train_prnt = 0.6
+    train_prnt = 0.2
 
-    x_train, x_test, y_train, y_test = train_test_split(datasets['x'].values,
-                                                        datasets[func_test].values,
+    x_train, x_test, y_train, y_test = train_test_split(x_data, y_data,
                                                         train_size=train_prnt,
                                                         random_state=random_state)
 
-    # make a new axis D [N x D]
-    x_train, x_test = x_train[:, np.newaxis], x_test[:, np.newaxis]
-    y_train, y_test = y_train[:, np.newaxis], y_test[:, np.newaxis]
-
-    # remove the mean from y training
-    y_train = y_train - np.mean(y_train)
+    # remove the mean from y training ONLY
+    y_mean = np.mean(y_train)
+    y_train -= y_mean
 
     # initialize the kernel ridge regression model
-    krr_model = KRR(reg='df', solver='reg')
+    krr_model = KRR(n_batches=1)
 
     # fit model to data
     krr_model.fit(x_train, y_train)
@@ -298,5 +490,5 @@ def main():
 
 
 if __name__ == "__main__":
+    times_multi_exp()
 
-    main()
