@@ -346,7 +346,7 @@ def boston_example():
 
 def times_multi_exp():
 
-    sample_sizes = 20000 * np.arange(1, 10)
+    sample_sizes = 10000 * np.arange(1, 10)
     print(sample_sizes)
 
     n_features = 50
@@ -371,7 +371,7 @@ def times_multi_exp():
             x_data, y_data, train_size=train_percent,
             random_state=random_state
         )
-
+        print(x_train.shape, x_test.shape)
         # remove the mean from the training data
         y_mean = np.mean(y_train)
 
@@ -393,7 +393,7 @@ def times_multi_exp():
 
         # BATCH PROCESSING
         # initialize the kernel ridge regression model
-        n_samples_per_batch = 2000
+        n_samples_per_batch = 5000
         n_batches = int(np.round(n_samples / n_samples_per_batch))
 
         krr_model = KRR(n_batches=n_batches)
@@ -409,8 +409,10 @@ def times_multi_exp():
 
         # Multi-Core BATCH PROCESSING
         # initialize the kernel ridge regression model
-        n_jobs = 20
+        n_samples_per_batch = 5000
         n_batches = int(np.round(n_samples / n_samples_per_batch))
+        print(n_batches)
+        n_jobs = 30
 
         krr_model = KRR(n_batches=n_batches, n_jobs=n_jobs)
 
