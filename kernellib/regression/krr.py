@@ -492,5 +492,5 @@ def main():
 
 
 if __name__ == "__main__":
-    times_multi_exp()
+    main()
 
