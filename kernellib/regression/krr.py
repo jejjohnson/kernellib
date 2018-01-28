@@ -151,13 +151,13 @@ class KRR(BaseEstimator, RegressorMixin):
             K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
 
             # calculate the predictions
-            predictions = K_traintest.T @ self.weights_
+            predictions = np.dot(K_traintest.T, self.weights_)
 
             if self.calculate_variance is True:
                 K_test = rbf_kernel(x, gamma=self.gamma)
 
                 self.variance_ = np.diag(K_test) - \
-                                 np.diag(K_traintest.T @ self.K_inverse_ @ K_traintest)
+                                 np.diag(np.dot(K_traintest.T, np.dot(self.K_inverse_, K_traintest)))
 
         # return the project points
         return predictions
@@ -193,7 +193,7 @@ def krr_batch_predictions(x_train, x_test, weights, gamma,
         K_traintest = rbf_kernel(x_train, x_test[ibatch_index], gamma=gamma)
 
         # calculate the predictions
-        y_pred[ibatch_index] = K_traintest.T @ weights
+        y_pred[ibatch_index] = np.dot(K_traintest.T, weights)
 
         if calculate_variance is True:
 
@@ -202,7 +202,7 @@ def krr_batch_predictions(x_train, x_test, weights, gamma,
 
             # calculate the variance
             variance[ibatch_index, 0] = np.diag(K_batch) - \
-                np.diag(K_traintest.T @ K_train_inverse @ K_traintest)
+                np.diag(np.dot(K_traintest.T, np.dot(K_train_inverse, K_traintest)))
 
 
     return y_pred, variance
@@ -214,7 +214,7 @@ def _calculate_predictions(x_train, x_test, indices, weights, gamma):
                              gamma=gamma)
 
     # calculate the predictions
-    return K_traintest.T @ weights
+    return np.dot(K_traintest.T, weights)
 
 def _calculate_variance(x_test, indices, K_traintest,
                         K_train_inverse, gamma):
@@ -222,9 +222,9 @@ def _calculate_variance(x_test, indices, K_traintest,
     K_batch = rbf_kernel(x_test[indices, :], gamma=gamma)
 
 
-    return np.diag(K_batch) - np.diag(K_traintest.T @
-                                      K_train_inverse @
-                                      K_traintest)
+    return np.diag(K_batch) - np.diag(np.dot(K_traintest.T,
+                                             np.dot(K_train_inverse,
+                                                    K_traintest)))
 
 
 def generate_batches(n_samples, batch_size):
