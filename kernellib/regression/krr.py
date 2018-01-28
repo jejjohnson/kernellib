@@ -148,10 +148,10 @@ class KRR(BaseEstimator, RegressorMixin):
 
         else:
             # calculate the kernel function with new points
-            K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
+            K_traintest = rbf_kernel(X=x, Y=self.X_fit_, gamma=self.gamma)
 
             # calculate the predictions
-            predictions = np.dot(K_traintest.T, self.weights_)
+            predictions = np.dot(K_traintest, self.weights_)
 
             if self.calculate_variance is True:
                 K_test = rbf_kernel(x, gamma=self.gamma)
@@ -226,7 +226,6 @@ def _calculate_variance(x_test, indices, K_traintest,
                                              np.dot(K_train_inverse,
                                                     K_traintest)))
 
-
 def generate_batches(n_samples, batch_size):
     """A generator to split an array of 0 to n_samples
     into an array of batch_size each.
@@ -271,30 +270,30 @@ def generate_batches(n_samples, batch_size):
         # yield the remaining indices
         yield start_index, n_samples
 
-
-def krr_predictions(x_train, x_test, weights, gamma, calculate_variance=False,
-                    K_train_inv=None):
+def krr_predictions(KRR_Model, x):
     variance_predictions = None
 
     # calculate train_test kernel
-    K_traintest = rbf_kernel(x_train, x_test, gamma)
+    K_traintest = rbf_kernel(KRR_Model.X_fit_, x, KRR_Model.gamma)
 
     # calculate the predictions
-    mean_predictions = K_traintest.T @ weights
+    mean_predictions = np.dot(K_traintest.T, KRR_Model.weights_)
 
     # calculate the variance
-    if calculate_variance:
+    if KRR_Model.calculate_variance:
 
         # calculate the kernel for test points
-        K_batch = rbf_kernel(x_test, gamma=gamma)
+        K_batch = rbf_kernel(x, gamma=KRR_Model.gamma)
 
         # calculate K_traininverse if necessary
-        if K_train_inv is None:
-            K_train_inv = np.linalg.inv(rbf_kernel(x_train, gamma=gamma))
+        if KRR_Model.K_train_inv is None:
+            K_train_inv = np.linalg.inv(rbf_kernel(KRR_Model.X_fit_, gamma=KRR_Model.gamma))
 
         # calculate the variance
         variance_predictions = np.diag(K_batch) - \
-                               np.diag(K_traintest.T @ K_train_inv @ K_traintest)
+                               np.diag(np.dot(K_traintest.T,
+                                              np.dot(K_train_inv,
+                                                     K_traintest)))
 
     return mean_predictions, variance_predictions
 
@@ -393,7 +392,8 @@ def sklearn_krr_pred(KRR_Model,
 
         # calculate the variance
         variance = np.diag(K_batch) - \
-                       np.diag(K_traintest.T @ K_train_inv @ K_traintest)
+                       np.diag(np.dot(K_traintest.T, np.dot(K_train_inv,
+                                                            K_traintest)))
 
 
 
@@ -719,22 +719,25 @@ def times_multi_exp():
         # # -------------------
         # # NAIVE KERNEL MODEL
         # # -------------------
-        #
-        # # initialize the kernel ridge regression model
-        # krr_model = KRR(batch_size=None)
-        #
-        # # fit model to data
-        # krr_model.fit(x_train, y_train)
-        #
-        # # PREDICTING TIMES
-        # # predict using the krr model
-        # start = time()
-        # _ = krr_model.predict(x_test)
-        # naive_time = time() - start
-        #
-        # print('Normal Predictions: {:.2f} secs'.format(naive_time))
-        #
-        # naive_times.append(naive_time)
+
+        # initialize the kernel ridge regression model
+        krr_model = KRR(batch_size=None)
+
+        # fit model to data
+        krr_model.fit(x_train, y_train)
+
+        # initialize storage matrix
+        pred_normal = np.empty(shape=y_test.shape)
+
+        # PREDICTING TIMES
+        # predict using the krr model
+        start = time()
+        pred_normal[:] = krr_model.predict(x_test).squeeze()
+        naive_time = time() - start
+
+        print('Normal Predictions: {:.2f} secs'.format(naive_time))
+
+        naive_times.append(naive_time)
 
         # ---------------------------
         # scikit learn implementation
@@ -746,37 +749,41 @@ def times_multi_exp():
         # fit model to data
         krr_model.fit(x_train, y_train)
 
+        # initialize storage matrix
+        pred_sklearn = np.empty(shape=y_test.shape)
+
         # PREDICTING TIMES
         # predict using the krr model
         start = time()
-        _ = krr_model.predict(x_test)
+        pred_sklearn[:] = krr_model.predict(x_test).squeeze()
         naive_sk_time = time() - start
 
         print('Normal (sklearn) Predictions: {:.2f} secs'.format(naive_sk_time))
 
         naive_sk_times.append(naive_sk_time)
 
+        # ---------------------------
+        # BATCH PROCESSING
+        # ---------------------------
 
+        # initialize the kernel ridge regression model
+        batch_size = 5000
 
-        # # BATCH PROCESSING
-        # # initialize the kernel ridge regression model
-        # batch_size = 5000
-        #
-        # krr_model = KRR(batch_size=batch_size)
-        #
-        # # fit model to data
-        # krr_model.fit(x_train, y_train)
-        #
-        # # PREDICTING TIMES
-        # # predict using the krr model
-        # start = time()
-        # _ = krr_model.predict(x_test)
-        #
-        # batch_time = time() - start
-        #
-        # print('Batch Predictions: {:.2f} secs'.format(batch_time))
-        #
-        # batch_times.append(batch_time)
+        krr_model = KRR(batch_size=batch_size)
+
+        # fit model to data
+        krr_model.fit(x_train, y_train)
+
+        # PREDICTING TIMES
+        # predict using the krr model
+        start = time()
+        _ = krr_model.predict(x_test)
+
+        batch_time = time() - start
+
+        print('Batch Predictions: {:.2f} secs'.format(batch_time))
+
+        batch_times.append(batch_time)
 
 
         # Multi-Core BATCH PROCESSING
@@ -800,9 +807,9 @@ def times_multi_exp():
 
     fig, ax = plt.subplots()
 
-    # ax.plot(sample_sizes, naive_times, color='k', label='Naive KRR')
+    ax.plot(sample_sizes, naive_times, color='k', label='Naive KRR')
     ax.plot(sample_sizes, naive_sk_times, color='k', label='Naive (sklearn) KRR')
-    # ax.plot(sample_sizes, batch_times, color='r', label='Batch KRR')
+    ax.plot(sample_sizes, batch_times, color='r', label='Batch KRR')
     ax.plot(sample_sizes, batch_n_times, color='g', label=str(n_jobs) + '-Core Batch KRR')
 
     ax.legend(fontsize=20)
@@ -1015,5 +1022,5 @@ def test_sklearn_joblib():
 
 
 if __name__ == "__main__":
-    times_multi_exp_custom()
+    times_multi_exp()
 
