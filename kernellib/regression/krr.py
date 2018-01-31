@@ -206,10 +206,14 @@ def krr_batch(x, krr_model, batch_size=1000,
 
         if calculate_derivative:
 
+            K_traintest = rbf_kernel(krr_model.X_fit_,
+                                     x[start_idx:end_idx],
+                                     gamma=krr_model.gamma)
+
             # calculate the derivative
             derivative[start_idx:end_idx, :] = \
                 rbf_derivative_memory(x_train=np.float64(krr_model.X_fit_),
-                                    x_function = np.float64(x),
+                                    x_function = np.float64(x[start_idx:end_idx]),
                                     kernel_mat = K_traintest,
                                     weights = krr_model.dual_coef_.squeeze(),
                                     gamma = np.float(krr_model.gamma),
