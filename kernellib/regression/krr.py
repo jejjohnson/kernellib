@@ -351,11 +351,9 @@ def get_sample_data(random_state=123, num_points=1000, plot=None):
 
 def times_multi_exp():
 
-<<<<<<< HEAD
     sample_sizes = 10000 * np.arange(1, 10)
-=======
+
     sample_sizes = 100000 * np.arange(1, 11)
->>>>>>> batch_processing
     print(sample_sizes)
 
     n_features = 50
@@ -402,14 +400,13 @@ def times_multi_exp():
         # predict using the krr model
         start = time()
 
-<<<<<<< HEAD
+
         # BATCH PROCESSING
         # initialize the kernel ridge regression model
         n_samples_per_batch = 5000
         n_batches = int(np.round(n_samples / n_samples_per_batch))
-=======
         y_pred = krr_model.predict(x_test)
->>>>>>> batch_processing
+
 
         naive_time = time() - start
 
@@ -425,21 +422,18 @@ def times_multi_exp():
         # predict using the krr model
         start = time()
 
-<<<<<<< HEAD
         # Multi-Core BATCH PROCESSING
         # initialize the kernel ridge regression model
         n_samples_per_batch = 5000
         n_batches = int(np.round(n_samples / n_samples_per_batch))
         print(n_batches)
         n_jobs = 30
-=======
         ypred, _, _ = krr_batch(x=x_test,
                                 krr_model=krr_model,
                                 batch_size=batch_size,
                                 calculate_predictions=True,
                                 calculate_variance=False,
                                 calculate_derivative=False)
->>>>>>> batch_processing
 
         batch_time = time() - start
 
