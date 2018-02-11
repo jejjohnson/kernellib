@@ -1,20 +1,19 @@
-from sklearn.datasets import load_boston, make_regression
+from sklearn.datasets import make_regression
 import numpy as np
-import pandas as pd
 from time import time
-
 import warnings
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.model_selection import train_test_split
+from sklearn.kernel_ridge import KernelRidge
 from scipy.spatial.distance import pdist
 from scipy.linalg import cho_factor, cho_solve
 from sklearn.utils import check_random_state
-from sklearn.model_selection import KFold
-import multiprocessing as mp
+from joblib import Parallel, delayed
 
-
+# TODO - Test Derivative
+# TODO - Test Variance
 
 import scipy as scio
 from matplotlib import pyplot as plt
@@ -55,12 +54,10 @@ class KRR(BaseEstimator, RegressorMixin):
         the kernel matrix with sigma parameter
     """
 
-    def __init__(self, sigma=None, lam=None, calculate_variance=False, n_batches=1, n_jobs=1):
-        self.n_batches = n_batches
+    def __init__(self, sigma=None, lam=None, calculate_variance=False):
         self.sigma = sigma
         self.lam = lam
-        self.calculate_variance = calculate_variance
-        self.n_jobs = n_jobs
+        self.calculate_variance=calculate_variance
 
     def fit(self, x, y=None):
 
@@ -75,10 +72,6 @@ class KRR(BaseEstimator, RegressorMixin):
 
             # common heuristic for finding the sigma value
             self.sigma = np.mean(pdist(x, metric='euclidean'))
-
-        # check batch processes
-        if ( self.n_batches < 0 or self.n_batches > np.inf):
-            raise ValueError('n_batches should be between 0 and a reasonable number.')
 
         # gamma parameter for the kernel matrix
         self.gamma = 1 / (2 * self.sigma ** 2)
@@ -111,176 +104,220 @@ class KRR(BaseEstimator, RegressorMixin):
 
     def predict(self, x):
 
-        # check for batch processing
-        if self.n_batches > 1:
+        # calculate the kernel function with new points
+        K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
 
-            if self.n_jobs == 1:
+        # calculate the predictions
+        predictions = np.dot(K_traintest.T, self.weights_)
 
-                # perform batch_processing
-                predictions, self.variance = \
-                    krr_batch_predictions(x_train=self.X_fit_,
-                                          x_test=x,
-                                          weights=self.weights_,
-                                          gamma=self.gamma,
-                                          n_batches=self.n_batches,
-                                          calculate_variance=self.calculate_variance)
+        if self.calculate_variance is True:
+            K_test = rbf_kernel(x, gamma=self.gamma)
 
-            else:
-                # perform multi-core batch processing
-                predictions, self.variance = \
-                    krr_batch_multi_pred(x_train=self.X_fit_,
-                                         x_test=x,
-                                         weights=self.weights_,
-                                         gamma=self.gamma,
-                                         n_batches=self.n_batches,
-                                         n_jobs=self.n_jobs,
-                                         calculate_variance=self.calculate_variance)
-
-        else:
-            # calculate the kernel function with new points
-            K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
-
-            # calculate the predictions
-            predictions = K_traintest.T @ self.weights_
-
-            if self.calculate_variance is True:
-                K_test = rbf_kernel(x, gamma=self.gamma)
-
-                self.variance_ = np.diag(K_test) - \
-                                 np.diag(K_traintest.T @ self.K_inverse_ @ K_traintest)
+            self.variance_ = np.diag(K_test) - \
+                             np.diag(
+                                 np.dot(K_traintest.T,
+                                        np.dot(self.K_inverse_,
+                                               K_traintest)))
 
         # return the project points
         return predictions
 
 
-def krr_batch_predictions(x_train, x_test, weights, gamma,
-                          n_batches=None, n_jobs=1, calculate_variance=False):
+def generate_batches(n_samples, batch_size):
+    """A generator to split an array of 0 to n_samples
+    into an array of batch_size each.
 
-    # split the data into K folds
-    n_samples, n_dimensions = x_test.shape
+    Parameters
+    ----------
+    n_samples : int
+        the number of samples
 
-    # default batch number
-    if n_batches is None:
-        n_batches = int(np.round(n_samples / 500))
+    batch_size : int,
+        the size of each batch
 
-    variance = None
 
-    # check variance
-    if calculate_variance is True:
-        K_train = rbf_kernel(x_train, gamma=gamma)
-        K_train_inverse = np.linalg.inv(K_train)
-        variance = np.empty(shape=(n_samples, 1))
+    Returns
+    -------
+    start_index, end_index : int, int
+        the start and end indices for the batch
 
-    # create a batch iterator object
-    BatchIterator = KFold(n_splits=n_batches)
+    Source:
+        https://github.com/scikit-learn/scikit-learn/blob/master
+        /sklearn/utils/__init__.py#L374
+    """
+    start_index = 0
+
+    # calculate number of batches
+    n_batches = int(n_samples // batch_size)
+
+    for _ in range(n_batches):
+
+        # calculate the end coordinate
+        end_index = start_index + batch_size
+
+        # yield the start and end coordinate for batch
+        yield start_index, end_index
+
+        # start index becomes new end index
+        start_index = end_index
+
+    # special case at the end of the segment
+    if start_index < n_samples:
+
+        # yield the remaining indices
+        yield start_index, n_samples
+
+
+def krr_batch(x, krr_model, batch_size=1000,
+              calculate_predictions=True,
+              calculate_derivative=False,
+              calculate_variance=False):
+
+    # initialize the predicted values
+    n_samples = x.shape[0]
 
     # predefine matrices
-    y_pred = np.empty(shape=(n_samples, 1))
+    if calculate_predictions:
+        predictions = np.empty(shape=(n_samples, 1))
+    else:
+        predictions = None
 
-    for (ibatch, (_, ibatch_index)) in enumerate(BatchIterator.split(x_test)):
+    if calculate_derivative:
+        derivative = np.empty(shape=x)
+    else:
+        derivative = None
 
-        # calculate the train_test kernel
-        K_traintest = rbf_kernel(x_train, x_test[ibatch_index], gamma=gamma)
+    if calculate_variance:
 
-        # calculate the predictions
-        y_pred[ibatch_index] = K_traintest.T @ weights
+        K_train = rbf_kernel(krr_model.X_fit_,
+                             gamma=krr_model.gamma)
+        K_train_inverse = np.linalg.inv(K_train)
+        variance = np.empty(shape=(n_samples, 1))
+    else:
+        variance = None
 
-        if calculate_variance is True:
+    for start_idx, end_idx in generate_batches(n_samples, batch_size):
+
+        if calculate_predictions:
+
+            # calculate the predictions
+            predictions[start_idx:end_idx, 0] = \
+                krr_model.predict(x[start_idx:end_idx])
+
+        if calculate_derivative:
+
+            K_traintest = rbf_kernel(krr_model.X_fit_,
+                                     x[start_idx:end_idx],
+                                     gamma=krr_model.gamma)
+
+            # calculate the derivative
+            derivative[start_idx:end_idx, :] = \
+                rbf_derivative_memory(x_train=np.float64(krr_model.X_fit_),
+                                    x_function = np.float64(x[start_idx:end_idx]),
+                                    kernel_mat = K_traintest,
+                                    weights = krr_model.dual_coef_.squeeze(),
+                                    gamma = np.float(krr_model.gamma),
+                                    n_derivative = int(1))
+
+        if calculate_variance:
 
             # calculate the Kbatch
-            K_batch = rbf_kernel(x_test[ibatch_index], gamma=gamma)
+            K_batch = rbf_kernel(x[start_idx:end_idx],
+                                 gamma=krr_model.gamma)
 
             # calculate the variance
-            variance[ibatch_index, 0] = np.diag(K_batch) - \
-                np.diag(K_traintest.T @ K_train_inverse @ K_traintest)
+            variance[start_idx:end_idx, 0] = np.diag(K_batch) - \
+                np.diag(np.dot(K_traintest.T,
+                               np.dot(K_train_inverse, K_traintest)))
+
+    return predictions, derivative, variance
 
 
-    return y_pred, variance
+def krr_parallel(x, krr_model, n_jobs=10, batch_size=1000,
+                 calculate_predictions=True,
+                 calculate_derivative=False,
+                 calculate_variance=False,
+                 verbose=10):
 
-def _calculate_predictions(x_train, x_test, indices, weights, gamma):
-
-    # calculate train-test kernel
-    K_traintest = rbf_kernel(x_train, x_test[indices, :],
-                             gamma=gamma)
-
-    # calculate the predictions
-    return K_traintest.T @ weights
-
-def _calculate_variance(x_test, indices, K_traintest,
-                        K_train_inverse, gamma):
-    # TODO: Add optional x_train parameter,
-    K_batch = rbf_kernel(x_test[indices, :], gamma=gamma)
-
-
-    return np.diag(K_batch) - np.diag(K_traintest.T @
-                                      K_train_inverse @
-                                      K_traintest)
-
-def krr_batch_multi_pred(x_train, x_test, weights, gamma,
-                         n_batches=None, n_jobs=1,
-                         calculate_variance=None):
-
-    # check for num of proc vs n_jobs selected
-    num_procs = mp.cpu_count()
-
-    if num_procs < n_jobs:
-        Pool = mp.Pool(processes=num_procs)
+    # calculate the inverse transform
+    if calculate_variance:
+        K_train_inv = np.linalg.inv(rbf_kernel(X=krr_model.X_fit_,
+                                               gamma=krr_model.gamma))
     else:
-        Pool = mp.Pool(processes=n_jobs)
+        K_train_inv = None
 
-    # get dimensions of the data
-    n_samples, n_dimensions = x_test.shape
+    # Perform parallel predictions using joblib
+    results = Parallel(n_jobs=n_jobs, verbose=verbose)(
+        delayed(krr_predictions)(
+            krr_model, x[start:end],
+            K_train_inv=K_train_inv,
+            calculate_predictions=calculate_predictions,
+            calculate_derivative=calculate_derivative,
+            calculate_variance=calculate_variance)
+        for (start, end) in generate_batches(x.shape[0],
+                                             batch_size=batch_size)
+    )
 
-    # default batch number
-    if n_batches is None:
-        n_batches = int(np.round(n_samples / 500))
+    # Aggregate results (predictions, derivatives, variances)
+    predictions, derivative, variance = tuple(zip(*results))
+    predictions = np.vstack(predictions)
+    derivative = np.vstack(derivative)
+    variance = np.vstack(variance)
 
-    # initialize variance
+
+    return predictions, derivative, variance
+
+
+def krr_predictions(KRR_Model, x, calculate_predictions=True,
+                    calculate_derivative=False,
+                    calculate_variance=False,
+                    K_train_inv=None):
+
+    # initialize the predicted values
+    predictions = None
+    derivative = None
     variance = None
 
-    # check for variance entry
-    if calculate_variance is True:
-        K_train = rbf_kernel(x_train, gamma=gamma)
-        K_train_inverse = np.linalg.inv(K_train)
-        variance = np.empty(shape=(n_samples, 1))
+    if calculate_predictions:
+        # calculate the predictions
+        predictions = KRR_Model.predict(x)
 
-    # create a batch iterator generator
-    BatchIterator = KFold(n_splits=n_batches)
+        if predictions.ndim == 1:
+            predictions = predictions[:, np.newaxis]
 
-    # predefine matrices
-    y_pred = np.empty(shape=(n_samples, 1))
+    if calculate_derivative or calculate_variance:
+        # calculate train-test kernel
+        K_traintest = rbf_kernel(KRR_Model.X_fit_,
+                                 x, gamma=KRR_Model.gamma)
 
-    # Perform multiprocessing
-    pred_pool = \
-        [Pool.apply(_calculate_predictions, args=(
-            x_train, x_test, indices, weights, gamma))
-         for _, indices in BatchIterator.split(x_test)]
+    if calculate_derivative:
 
-    # get pooled results
-    for i, (_, indices) in enumerate(BatchIterator.split(x_test)):
-        y_pred[indices] = pred_pool[i]
+        # calculate the derivative
+        derivative = rbf_derivative_memory(x_train=np.float64(KRR_Model.X_fit_),
+                                    x_function=np.float64(x),
+                                    kernel_mat=K_traintest,
+                                    weights=KRR_Model.dual_coef_.squeeze(),
+                                    gamma=np.float(KRR_Model.gamma),
+                                    n_derivative=int(1))
 
-    # Calculate Variance
-    if calculate_variance is True:
+    if calculate_variance:
 
-        # TODO: IMPORTANT - Combine prediction and variance to improve kernel
-        # calculation.
+        # calculate the kernel for test points
+        K_test = rbf_kernel(x, gamma=KRR_Model.gamma)
 
-        # calculate the train-test kernel
-        K_traintest = rbf_kernel(x_train, x_test, gamma=gamma)
+        # calculate K_traininverse if necessary
+        if K_train_inv is None:
+            K_train_inv = np.linalg.inv(rbf_kernel(x, gamma=KRR_Model.gamma))
 
-        # Perform Multiprocessing
-        var_pool = \
-            [Pool.apply(calculate_variance, args=(
-                x_train, x_test, indices, K_traintest,
-                K_train_inverse, gamma))
-             for _, indices in BatchIterator.split(x_test)]
+        # calculate the variance
+        variance = np.diag(K_test) - \
+                   np.diag(np.dot(K_traintest.T, np.dot(K_train_inv,
+                                                        K_traintest)))
+        if variance.ndim == 1:
+            variance = variance[:, np.newaxis]
 
-        # get pooled results
-        for i, (_, indices) in enumerate(BatchIterator.split(x_test)):
-            variance[indices] = var_pool[i]
+    return predictions, derivative, variance
 
-    return y_pred, variance
 
 def get_sample_data(random_state=123, num_points=1000, plot=None):
 
@@ -311,41 +348,12 @@ def get_sample_data(random_state=123, num_points=1000, plot=None):
 
     return x_data, y_data
 
-def boston_example():
-
-    x_data, y_data = load_boston(True)
-
-    random_state = 100
-
-    # split data into training and testing
-    train_percent = 0.4
-
-    x_train, x_test, y_train, y_test = train_test_split(
-        x_data, y_data, train_size=train_percent,
-        random_state=random_state
-    )
-
-    # remove the mean from the training data
-    y_mean = np.mean(y_train)
-
-    y_train -= y_mean
-    y_test -= y_mean
-
-    # initialize the kernel ridge regression model
-    krr_model = KRR(n_batches=1)
-
-    # fit model to data
-    krr_model.fit(x_train, y_train)
-
-    # predict using the krr model
-    y_pred = krr_model.predict(x_test)
-
-
-    return None
 
 def times_multi_exp():
 
     sample_sizes = 10000 * np.arange(1, 10)
+
+    sample_sizes = 100000 * np.arange(1, 11)
     print(sample_sizes)
 
     n_features = 50
@@ -356,7 +364,7 @@ def times_multi_exp():
     naive_times = []
 
     for iteration, n_samples in enumerate(sample_sizes):
-        print('Iteration: {:.2f} %'.format(100 * (iteration+1) / len(sample_sizes)))
+        print('\nIteration: {:.2f} %'.format(100 * (iteration+1) / len(sample_sizes)))
 
         # create data
         x_data, y_data = make_regression(n_samples=n_samples,
@@ -364,10 +372,10 @@ def times_multi_exp():
                                          random_state=random_state)
 
         # split data into training and testing
-        train_percent = 0.1
+        train_size = 5000
 
         x_train, x_test, y_train, y_test = train_test_split(
-            x_data, y_data, train_size=train_percent,
+            x_data, y_data, train_size=train_size,
             random_state=random_state
         )
         print(x_train.shape, x_test.shape)
@@ -377,34 +385,42 @@ def times_multi_exp():
         y_train -= y_mean
         y_test -= y_mean
 
-        # NAIVE KERNEL MODEL
         # initialize the kernel ridge regression model
-        krr_model = KRR(n_batches=1)
+        krr_model = KernelRidge(alpha=1e-04,
+                                gamma=np.mean(pdist(x_train, metric='euclidean')))
 
         # fit model to data
         krr_model.fit(x_train, y_train)
 
+        # -------------------
+        # NAIVE KERNEL MODEL
+        # -------------------
+
         # PREDICTING TIMES
         # predict using the krr model
         start = time()
-        _ = krr_model.predict(x_test)
-        naive_times.append(time() - start)
+
 
         # BATCH PROCESSING
         # initialize the kernel ridge regression model
         n_samples_per_batch = 5000
         n_batches = int(np.round(n_samples / n_samples_per_batch))
+        y_pred = krr_model.predict(x_test)
 
-        krr_model = KRR(n_batches=n_batches)
 
-        # fit model to data
-        krr_model.fit(x_train, y_train)
+        naive_time = time() - start
+
+        print('Normal Predictions: {:.2f} secs'.format(naive_time))
+
+        naive_times.append(naive_time)
+
+        # BATCH PROCESSING
+        # initialize the kernel ridge regression model
+        batch_size = 1000
 
         # PREDICTING TIMES
         # predict using the krr model
         start = time()
-        _ = krr_model.predict(x_test)
-        batch_times.append(time() - start)
 
         # Multi-Core BATCH PROCESSING
         # initialize the kernel ridge regression model
@@ -412,32 +428,58 @@ def times_multi_exp():
         n_batches = int(np.round(n_samples / n_samples_per_batch))
         print(n_batches)
         n_jobs = 30
+        ypred, _, _ = krr_batch(x=x_test,
+                                krr_model=krr_model,
+                                batch_size=batch_size,
+                                calculate_predictions=True,
+                                calculate_variance=False,
+                                calculate_derivative=False)
 
-        krr_model = KRR(n_batches=n_batches, n_jobs=n_jobs)
+        batch_time = time() - start
 
-        # fit model to data
-        krr_model.fit(x_train, y_train)
+        print('Batch Predictions: {:.2f} secs'.format(batch_time))
+
+        batch_times.append(batch_time)
+
+        # -------------------------------------
+        # MULTI-CORE BATCH PROCESSING (SKLEARN)
+        # -------------------------------------
+
+        # initialize the kernel ridge regression model
+        batch_size = 1000
+        n_jobs = 16
 
         # PREDICTING TIMES
         # predict using the krr model
         start = time()
-        _ = krr_model.predict(x_test)
-        batch_n_times.append(time() - start)
 
+        ypred, _, _ = krr_parallel(x=x_test,
+                                   krr_model=krr_model,
+                                   n_jobs=n_jobs,
+                                   batch_size=batch_size,
+                                   calculate_predictions=True,
+                                   calculate_variance=False,
+                                   calculate_derivative=False,
+                                   verbose=0)
+
+        batch_n_time = time() - start
+        print('Batch {} jobs, Predictions: {:.2f} secs'.format(n_jobs, batch_n_time))
+        batch_n_times.append(batch_n_time)
 
     fig, ax = plt.subplots()
 
-    ax.plot(sample_sizes, naive_times, color='k', label='Naive KRR')
+    ax.plot(sample_sizes, naive_times, color='k', label='KRR')
     ax.plot(sample_sizes, batch_times, color='r', label='Batch KRR')
-    ax.plot(sample_sizes, batch_n_times, color='g', label = str(n_jobs) + '-Core Batch KRR')
+    ax.plot(sample_sizes, batch_n_times, color='g', label=str(n_jobs) + '-Core Batch KRR')
 
     ax.legend(fontsize=20)
     plt.tight_layout()
     plt.title('Batch vs Regular KRR (sample, size)')
-    plt.savefig('/media/disk/users/emmanuel/code/kernelib/test_batch.png')
+    fig.savefig('/media/disk/users/emmanuel/code/kernelib/test_batch.png')
 
 
     return None
+
 
 def main():
     """Example script to test the KRR function.
@@ -461,7 +503,7 @@ def main():
     y_train -= y_mean
 
     # initialize the kernel ridge regression model
-    krr_model = KRR(n_batches=1)
+    krr_model = KRR()
 
     # fit model to data
     krr_model.fit(x_train, y_train)
@@ -490,6 +532,109 @@ def main():
     return None
 
 
+def test_sklearn_joblib():
+
+    sample_sizes = 900000
+    random_state = 123
+    n_features = 50
+    n_jobs = 16
+    train_percent = 5000
+    batch_size = 2000
+
+    # create data
+    x_data, y_data = make_regression(n_samples=sample_sizes,
+                                     n_features=n_features,
+                                     random_state=random_state)
+
+    # split data into training and testing
+    x_train, x_test, y_train, y_test = train_test_split(
+        x_data, y_data, train_size=train_percent,
+        random_state=random_state
+    )
+
+    # remove the mean from the training data
+    y_mean = np.mean(y_train)
+
+    y_train -= y_mean
+    y_test -= y_mean
+
+    # ---------------------------
+    # scikit learn implementation
+    # ---------------------------
+
+    krr_model = KernelRidge(alpha=1e-04,
+                            gamma=np.mean(pdist(x_train, metric='euclidean')))
+
+    # fit model to data
+    krr_model.fit(x_train, y_train)
+
+    # -----------------------------
+    # NAIVE PREDICT (SKLEARN)
+    # -----------------------------
+
+    # PREDICTING TIMES
+    # predict using the krr model
+    start = time()
+    y_pred = krr_model.predict(x_test)
+    naive_sk_time = time() - start
+
+    print('Normal (sklearn) Predictions: {:.2f} secs'.format(naive_sk_time))
+
+    error = mean_absolute_error(y_test, y_pred)
+    print('\nMean Absolute Error: {:.4f}\n'.format(error))
+
+    # -------------------------------------
+    # BATCH PROCESSING (SKLEARN)
+    # -------------------------------------
+    # Prediction Times
+    start = time()
+
+    ypred, _, _ = krr_batch(x=x_test,
+                            krr_model=krr_model,
+                            batch_size=batch_size,
+                            calculate_predictions=True,
+                            calculate_variance=False,
+                            calculate_derivative=False)
+
+    sk_batch_time = time() - start
+    print('Batch Predictions: {:.2f} secs'.format(sk_batch_time))
+
+    error_batch = mean_absolute_error(y_test, ypred)
+
+    print('\nMean Absolute Error: {:.4f}\n'.format(error_batch))
+
+    print('Errors are equal:', np.equal(error, error_batch))
+
+    # -------------------------------------
+    # MULTI-CORE BATCH PROCESSING (SKLEARN)
+    # -------------------------------------
+
+    # Prediction Times
+    start = time()
+
+    ypred, _, _ = krr_parallel(x=x_test,
+                               krr_model=krr_model,
+                               n_jobs=n_jobs,
+                               batch_size=batch_size,
+                               calculate_predictions=True,
+                               calculate_variance=False,
+                               calculate_derivative=False,
+                               verbose=10)
+
+    sk_batch_n_time = time() - start
+    print('Batch {} jobs, Predictions: {:.2f} secs'.format(n_jobs, sk_batch_n_time))
+
+    error_batch = mean_absolute_error(y_test, ypred)
+
+    print('\nMean Absolute Error: {:.4f}\n'.format(error_batch))
+
+    print('Errors are equal:', np.equal(error, error_batch))
+
+
+    return None
+
+
+
 if __name__ == "__main__":
-    times_multi_exp()
+    main()
 
