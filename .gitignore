@@ -68,3 +68,4 @@ kernellib/bin/activate
 \.ipynb_checkpoints/
 .idea/deployment.xml
 \.idea/
+\.DS_Store

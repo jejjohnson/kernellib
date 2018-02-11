@@ -20,7 +20,6 @@ import scipy as scio
 from matplotlib import pyplot as plt
 
 
-
 class KRR(BaseEstimator, RegressorMixin):
     """Kernel Ridge Regression with different regularizers.
     An implementation of KRR algorithm with different
