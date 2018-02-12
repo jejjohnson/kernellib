@@ -2,7 +2,9 @@ import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
 
 # TODO: Write tests for derivative functions, gradients
-
+# TODO: Implement Derivative w/ 1 loop for memory conservation
+# TODO: Implement 2nd Derivative for all
+# TODO: Do Derivative for other kernel methods (ARD, Polynomial)
 
 def rbf_derivative(x_train, x_function, weights, kernel_mat=None,
                    n_derivative=1, gamma=1.0):
@@ -95,7 +97,7 @@ def rbf_derivative_memory(x_train, x_function, kernel_mat,
                           weights, gamma, n_derivative=1):
     """This function calculates the rbf derivative using no
     loops but it requires a large memory load.
-    
+
     Parameters
     ----------
     x_train : array, [N x D]
@@ -134,28 +136,28 @@ def rbf_derivative_memory(x_train, x_function, kernel_mat,
     n_train_samples = x_train.shape[0]
     n_test_samples = x_function.shape[0]
     n_dimensions = x_train.shape[1]
-    
+
     # create empty derivative matrix
     derivative = np.empty(shape=(n_train_samples,
                                  n_test_samples,
                                  n_dimensions))
-    
+
     # create empty block matrices and sum
-    derivative = np.tile(weights[:, np.newaxis, np.newaxis], 
+    derivative = np.tile(weights[:, np.newaxis, np.newaxis],
                            (1, n_test_samples, n_dimensions)) * \
                       (np.tile(x_function[np.newaxis, :, :],
                               (n_train_samples, 1, 1)) - \
-                      np.tile(x_train[:, np.newaxis, :], 
+                      np.tile(x_train[:, np.newaxis, :],
                            (1, n_test_samples, 1))) * \
-                      np.tile(kernel_mat[:, :, np.newaxis], 
+                      np.tile(kernel_mat[:, :, np.newaxis],
                               (1, 1, n_dimensions))
 
     # TODO: Write code for 2nd Derivative
     # multiply by the constant
     derivative *= 2 * gamma**2
-    
+
     # sum all of the training samples to get M x N matrix
     derivative = derivative.sum(axis=0).squeeze()
-    
+
     return derivative
 
