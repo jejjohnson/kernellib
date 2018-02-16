@@ -8,7 +8,7 @@ from sklearn.metrics import mean_squared_error, pairwise_kernels
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from sklearn.utils import check_array, check_random_state
 from sklearn.exceptions import NotFittedError
-from kernellib.nystrom import KRRNystrom
+from nystrom import KRRNystrom
 
 # TODO - More Complete Documentation
 # TODO - Speed Experiment
