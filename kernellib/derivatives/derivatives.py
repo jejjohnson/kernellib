@@ -161,3 +161,34 @@ def rbf_derivative_memory(x_train, x_function, kernel_mat,
 
     return derivative
 
+
+def main():
+
+    from sklearn.kernel_ridge import KernelRidge
+    import numpy as np
+    n_samples, n_features = 10, 5
+    rng = np.random.RandomState(0)
+    y = rng.randn(n_samples)
+    x = rng.randn(n_samples, n_features)
+
+    lam = 1.0
+    gamma = 1.0
+
+    print('Initializing Model...')
+    krr_model = KernelRidge(kernel='rbf',
+                            alpha=lam,
+                            gamma=gamma)
+
+    print('Fitting kernel model...')
+    krr_model.fit(x, y)
+
+    print(krr_model)
+
+    weights = krr_model.dual_coef_
+
+
+    return None
+
+
+if __name__ == "__main__":
+    main()
