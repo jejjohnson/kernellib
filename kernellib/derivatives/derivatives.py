@@ -1,12 +1,57 @@
 import numpy as np
 from sklearn.metrics.pairwise import rbf_kernel
+from scipy.spatial.distance import cdist
 
 # TODO: Write tests for derivative functions, gradients
 # TODO: Implement Derivative w/ 1 loop for memory conservation
 # TODO: Implement 2nd Derivative for all
 # TODO: Do Derivative for other kernel methods (ARD, Polynomial)
 
-def rbf_derivative(x_train, x_function, weights, kernel_mat=None,
+
+def ard_kernel(x, y, gamma):
+    
+    dists = cdist(x / gamma, y / gamma, metric='sqeuclidean')
+    
+    K = np.exp(-.5 * dists)
+    
+    return K
+
+def ard_derivative(x_train, x_function, weights, gamma):
+    
+    kernel_mat = ard_kernel(x_function, x_train, gamma)
+    
+    num_test = x_function.shape[0]
+    
+    derivative = np.zeros(shape=x_function.shape)
+    
+    for itest in range(num_test):
+        
+        derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
+                            (kernel_mat[itest, :] * weights).T)
+        
+    derivative *= -1 / gamma ** 2
+    
+    return derivative
+
+
+def rbf_derivative(x_train, x_function, weights, gamma):
+    
+    kernel_mat = rbf_kernel(x_function, x_train, gamma=gamma)
+    
+    n_test = x_function.shape[0]
+    
+    derivative = np.zeros(shape=x_function.shape)
+    
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T, 
+                            (kernel_mat[itest, :] * weights).T)
+    
+    derivative *= -2 * gamma
+    
+    return derivative
+
+
+def rbf_derivative_slow(x_train, x_function, weights, kernel_mat=None,
                    n_derivative=1, gamma=1.0):
     """This function calculates the rbf derivative
     Parameters
@@ -93,8 +138,7 @@ def rbf_derivative(x_train, x_function, weights, kernel_mat=None,
     return derivative
 
 
-def rbf_derivative_memory(x_train, x_function, kernel_mat,
-                          weights, gamma, n_derivative=1):
+def rbf_derivative_memory(x_train, x_function, weights, gamma, n_derivative=1):
     """This function calculates the rbf derivative using no
     loops but it requires a large memory load.
 
@@ -136,6 +180,8 @@ def rbf_derivative_memory(x_train, x_function, kernel_mat,
     n_train_samples = x_train.shape[0]
     n_test_samples = x_function.shape[0]
     n_dimensions = x_train.shape[1]
+    
+    kernel_mat = rbf_kernel(x_train, x_function, gamma=gamma)
 
     # create empty derivative matrix
     derivative = np.empty(shape=(n_train_samples,
@@ -154,7 +200,7 @@ def rbf_derivative_memory(x_train, x_function, kernel_mat,
 
     # TODO: Write code for 2nd Derivative
     # multiply by the constant
-    derivative *= 2 * gamma**2
+    derivative *= -2 * gamma
 
     # sum all of the training samples to get M x N matrix
     derivative = derivative.sum(axis=0).squeeze()
