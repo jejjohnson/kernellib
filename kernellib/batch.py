@@ -11,7 +11,7 @@ from joblib import Parallel, delayed
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
-from kernellib.derivatives.derivatives import rbf_derivative_memory
+from kernellib.derivatives.derivatives import rbf_derivative
 
 # TODO - Test Derivative and Variance Thoroughly
 # TODO - Investigate Pre-Dispatch for joblib
@@ -113,12 +113,10 @@ def krr_batch(x, krr_model, batch_size=1000,
 
             # calculate the derivative
             derivative[start_idx:end_idx, :] = \
-                rbf_derivative_memory(x_train=np.float64(krr_model.X_fit_),
+                rbf_derivative(x_train=np.float64(krr_model.X_fit_),
                                     x_function = np.float64(x[start_idx:end_idx]),
-                                    kernel_mat = K_traintest,
                                     weights = krr_model.dual_coef_.squeeze(),
-                                    gamma = np.float(krr_model.gamma),
-                                    n_derivative = int(1))
+                                    gamma = np.float(krr_model.gamma))
 
         if calculate_variance:
 
@@ -193,12 +191,10 @@ def krr_predictions(KRR_Model, x, calculate_predictions=True,
     if calculate_derivative:
 
         # calculate the derivative
-        derivative = rbf_derivative_memory(x_train=np.float64(KRR_Model.X_fit_),
+        derivative = rbf_derivative(x_train=np.float64(KRR_Model.X_fit_),
                                     x_function=np.float64(x),
-                                    kernel_mat=K_traintest,
                                     weights=KRR_Model.dual_coef_.squeeze(),
-                                    gamma=np.float(KRR_Model.gamma),
-                                    n_derivative=int(1))
+                                    gamma=np.float(KRR_Model.gamma))
 
     if calculate_variance:
 
