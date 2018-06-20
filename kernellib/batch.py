@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.model_selection import train_test_split
 from sklearn.kernel_ridge import KernelRidge
 from scipy.spatial.distance import pdist
-from joblib import Parallel, delayed
+from sklearn.externals.joblib import Parallel, delayed
 import matplotlib
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
