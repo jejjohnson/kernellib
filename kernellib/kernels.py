@@ -102,12 +102,7 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
     n_samples, n_dimensions = x.shape
     
     # get default sigma values
-    if length_scale is None:
-        length_scale = np.ones(shape=n_dimensions)
-        
-    else:
-        err_msg = 'Number of sigma values do not match number of x dimensions.'
-        np.testing.assert_equal(np.shape(length_scale)[0], n_dimensions, err_msg=err_msg)
+    length_scale = _check_length_scale(x, length_scale)
         
     # get default scale value
     if scale is None:
