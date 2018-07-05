@@ -1,4 +1,5 @@
 import sys
+sys.path.insert(0, '/home/emmanuel/github_repos/kernellib/')
 
 import numpy as np 
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -389,3 +390,141 @@ def gp_corrective(x_train, x_test, y_train, length_scale, sigma_y, x_cov, y_test
 
 
 class GP_Corrective(object):
+    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
+        self.length_scale = length_scale
+        self.x_covariance = x_covariance
+        self.sigma_y = sigma_y
+        self.scale = scale
+        
+    def fit(self, x, y):
+        
+        # check input dimensions
+        x_train, y_train = check_X_y(x, y)
+        
+        self.n_train, self.d_dim = x_train.shape
+        
+        
+        self.length_scale = _check_length_scale(x, self.length_scale)
+        self.x_covariance = _check_length_scale(x, self.x_covariance)
+        
+        if np.ndim(self.length_scale) == 0:
+            self.length_scale = np.array([self.length_scale])
+            
+        if np.ndim(self.x_covariance) == 0:
+            self.x_covariance = np.array([self.x_covariance])
+            
+        # check if length scale and sigma y are there
+        if self.sigma_y is None:            
+            self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        
+            
+        if self.scale is None:
+            self.scale = 1.0
+            
+        # Calculate the training Kernel (ARD)
+        K_train = ard_kernel(x_train, length_scale=self.length_scale, scale=self.scale)
+        
+        # Calculate the derivative
+        derivative = self._calculate_derivative(x_train, y_train, K_train)
+
+        # Add white noise kernel and derivative term
+        derivative_term = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
+        
+        K_train += self.sigma_y**2 * np.eye(N=self.n_train) + derivative_term
+            
+        K_train_inv = np.linalg.inv(K_train)
+        
+        # Calculate the weights
+        weights = K_train_inv.dot(y_train)
+        
+        # save variables
+        self.x_train = x_train
+        self.y_train = y_train
+        self.K_ = K_train
+        self.K_inv_ = K_train_inv
+        self.derivative_ = derivative
+        self.weights_ = weights
+        
+        return self
+    
+    def predict(self, x, return_std=False):
+        
+        x_test = check_array(x)
+        
+        # Calculate the weights
+        K_traintest = ard_kernel_weighted(x_test, self.x_train, 
+                                          x_cov=self.x_covariance, 
+                                          length_scale=self.length_scale)
+            
+        if not return_std:
+            return K_traintest.dot(self.weights_)
+        
+        else:
+            predictions = K_traintest.dot(self.weights_)
+            variance = self._calculate_variance(x_test, predictions=predictions)
+            return predictions, variance
+        
+        
+    def _calculate_derivative(self, x, y, K_train=None):
+        
+        # Calculate the training Kernel (ARD)
+        if K_train is None:
+            K_train = ard_kernel(x, length_scale=self.length_scale, scale=self.scale)
+
+        # Calculate the weights for the initial kernel
+        L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(self.n_train))
+        initial_weights = np.linalg.solve(L.T, np.linalg.solve(L, y))[:, np.newaxis]
+        self.der_weights_ = initial_weights
+        
+        # Calculate the derivative        
+        return ard_derivative(x, x, weights=initial_weights, length_scale=self.length_scale)
+    
+    def _calculate_variance(self, x, predictions=None):
+        
+        x_test = check_array(x)
+        n_test = x_test.shape[0]
+        
+        if predictions is None:
+            predictions = self.predict(x_test, return_std=False)
+
+        # Determinant Term
+        det_term = 2 * self.x_covariance * np.power(self.length_scale, -2) + 1
+        det_term = 1 / np.sqrt(np.linalg.det(np.diag(det_term)))
+        
+        # Exponential Term
+        exp_scale = np.power(np.power(self.length_scale, 2) 
+                             + 0.5 * np.power(self.length_scale, 4) 
+                             * np.power(self.x_covariance, -1), -1)
+                
+        K = ard_kernel(self.x_train, x_test, length_scale=self.length_scale)
+        
+        
+        variance = np.zeros(shape=(n_test))
+        trace_term = variance.copy()
+        q_weight_term = variance.copy()
+        pred_term = variance.copy()
+        
+        # Loop through test points
+        for itertest in range(n_test):
+            
+            # Calculate Q matrix
+            Q = calculate_q_numba(self.x_train, x_test[itertest, :], K[:, itertest], det_term, exp_scale)
+            
+            # Terms
+            trace_term[itertest] = float(np.trace(np.dot(self.K_inv_, Q)))
+            q_weight_term[itertest] = float(self.weights_.T.dot(Q).dot(self.weights_))
+            pred_term[itertest] = float(predictions[itertest]**2)
+            # calculate the final predictive variance
+            variance[itertest] = self.scale - trace_term[itertest] + \
+                q_weight_term[itertest] - pred_term[itertest]
+        
+        # Negative variances due to numerical issues.
+        # Set those variances to 0.
+        var_negative = variance < 0
+        if np.any(var_negative):
+            warnings.warn("Predicted variances smaller than 0. "
+                          "Setting those varinaces to 0.")
+            
+            variance[var_negative] = 0.0
+        return variance
+        
