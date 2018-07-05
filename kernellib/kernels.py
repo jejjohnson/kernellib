@@ -62,38 +62,6 @@ def rbf_kernel(X, Y=None, length_scale=1.0, scale=1.0):
     return K
 
 
-<<<<<<< HEAD
-=======
-def rbf_kernel_weighted_1d(X, Y=None, x_cov=None, length_scale=1.0, scale=1.0):
-    
-    X, Y = check_pairwise_arrays(X, Y)
-    
-    scale_term = - 0.5 / (x_cov + length_scale**2)
-    
-    if Y is None:
-        dists = pdist(X , metric='sqeuclidean')
-        
-        K = np.exp(scale_term * dists)
-        
-        K = squareform(K)
-        
-        np.fill_diagonal(K, 1)
-        
-        K *= ((length_scale**2)**(-1) * x_cov + 1)**(-1/2)
-        
-    else:
-        
-    
-        dists = cdist(X, Y, metric='sqeuclidean')
-
-        K = np.exp(scale_term  * dists)
-
-        K *= ((length_scale**2)**(-1) * x_cov + 1)**(-1/2)
-    
-    return K
-
-
->>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
 def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=None):
     """The Automatic Relevance Determination Kernel.
     
@@ -133,7 +101,6 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
     # grab samples and dimensions
     n_samples, n_dimensions = x.shape
     
-<<<<<<< HEAD
     # get default sigma values
     if length_scale is None:
         length_scale = np.ones(shape=n_dimensions)
@@ -141,10 +108,6 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
     else:
         err_msg = 'Number of sigma values do not match number of x dimensions.'
         np.testing.assert_equal(np.shape(length_scale)[0], n_dimensions, err_msg=err_msg)
-=======
-    # check length scale to be appropriate
-    length_scale = _check_length_scale(x, length_scale)
->>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
         
     # get default scale value
     if scale is None:
@@ -168,8 +131,6 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
         
     return K
 
-<<<<<<< HEAD
-=======
 
 def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
     
@@ -375,4 +336,3 @@ def calculate_q(x_train, x_test, K, det_term, exp_scale):
     return Q
 
 
->>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
