@@ -9,9 +9,8 @@ from sklearn.kernel_ridge import KernelRidge
 from scipy.spatial.distance import pdist
 from sklearn.externals.joblib import Parallel, delayed
 import matplotlib
-matplotlib.use('Agg')
 from matplotlib import pyplot as plt
-from kernellib.derivatives.derivatives import rbf_derivative
+from kernellib.derivatives import rbf_derivative
 
 # TODO - Test Derivative and Variance Thoroughly
 # TODO - Investigate Pre-Dispatch for joblib
@@ -112,11 +111,12 @@ def krr_batch(x, krr_model, batch_size=1000,
                                      gamma=krr_model.gamma)
 
             # calculate the derivative
+            sigma = np.sqrt(1/np.float(krr_model.gamma))
             derivative[start_idx:end_idx, :] = \
                 rbf_derivative(x_train=np.float64(krr_model.X_fit_),
                                     x_function = np.float64(x[start_idx:end_idx]),
                                     weights = krr_model.dual_coef_.squeeze(),
-                                    gamma = np.float(krr_model.gamma))
+                                    length_scale = np.float(sigma))
 
         if calculate_variance:
 
@@ -191,10 +191,11 @@ def krr_predictions(KRR_Model, x, calculate_predictions=True,
     if calculate_derivative:
 
         # calculate the derivative
+        sigma = np.sqrt(1/np.float(KRR_Model.gamma))
         derivative = rbf_derivative(x_train=np.float64(KRR_Model.X_fit_),
                                     x_function=np.float64(x),
                                     weights=KRR_Model.dual_coef_.squeeze(),
-                                    gamma=np.float(KRR_Model.gamma))
+                                    length_scale = np.float(sigma))
 
     if calculate_variance:
 
