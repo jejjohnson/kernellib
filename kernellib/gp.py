@@ -8,7 +8,7 @@ from sklearn.gaussian_process.kernels import (WhiteKernel, RBF, ConstantKernel,
 from sklearn.utils import check_array, check_X_y, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import warnings
-from kernellib.kernels import (rbf_kernel, calculate_q_numba, rbf_kernel_weighted_1d,
+from kernellib.kernels import (rbf_kernel, calculate_q_numba,
                                ard_kernel, ard_kernel_weighted)
 from kernellib.derivatives import rbf_derivative, ard_derivative
 
@@ -50,31 +50,6 @@ def fit_gp(x_train, y_train, kernel='ard', scale=None,
     
     return length_scale, sigma
 
-def gp_simple(x_train, x_test, y_train, length_scale, sigma_y, y_test=None):
-
-     # Calculate the training Kernel
-    K_train = rbf_kernel(x_train, length_scale=length_scale)
-    
-    # calculate the weights
-    L = np.linalg.cholesky(K_train + sigma_y**2 * np.eye(K_train.shape[0]))
-    weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-    
-    # Predictions
-    K_traintest = rbf_kernel(x_test, x_train, length_scale=length_scale)
-    prediction = K_traintest.dot(weights)
-    
-    # Score for test points
-    if y_test is not None:
-        score = mean_absolute_error(prediction, y_test)
-    else:
-        score = None
-    
-    # Variance
-    K_test = rbf_kernel(x_test, length_scale=length_scale)
-    v = np.linalg.solve(L, K_traintest.T)
-    variance = np.diag(K_test - v.T.dot(v))   
-
-    return prediction, variance, score
 
 class GP_Simple(object):
     def __init__(self, length_scale=None, sigma_y=None, scale=None, kernel='ard',
@@ -93,8 +68,12 @@ class GP_Simple(object):
         self.n_train, self.d_dim = x_train.shape
         
         # check if length scale and sigma y are there
-        if self.length_scale.any() is None or self.sigma_y is None:            
-            self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        try:
+            if self.length_scale.any() is None or self.sigma_y is None:            
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        except:
+            if self.length_scale is None or self.sigma_y is None:
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
         
             
         if self.scale is None:
@@ -167,41 +146,6 @@ class GP_Simple(object):
         return np.diag(K_test - np.dot(v.T, v))
 
 
-def gp_derivative(x_train, x_test, y_train, length_scale, sigma_y, x_cov, y_test=None):
-    
-    # K_train matrix
-    K_train = rbf_kernel(x_train, length_scale=length_scale)
-    
-    # Calculate initial weights
-    # calculate the weights
-    L = np.linalg.cholesky(K_train + sigma_y**2 * np.eye(K_train.shape[0]))
-    init_weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-    
-    # Calculate the derivative
-    derivative = rbf_derivative(x_train, x_train, weights=init_weights, length_scale=length_scale)
-    derivative_term =  np.diag(np.diag(x_cov * derivative.dot(derivative.T)))
-    
-    # Calculate the weights
-    L = np.linalg.cholesky(K_train + sigma_y**2 * np.eye(K_train.shape[0]) + derivative_term)
-    weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-    
-    # Predictions
-    K_traintest = rbf_kernel(x_test, x_train, length_scale=length_scale)
-    prediction = K_traintest.dot(weights)
-    
-    # Calculate score
-    if y_test is not None:
-        score = mean_absolute_error(prediction, y_test)
-    else:
-        score = None
-    
-    # Variance
-    K_test = rbf_kernel(x_test, length_scale=length_scale)
-    v = np.linalg.solve(L, K_traintest.T)
-    variance = np.diag(K_test - v.T.dot(v))
-    
-    return prediction, variance, score
-
 
 class GP_Derivative(object):
     def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
@@ -230,8 +174,12 @@ class GP_Derivative(object):
             self.x_covariance = np.array([self.x_covariance])
         
         # check if length scale and sigma y are there
-        if self.sigma_y is None:            
-            self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        try:
+            if self.length_scale.any() is None or self.sigma_y is None:            
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        except:
+            if self.length_scale is None or self.sigma_y is None:
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
         
             
         if self.scale is None:
@@ -307,88 +255,6 @@ class GP_Derivative(object):
         return np.diag(K_test - np.dot(v.T, v))
 
 
-def gp_corrective(x_train, x_test, y_train, length_scale, sigma_y, x_cov, y_test=None, return_var=None):
-    
-    scale = 1.0
-
-    # Calculate training Kernel
-    K_train = rbf_kernel(x_train, length_scale=length_scale)
-
-    # Calculate initial weights
-    L = np.linalg.cholesky(K_train + sigma_y**2 * np.eye(K_train.shape[0]))
-    init_weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-
-    # Calculate the derivative term
-    derivative = rbf_derivative(x_train, x_train, weights=init_weights, length_scale=length_scale)
-    derivative_term = np.diag(np.diag(x_cov * derivative.dot(derivative.T)))
-    # Calculate the kernel matrices
-    L = np.linalg.cholesky(K_train + sigma_y**2 * np.eye(K_train.shape[0]) + derivative_term)
-    weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-    K_train_inv = np.linalg.inv(K_train + sigma_y**2 * np.eye(K_train.shape[0]) + derivative_term)
-
-    # Predictions
-    K_traintest = rbf_kernel_weighted_1d(x_test, x_train, x_cov=x_cov, length_scale=length_scale)
-    
-    # Predictions
-    K_traintest = rbf_kernel_weighted_1d(x_test, x_train, x_cov=x_cov, length_scale=length_scale)
-    mean = K_traintest.dot(weights)
-    
-    # Calculate score
-    if y_test is not None:
-        score = mean_absolute_error(mean, y_test)
-    else:
-        score = None
-
-    K_traintest = rbf_kernel(x_train, x_test, length_scale=length_scale)
-
-    # Precalculated terms
-    det_term = 1 / ((2 * x_cov * (length_scale**2)**(-1) + 1)**(1/2))
-    exp_scale = 1 / (length_scale**2 + 0.5 * length_scale**4 * x_cov**(-1))
-    
-    if return_var is None:
-        var = None
-    
-    else:
-        
-        var = np.zeros(shape=x_test.shape[0])
-        trace_term = var.copy()
-        q_weight_term = var.copy()
-        pred_term = var.copy()
-
-        for counter, itest in enumerate(x_test):
-
-            Q = calculate_q_numba(x_train, 
-                                  x_test[counter, :], 
-                                  K_traintest[:, counter], 
-                                  det_term, 
-                                  np.array(exp_scale))
-
-            # get the Q matrix for the test point
-            # calculate the final mean function
-
-            trace_term[counter] = float(np.trace(np.dot(K_train_inv, Q)))
-            q_weight_term[counter]  = float(np.dot(weights.T, np.dot(Q, weights)))
-            pred_term[counter] = float(mean[counter])**2
-
-            var[counter] = scale**2 - \
-                float(trace_term[counter]) + \
-                float(q_weight_term[counter]) - \
-                float(pred_term[counter])
-
-            # if counter % 100 == 0:
-            #     print('\nIteration: {}\n'.format(counter))
-            #     print('Q: {:.5f}, {:.5f}, {}'.format(Q.min(), Q.max(), Q.shape))
-            #     print('Weights: {}'.format(weights.shape))
-            #     print('Trace Term: {:.5f}'.format(trace_term[counter]))
-            #     print('Q_term Term: {:.5f}'.format(q_weight_term[counter]))
-            #     print('mpred: {:.5f}'.format(pred_term[counter]))
-            #     print('Variance: {:.5f}, {:.5f}'.format(
-            #         var[counter].min(), 
-            #         var[counter].max()))
-
-    return mean, var, score
-
-
 class GP_Corrective(object):
     def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
         self.length_scale = length_scale
@@ -414,8 +280,12 @@ class GP_Corrective(object):
             self.x_covariance = np.array([self.x_covariance])
             
         # check if length scale and sigma y are there
-        if self.sigma_y is None:            
-            self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        try:
+            if self.length_scale.any() is None or self.sigma_y is None:            
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        except:
+            if self.length_scale is None or self.sigma_y is None:
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
         
             
         if self.scale is None:
@@ -463,8 +333,7 @@ class GP_Corrective(object):
             predictions = K_traintest.dot(self.weights_)
             variance = self._calculate_variance(x_test, predictions=predictions)
             return predictions, variance
-        
-        
+           
     def _calculate_derivative(self, x, y, K_train=None):
         
         # Calculate the training Kernel (ARD)
@@ -528,3 +397,94 @@ class GP_Corrective(object):
             variance[var_negative] = 0.0
         return variance
         
+
+def main():
+
+    rng = np.random.RandomState(0)
+
+    X = 15 * rng.rand(100, 1)
+    y = np.sin(X).ravel()
+
+    y += 3 * (0.5 - rng.rand(X.shape[0]))
+
+    # try GP simple
+    length_scale, sigma_y = fit_gp(X, y)
+    print('Length Scale: {:.3f}'.format(length_scale))
+    print('Sigma y: {:.3f}'.format(sigma_y))
+
+     # ------------------------
+    # Simple GP (w/o) fitting
+    # -------------------------
+    gp_standard = GP_Simple(length_scale=length_scale, sigma_y=sigma_y)
+    
+    gp_standard.fit(X, y.squeeze())
+
+    mean = gp_standard.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Simple) - MAE: {:.4f}'.format(score))
+
+     # ------------------------
+    # Simple GP (w/o) fitting
+    # -------------------------
+    gp_corrective = GP_Corrective(length_scale=length_scale, sigma_y=None, x_covariance=0.0001)
+    
+    gp_corrective.fit(X, y.squeeze())
+
+    mean = gp_corrective.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Corrective) - MAE: {:.4f}'.format(score))
+
+     # ------------------------
+    # Simple GP (w/o) fitting
+    # -------------------------
+    gp_derivative = GP_Derivative(length_scale=length_scale, sigma_y=None, x_covariance=0.0001)
+    
+    gp_derivative.fit(X, y.squeeze())
+
+    mean = gp_derivative.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Derivative) - MAE: {:.4f}'.format(score))
+
+     # ------------------------
+    # Simple GP (w) fitting
+    # -------------------------
+    gp_standard = GP_Simple()
+    
+    gp_standard.fit(X, y.squeeze())
+
+    mean = gp_standard.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Simple) - MAE: {:.4f}'.format(score))
+
+     # ------------------------
+    # Simple GP (w/o) fitting
+    # -------------------------
+    gp_corrective = GP_Corrective(x_covariance=0.0001)
+    
+    gp_corrective.fit(X, y.squeeze())
+
+    mean = gp_corrective.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Corrective) - MAE: {:.4f}'.format(score))
+
+     # ------------------------
+    # Simple GP (w/o) fitting
+    # -------------------------
+    gp_derivative = GP_Derivative(x_covariance=0.0001)
+    
+    gp_derivative.fit(X, y.squeeze())
+
+    mean = gp_derivative.predict(X)
+
+    score = mean_absolute_error(mean, y.squeeze())
+    print('GP (Derivative) - MAE: {:.4f}'.format(score))
+
+    return None
+
+if __name__ == '__main__':
+    main()
