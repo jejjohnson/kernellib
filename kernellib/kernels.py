@@ -1,6 +1,8 @@
 import numpy as np
+import numba
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
+from sklearn.gaussian_process.kernels import (_check_length_scale)
 
 
 def rbf_kernel(X, Y=None, length_scale=1.0, scale=1.0):
@@ -60,6 +62,38 @@ def rbf_kernel(X, Y=None, length_scale=1.0, scale=1.0):
     return K
 
 
+<<<<<<< HEAD
+=======
+def rbf_kernel_weighted_1d(X, Y=None, x_cov=None, length_scale=1.0, scale=1.0):
+    
+    X, Y = check_pairwise_arrays(X, Y)
+    
+    scale_term = - 0.5 / (x_cov + length_scale**2)
+    
+    if Y is None:
+        dists = pdist(X , metric='sqeuclidean')
+        
+        K = np.exp(scale_term * dists)
+        
+        K = squareform(K)
+        
+        np.fill_diagonal(K, 1)
+        
+        K *= ((length_scale**2)**(-1) * x_cov + 1)**(-1/2)
+        
+    else:
+        
+    
+        dists = cdist(X, Y, metric='sqeuclidean')
+
+        K = np.exp(scale_term  * dists)
+
+        K *= ((length_scale**2)**(-1) * x_cov + 1)**(-1/2)
+    
+    return K
+
+
+>>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
 def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=None):
     """The Automatic Relevance Determination Kernel.
     
@@ -99,6 +133,7 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
     # grab samples and dimensions
     n_samples, n_dimensions = x.shape
     
+<<<<<<< HEAD
     # get default sigma values
     if length_scale is None:
         length_scale = np.ones(shape=n_dimensions)
@@ -106,6 +141,10 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
     else:
         err_msg = 'Number of sigma values do not match number of x dimensions.'
         np.testing.assert_equal(np.shape(length_scale)[0], n_dimensions, err_msg=err_msg)
+=======
+    # check length scale to be appropriate
+    length_scale = _check_length_scale(x, length_scale)
+>>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
         
     # get default scale value
     if scale is None:
@@ -129,3 +168,211 @@ def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=No
         
     return K
 
+<<<<<<< HEAD
+=======
+
+def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
+    
+    # check if x, y have the same shape
+    if y is not None:
+        x, y = check_pairwise_arrays(x, y)
+        
+    # grab samples and dimensions
+    n_samples, n_dimensions = x.shape
+    
+    # get the default sigma values
+    if length_scale is None:
+        length_scale = np.ones(shape=n_dimensions)
+        
+    else:
+        length_scale = _check_length_scale(x, length_scale)
+        
+    # check covariance values
+    if x_cov is None:
+        x_cov = 0.0
+    else:
+        x_cov = _check_length_scale(x, x_cov)
+        
+    # Add dimensions to lengthscale and x_cov
+    if np.ndim(length_scale) == 0:
+        length_scale = np.array([length_scale])
+        
+    if np.ndim(x_cov) == 0:
+        x_cov = np.array([x_cov])
+        
+    # get default scale values
+    if scale is None:
+        scale = 1.0
+        
+
+    exp_scale = np.sqrt(x_cov + length_scale**2)
+    
+    scale_term = np.diag(x_cov * (length_scale**2)**(-1)) + np.eye(N=n_dimensions)
+    scale_term = np.linalg.det(scale_term)
+    scale_term = np.power(scale_term, -1/2) 
+    
+    if y is None:
+        dists = pdist(x / exp_scale, metric='sqeuclidean')
+        
+        K = np.exp(- 0.5 * dists)
+        
+        K = squareform(K)
+        
+        np.fill_diagonal(K, 1)
+        
+        K *= scale_term
+        
+    else:
+        
+        dists = cdist(x / exp_scale, y / exp_scale, metric='sqeuclidean')
+        
+        K = np.exp(- 0.5 * dists)
+
+        K *= scale_term
+    
+    return K
+
+
+@numba.jit(nopython=True, nogil=True)
+def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
+    """Calculates the Q matrix used to compute the variance of the
+    inputs with a noise covariance matrix. This uses numba to 
+    speed up the calculations.
+    
+    Parameters
+    ----------
+    x_train : array, (n_samples x d_dimensions)
+        The data used to train the weights.
+    
+    x_test : array, (d_dimensions)
+        A vector of test points.
+        
+    K : array, (n_samples)
+        The portion of the kernel matrix of the training points at 
+        test point i, e.g. K = full_kernel_mat[:, i_test]
+        
+    det_term : float
+        The determinant term that's in from of the exponent
+        term.
+        
+    exp_scale : array, (d_dimensions)
+        The length_scale that's used within the exponential term.
+        
+    Returns
+    -------
+    Q : array, (n_samples x n_samples)
+        The Q matrix used to calculate the variance of the samples.
+        
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 13 - 06 - 2018
+    
+    References
+    ----------
+    McHutchen et al. - Gaussian Process Training with Input Noise
+    http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
+    """
+    n_train, d_dimensions = x_train.shape
+    
+    Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    
+    # Loop through the row terms
+    for iterrow in range(n_train):
+        
+        # Calculate the row terms
+        x_train_row = 0.5 * x_train[iterrow, :]  - x_test
+        
+        K_row = K[iterrow] * det_term
+        
+        # Loop through column terms
+        for itercol in range(n_train):
+            
+            # Z Term
+            z_term = x_train_row + 0.5 * x_train[itercol, :]
+            
+            # EXPONENTIAL TERM
+            exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
+            
+            # CONSTANT TERM
+            constant_term = K_row * K[itercol] 
+            
+            # Q Matrix (Corrective Gaussian Kernel)
+            Q[iterrow, itercol] = constant_term * exp_term
+            
+    return Q
+
+
+def calculate_q(x_train, x_test, K, det_term, exp_scale):
+    """Calculates the Q matrix used to compute the variance of the
+    inputs with a noise covariance matrix. This is the pure python
+    version. ( Note: there is a working Numba version which is 
+    significantly faster, a x35 speedup)
+    
+    Parameters
+    ----------
+    x_train : array, (n_samples x d_dimensions)
+        The data used to train the weights.
+    
+    x_test : array, (d_dimensions)
+        A vector of test points.
+        
+    K : array, (n_samples)
+        The portion of the kernel matrix of the training points at 
+        test point i, e.g. K = full_kernel_mat[:, i_test]
+        
+    det_term : float
+        The determinant term that's in from of the exponent
+        term.
+        
+    exp_scale : array, (d_dimensions)
+        The length_scale that's used within the exponential term.
+        
+    Returns
+    -------
+    Q : array, (n_samples x n_samples)
+        The Q matrix used to calculate the variance of the samples.
+        
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 13 - 06 - 2018
+    
+    References
+    ----------
+    McHutchen et al. - Gaussian Process Training with Input Noise
+    http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
+    """
+    n_train, d_dimensions = x_train.shape
+    
+    Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    
+    # Loop through the row terms
+    for iterrow in range(n_train):
+        
+        # Calculate the row terms
+        x_train_row = 0.5 * x_train[iterrow, :]  - x_test
+        
+        K_row = K[iterrow] * det_term
+        
+        # Loop through column terms
+        for itercol in range(n_train):
+            
+            # Z Term
+            z_term = x_train_row + 0.5 * x_train[itercol, :]
+            
+            # EXPONENTIAL TERM
+            exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
+            
+            # CONSTANT TERM
+            constant_term = K_row * K[itercol] 
+            
+            # Q Matrix (Corrective Gaussian Kernel)
+            Q[iterrow, itercol] = constant_term * exp_term
+            
+    return Q
+
+
+>>>>>>> 21169a5a2d91eb97b1e823f9b99d370e0f3be06c
