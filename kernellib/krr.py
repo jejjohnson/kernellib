@@ -4,9 +4,12 @@ import warnings
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics.pairwise import rbf_kernel
+from kernels import ard_kernel
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import pdist
 from scipy.linalg import cho_factor, cho_solve
+from sklearn.linear_model.ridge import _solve_cholesky_kernel
+from utils import estimate_sigma
 from sklearn.utils import check_random_state
 import scipy as scio
 import matplotlib
@@ -48,12 +51,18 @@ class KRR(BaseEstimator, RegressorMixin):
 
     K_ : array, [N x N]
         the kernel matrix with sigma parameter
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+           : juan.johnson@uv.es
+    Date   : 6 - July - 2018
     """
 
-    def __init__(self, sigma=None, lam=None, calculate_variance=False):
+
+    def __init__(self, sigma=None, lam=None):
         self.sigma = sigma
         self.lam = lam
-        self.calculate_variance = calculate_variance
 
     def fit(self, x, y=None):
 
@@ -67,30 +76,14 @@ class KRR(BaseEstimator, RegressorMixin):
         if self.sigma is None:
 
             # common heuristic for finding the sigma value
-            self.sigma = np.mean(pdist(x, metric='euclidean'))
-
-        # gamma parameter for the kernel matrix
-        self.gamma = 1 / (2 * self.sigma ** 2)
+            self.sigma = estimate_sigma(x, method='mean')
 
         # calculate kernel function
         self.X_fit_ = x
-        self.K_ = rbf_kernel(self.X_fit_, Y=self.X_fit_, gamma=self.gamma)
-        self.K_inverse_ = np.linalg.inv(self.K_)
+        self.K_ = ard_kernel(self.X_fit_, y=self.X_fit_, length_scale=self.sigma)
 
-        # Try the cholesky factor method
-        try:
-
-            # Cholesky Factor Method
-            R, lower = cho_factor(self.K_ + self.lam * np.eye(self.K_.shape[0], 1))
-
-            # Cholesky Solve Method
-            self.weights_ = cho_solve((R, lower), y)
-
-        except np.linalg.LinAlgError:
-            warnings.warn("Singular Matrix. Trying Regular Solver.")
-
-            self.weights_ = scio.linalg.solve(self.K_ + self.lam * np.eye(self.K_.shape[0], 1),
-                                              y)
+        # Solve for the weights
+        self.weights_ = _solve_cholesky_kernel(self.K_, y, self.lam)
 
         # make sure weights is a 2d array
         if self.weights_.ndim == 1:
@@ -98,16 +91,19 @@ class KRR(BaseEstimator, RegressorMixin):
 
         return self
 
-    def predict(self, x):
+    def predict(self, x, return_variance=False):
 
         # calculate the kernel function with new points
-        K_traintest = rbf_kernel(X=self.X_fit_, Y=x, gamma=self.gamma)
+        K_traintest = ard_kernel(x=self.X_fit_, y=x, length_scale=self.sigma)
 
         # calculate the predictions
         predictions = np.dot(K_traintest.T, self.weights_)
 
-        if self.calculate_variance is True:
-            K_test = rbf_kernel(x, gamma=self.gamma)
+        # calculate the variance
+        if return_variance:
+            K_test = ard_kernel(x, length_scale=self.sigma)
+            self.K_inverse_ = np.linalg.inv(self.K_)
+
 
             self.variance_ = np.diag(K_test) - \
                              np.diag(
@@ -139,6 +135,7 @@ def main():
     # remove the mean from y training ONLY
     y_mean = np.mean(y_train)
     y_train -= y_mean
+    y_test -= y_mean
 
     # initialize the kernel ridge regression model
     krr_model = KRR()
