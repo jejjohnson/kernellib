@@ -8,6 +8,7 @@ from sklearn.utils.extmath import randomized_svd
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from sklearn.metrics import mean_squared_error, pairwise_kernels
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
+from kernellib.utils import estimate_sigma
 
 # TODO - take care of other kernel methods
 # TODO - fix bug, see notebook
@@ -35,7 +36,7 @@ class KRRNystrom(BaseEstimator, RegressorMixin):
         if self.sigma is None:
 
             # common heuristic for finding the sigma value
-            self.sigma = np.mean(pdist(X, metric='euclidean'))
+            self.sigma = estimate_sigma(X, mode='mean')
 
         # gamma parameter for the kernel matrix
         self.gamma = 1 / (2 * self.sigma ** 2)
