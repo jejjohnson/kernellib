@@ -132,6 +132,13 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
     # Make the length_scale 1 dimensional
     if np.ndim(length_scale) == 0:
         length_scale = np.array([length_scale])
+    if np.ndim(weights) == 1:
+        weights = weights[:, np.newaxis]
+
+    if len(length_scale) == 1 and d_dimensions > 1:
+        length_scale = length_scale * np.ones(shape=(d_dimensions))
+    elif len(length_scale) != d_dimensions:
+        raise ValueError('Incorrect Input for length_scale.')
     
     # check the n_samples for x_train and weights are equal
     err_msg = "Number of training samples for xtrain and weights are not equal."
@@ -150,7 +157,6 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
     
     # initialize derivative matrix
     derivative = np.zeros(shape=(n_test_samples, d_dimensions))
-    
     if int(n_der) == 1:
         for itest in range(n_test_samples):
             
@@ -171,7 +177,6 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
             derivative[itest, :] = np.dot(x_term, kernel_mat[itest, :] * weights).T 
             
     return derivative
-
 
 def rbf_derivative(x_train, x_function, weights, length_scale=1.0):
     
