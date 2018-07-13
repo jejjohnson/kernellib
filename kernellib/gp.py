@@ -143,8 +143,7 @@ class GP_Simple(object):
         
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        return np.diag(K_test - np.dot(v.T, v))
-
+        return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + K_test - np.dot(v.T, v))
 
 
 class GP_Derivative(object):
@@ -192,6 +191,7 @@ class GP_Derivative(object):
         derivative = self._calculate_derivative(x_train, y_train, K_train)
         # calculate the diagonal elements
         derivative_term = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
+#         derivative_term = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
             
         
         # add white noise kernel and diagonal derivative term 
@@ -199,6 +199,8 @@ class GP_Derivative(object):
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
+
+        
         
         # save variables
         self.x_train = x_train
@@ -252,7 +254,12 @@ class GP_Derivative(object):
         
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        return np.diag(K_test - np.dot(v.T, v))
+        derivative = ard_derivative(self.x_train, x_test, 
+                                    weights=self.weights_, 
+                                    length_scale=self.length_scale)
+        derivative_diag = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
+        
+        return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + derivative_diag +  K_test - np.dot(v.T, v))
 
 
 class GP_Corrective(object):
