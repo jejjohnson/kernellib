@@ -10,7 +10,7 @@ from scipy.spatial.distance import pdist
 from sklearn.externals.joblib import Parallel, delayed
 import matplotlib
 from matplotlib import pyplot as plt
-from kernellib.derivatives import rbf_derivative
+from kernellib.derivatives import rbf_derivative, ard_derivative
 
 # TODO - Test Derivative and Variance Thoroughly
 # TODO - Investigate Pre-Dispatch for joblib
@@ -213,6 +213,73 @@ def krr_predictions(KRR_Model, x, calculate_predictions=True,
         if variance.ndim == 1:
             variance = variance[:, np.newaxis]
 
+    return predictions, derivative, variance
+
+
+def gp_model_parallel(x, gp_model, n_jobs=10, batch_size=100,
+                       return_variance=False,
+                       return_derivative=False, 
+                       verbose=1):
+    
+    if n_jobs > 1:
+        # Perform parallel predictions using joblib
+        results = Parallel(n_jobs=n_jobs, verbose=verbose)(
+            delayed(gp_model_predictions)(
+                gp_model, x[start:end],
+                return_variance=return_variance,
+                return_derivative=return_derivative)
+            for (start, end) in generate_batches(x.shape[0], batch_size=batch_size)
+
+        )
+
+        # Aggregate results (predictions, derivatives, variances)
+        predictions, derivative, variance = tuple(zip(*results))
+        predictions = np.vstack(predictions)
+        derivative = np.vstack(derivative)
+        variance = np.vstack(variance)
+    
+    elif n_jobs == 1:
+        predictions, derivative, variance = gp_model_predictions(
+            gp_model, x, 
+            return_derivative=return_derivative,
+            return_variance=return_variance)
+        
+    return predictions, derivative, variance
+
+
+def gp_model_predictions(gp_model, x, 
+                         return_derivative=False,
+                         return_variance=False):
+    
+    # initialize the output values
+    predictions = None
+    derivative = None
+    variance = None
+    
+    # --------------------
+    # Predictive Variance
+    # --------------------
+    if return_variance:
+        predictions, variance = gp_model.predict(x, return_std=True)
+        predictions = predictions[:, np.newaxis]
+        variance = variance[:, np.newaxis]
+    
+    # --------------------
+    # Derivatives
+    # --------------------
+    if return_derivative:
+        derivative = ard_derivative(x_train=gp_model.x_train,
+                                    x_test=x,
+                                    weights=gp_model.weights_[:, np.newaxis],
+                                    length_scale=gp_model.length_scale,
+                                    scale=gp_model.scale,
+                                    n_der=1)
+        
+    # ----------------
+    # Predictive Mean
+    # ----------------
+    if not return_variance:
+        predictions = gp_model.predict(x)[:, np.newaxis]
     return predictions, derivative, variance
 
 
