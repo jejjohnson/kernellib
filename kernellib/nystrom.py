@@ -8,6 +8,7 @@ from sklearn.utils.extmath import randomized_svd
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from sklearn.metrics import mean_squared_error, pairwise_kernels
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
+from kernellib.utils import estimate_sigma
 
 # TODO - take care of other kernel methods
 # TODO - fix bug, see notebook
@@ -35,7 +36,7 @@ class KRRNystrom(BaseEstimator, RegressorMixin):
         if self.sigma is None:
 
             # common heuristic for finding the sigma value
-            self.sigma = np.mean(pdist(X, metric='euclidean'))
+            self.sigma = estimate_sigma(X, method='mean')
 
         # gamma parameter for the kernel matrix
         self.gamma = 1 / (2 * self.sigma ** 2)
@@ -269,6 +270,28 @@ def main():
     error_nystrom = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
     print('Nystrom (MSE): {:5f}'.format(error_nystrom))
 
+    # -----------------------------------
+    # Nystrom Approximation (Randomized)
+    # -----------------------------------
+    print('\nRunning KRR with Randomized Nystrom Approximation ...\n')
+    t0 = time()
+
+    krr_rnystrom = KRRNystrom(lam=lam, kernel=kernel, sigma=sigma,
+                             n_components=n_components, k_rank=k_rank,
+                             random_state=random_state, svd='randomized')
+
+    krr_rnystrom.fit(x_train, y_train)
+
+    y_pred = krr_rnystrom.predict(x_test)
+
+    t1_rnystrom = time() - t0
+    print('Randomized Nystrom (time): {:.2f} secs'.format(t1_rnystrom))
+
+    error_rnystrom = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
+    print('Randomized Nystrom (MSE): {:5f}'.format(error_rnystrom))
+
+    
+
     # --------------------------------
     # Scikit-Learn KRR Implementation
     # --------------------------------
@@ -288,6 +311,7 @@ def main():
     print('Sklearn KRR (MSE): {:5f}'.format(error_normal))
 
     print('\nSpeedup: x{:.2f}\n'.format(t1_normal / t1_nystrom))
+    print('\nSpeedup: x{:.2f}\n'.format(t1_normal / t1_rnystrom))
 
     return None
 
