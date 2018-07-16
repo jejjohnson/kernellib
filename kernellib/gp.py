@@ -94,16 +94,17 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-        
+
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
         # save variables
         self.x_train = x_train
         self.y_train = y_train
         self.K_ = K_train
         self.L_ = L
         self.weights_ = weights
-        
-        
-    def predict(self, x, return_std=False):
+            
+    def predict(self, x, return_variance=False):
         
         x_test = check_array(x)
         
@@ -117,7 +118,7 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         else:
             raise ValueError('Unrecognized kernel function.')
         
-        if not return_std:
+        if not return_variance:
             return K_traintest.dot(self.weights_)
         
         else:
@@ -144,8 +145,7 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + K_test - np.dot(v.T, v))
-
+        return self.sigma_y + np.diag(K_test - np.dot(v.T, v))
 
 class GP_Derivative(BaseEstimator, RegressorMixin):
     def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None, 
@@ -195,7 +195,8 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-        
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
         # save variables
         self.x_train = x_train
         self.y_train = y_train
@@ -203,7 +204,7 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         self.L_ = L
         self.weights_ = weights
         
-    def predict(self, x, return_std=False):
+    def predict(self, x, return_variance=False):
         
         x_test = check_array(x)
         
@@ -211,7 +212,7 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         K_traintest = ard_kernel(x_test, self.x_train,
                                  length_scale=self.length_scale)
         
-        if not return_std:
+        if not return_variance:
             return K_traintest.dot(self.weights_)
         
         else:
