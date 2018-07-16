@@ -175,7 +175,6 @@ def main():
     ax.legend(fontsize=14)
     plt.tight_layout()
     plt.title('Fitted Model')
-
     plt.show()
 
     return None
