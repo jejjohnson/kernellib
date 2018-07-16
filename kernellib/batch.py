@@ -3,9 +3,8 @@ import numpy as np
 from time import time
 import warnings
 from sklearn.metrics import mean_absolute_error
-from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.model_selection import train_test_split
-from sklearn.kernel_ridge import KernelRidge
+from kernellib.krr import KernelRidge
 from scipy.spatial.distance import pdist
 from sklearn.externals.joblib import Parallel, delayed
 import matplotlib
@@ -68,150 +67,116 @@ def generate_batches(n_samples, batch_size):
         yield start_index, n_samples
 
 
-def krr_batch(x, krr_model, batch_size=1000,
-              calculate_predictions=True,
-              calculate_derivative=False,
-              calculate_variance=False):
+def model_batch(x, model, batch_size=1000,
+                return_variance=False,
+                return_derivative=False):
 
     # initialize the predicted values
     n_samples = x.shape[0]
 
     # predefine matrices
-    if calculate_predictions:
-        predictions = np.empty(shape=(n_samples, 1))
-    else:
-        predictions = None
-
-    if calculate_derivative:
-        derivative = np.empty(shape=x.shape)
-    else:
-        derivative = None
-
-    if calculate_variance:
-
-        K_train = rbf_kernel(krr_model.X_fit_,
-                             gamma=krr_model.gamma)
-        K_train_inverse = np.linalg.inv(K_train)
+    if return_variance:
         variance = np.empty(shape=(n_samples, 1))
+        predictions = variance.copy()
     else:
-        variance = None
+        predictions = np.empty(shape=(n_samples, 1))
+
+    if return_derivative:
+        derivative = np.empty(shape=x.shape)
 
     for start_idx, end_idx in generate_batches(n_samples, batch_size):
 
-        if calculate_predictions:
+        ipred, ider, ivar = model_predictions(model, x[start_idx:end_idx], 
+                                              return_derivative=return_derivative,
+                                              return_variance=return_variance)
+        # --------------------------
+        # Predictive Variance
+        # --------------------------
+        if return_variance:
+            predictions[start_idx:end_idx, :] = ipred
+            variance[start_idx:end_idx, :] = ivar
 
-            # calculate the predictions
-            predictions[start_idx:end_idx, 0] = \
-                krr_model.predict(x[start_idx:end_idx])
+        # --------------------------
+        # Derivative
+        # --------------------------
+        if return_derivative:
+            derivative[start_idx:end_idx, :] = ider
 
-        if calculate_derivative:
+        # ---------------------------
+        # Predictive Mean
+        # ---------------------------
+        if not return_variance:
+            predictions[start_idx:end_idx, :] = ipred
 
-            K_traintest = rbf_kernel(krr_model.X_fit_,
-                                     x[start_idx:end_idx],
-                                     gamma=krr_model.gamma)
-
-            # calculate the derivative
-            sigma = np.sqrt(1/np.float(krr_model.gamma))
-            derivative[start_idx:end_idx, :] = \
-                rbf_derivative(x_train=np.float64(krr_model.X_fit_),
-                                    x_function = np.float64(x[start_idx:end_idx]),
-                                    weights = krr_model.dual_coef_.squeeze(),
-                                    length_scale = np.float(sigma))
-
-        if calculate_variance:
-
-            # calculate the Kbatch
-            K_batch = rbf_kernel(x[start_idx:end_idx],
-                                 gamma=krr_model.gamma)
-
-            # calculate the variance
-            variance[start_idx:end_idx, 0] = np.diag(K_batch) - \
-                np.diag(np.dot(K_traintest.T,
-                               np.dot(K_train_inverse, K_traintest)))
 
     return predictions, derivative, variance
 
 
-def krr_parallel(x, krr_model, n_jobs=10, batch_size=1000,
-                 calculate_predictions=True,
-                 calculate_derivative=False,
-                 calculate_variance=False,
+def krr_parallel(x, model, n_jobs=10, batch_size=1000,
+                 return_variance=False,
+                 return_derivative=False,
                  verbose=10):
 
-    # calculate the inverse transform
-    if calculate_variance:
-        K_train_inv = np.linalg.inv(rbf_kernel(X=krr_model.X_fit_,
-                                               gamma=krr_model.gamma))
+    if n_jobs > 1:
+        # Perform parallel predictions using joblib
+        results = Parallel(n_jobs=n_jobs, verbose=verbose)(
+            delayed(model_predictions)(
+                model, x[start:end],
+                return_variance=return_variance,
+                return_derivative=return_derivative)
+            for (start, end) in generate_batches(x.shape[0], batch_size=batch_size)
+        )
+
+        # Aggregate results (predictions, derivatives, variances)
+        predictions, derivative, variance = tuple(zip(*results))
+        predictions = np.vstack(predictions)
+        derivative = np.vstack(derivative)
+        variance = np.vstack(variance)
+
+    elif n_jobs == 1:
+        predictions, derivative, variance = \
+            model_predictions(model, x, 
+                              return_derivative=return_derivative,
+                              return_variance=return_variance)
     else:
-        K_train_inv = None
-
-    # Perform parallel predictions using joblib
-    results = Parallel(n_jobs=n_jobs, verbose=verbose)(
-        delayed(krr_predictions)(
-            krr_model, x[start:end],
-            K_train_inv=K_train_inv,
-            calculate_predictions=calculate_predictions,
-            calculate_derivative=calculate_derivative,
-            calculate_variance=calculate_variance)
-        for (start, end) in generate_batches(x.shape[0],
-                                             batch_size=batch_size)
-    )
-
-    # Aggregate results (predictions, derivatives, variances)
-    predictions, derivative, variance = tuple(zip(*results))
-    predictions = np.vstack(predictions)
-    derivative = np.vstack(derivative)
-    variance = np.vstack(variance)
+        raise ValueError('Unrecognized number of n_jobs...')
 
     return predictions, derivative, variance
 
 
-def krr_predictions(KRR_Model, x, calculate_predictions=True,
-                    calculate_derivative=False,
-                    calculate_variance=False,
-                    K_train_inv=None):
+def model_predictions(model, x, 
+                      return_derivative=False,
+                      return_variance=False,
+                      K_train_inv=None):
 
     # initialize the predicted values
     predictions = None
     derivative = None
     variance = None
 
-    if calculate_predictions:
-        # calculate the predictions
-        predictions = KRR_Model.predict(x)
+    # ---------------------------------
+    # Predictive Variance
+    # ---------------------------------
+    if return_variance:
+        predictions, variance = model.predict(x, return_variance=True)
+        variance = variance[:, np.newaxis]
 
-        if predictions.ndim == 1:
-            predictions = predictions[:, np.newaxis]
+    # ---------------------------------
+    # Derivative
+    # ---------------------------------
+    if return_derivative:
+        derivative = ard_derivative(x_train=model.x_train,
+                                    x_test=x,
+                                    weights=model.weights_,
+                                    length_scale=model.length_scale,
+                                    scale=model.scale,
+                                    n_der=1)
 
-    if calculate_derivative or calculate_variance:
-        # calculate train-test kernel
-        K_traintest = rbf_kernel(KRR_Model.X_fit_,
-                                 x, gamma=KRR_Model.gamma)
-
-    if calculate_derivative:
-
-        # calculate the derivative
-        sigma = np.sqrt(1/np.float(KRR_Model.gamma))
-        derivative = rbf_derivative(x_train=np.float64(KRR_Model.X_fit_),
-                                    x_function=np.float64(x),
-                                    weights=KRR_Model.dual_coef_.squeeze(),
-                                    length_scale = np.float(sigma))
-
-    if calculate_variance:
-
-        # calculate the kernel for test points
-        K_test = rbf_kernel(x, gamma=KRR_Model.gamma)
-
-        # calculate K_traininverse if necessary
-        if K_train_inv is None:
-            K_train_inv = np.linalg.inv(rbf_kernel(KRR_Model.X_fit_, gamma=KRR_Model.gamma))
-
-        # calculate the variance
-        variance = np.diag(K_test) - \
-                   np.diag(np.dot(K_traintest.T, np.dot(K_train_inv,
-                                                        K_traintest)))
-        if variance.ndim == 1:
-            variance = variance[:, np.newaxis]
+    # ------------------------
+    # Predictive Mean
+    # ------------------------
+    if not return_variance:
+        predictions = model.predict(x)
 
     return predictions, derivative, variance
 
@@ -422,9 +387,9 @@ def main():
     sample_sizes = 10000
     random_state = 123
     n_features = 50
-    n_jobs = 10
+    n_jobs = 4
     train_percent = 0.1
-    batch_size = 200
+    batch_size = 100
     calculate_variance = True
     calculate_derivative = True
 
@@ -451,9 +416,10 @@ def main():
     # ---------------------------
     # scikit learn implementation
     # ---------------------------
-
-    krr_model = KernelRidge(alpha=1e-04,
-                            gamma=np.mean(pdist(x_train, metric='euclidean')))
+    length_scale = np.mean(pdist(x_train, metric='euclidean'))
+    sigma_y = 1e-04
+    krr_model = KernelRidge(sigma_y=sigma_y,
+                            length_scale=length_scale)
 
     # fit model to data
     krr_model.fit(x_train, y_train)
@@ -465,13 +431,10 @@ def main():
 
     # predict using the naive krr model
     start = time()
-    # y_pred = krr_model.predict(x_test)[:, np.newaxis]
 
-    y_pred, der, var = krr_predictions(krr_model, x_test,
-                                       calculate_predictions=True,
-                                       calculate_derivative=calculate_derivative,
-                                       calculate_variance=calculate_variance,
-                                       K_train_inv=None)
+    y_pred, der, var = model_predictions(krr_model, x_test,
+                                         return_derivative=calculate_derivative,
+                                         return_variance=calculate_variance)
 
     naive_sk_time = time() - start
 
@@ -488,22 +451,21 @@ def main():
     # Prediction Times
     start = time()
 
-    ypred_batch, der_batch, var_batch = krr_batch(x=x_test,
-                            krr_model=krr_model,
+    ypred_batch, der_batch, var_batch = model_batch(x=x_test,
+                            model=krr_model,
                             batch_size=batch_size,
-                            calculate_predictions=True,
-                            calculate_variance=calculate_variance,
-                            calculate_derivative=calculate_derivative)
+                            return_variance=calculate_variance,
+                            return_derivative=calculate_derivative)
 
     sk_batch_time = time() - start
     print('Batch Predictions: {:.2f} secs'.format(sk_batch_time))
 
     error_batch = mean_absolute_error(y_test, ypred_batch)
 
-    np.testing.assert_equal(error, error_batch, 'Batch MSE Error are no equal')
-    np.testing.assert_array_equal(ypred_batch, y_pred, 'Batch Predictions are not equal...')
-    np.testing.assert_array_equal(var_batch, var, 'Batch Variances are not equal...')
-    np.testing.assert_array_equal(der_batch, der, 'Batch Derivatives are not equal...')
+    np.testing.assert_almost_equal(error, error_batch, err_msg='Batch MSE Error are no equal')
+    np.testing.assert_array_almost_equal(ypred_batch, y_pred, err_msg='Batch Predictions are not equal...')
+    np.testing.assert_array_almost_equal(var_batch, var, err_msg='Batch Variances are not equal...')
+    np.testing.assert_array_almost_equal(der_batch, der, err_msg='Batch Derivatives are not equal...')
 
     print('Speedup: x{:.2f}'.format(naive_sk_time / sk_batch_time))
 
@@ -511,27 +473,27 @@ def main():
     # MULTI-CORE BATCH PROCESSING (SKLEARN)
     # -------------------------------------
     print('\nPredicting using batches with {} cores...'.format(n_jobs))
+
     # Prediction Times
     start = time()
 
     ypred_mp, der_mp, var_mp = krr_parallel(x=x_test,
-                               krr_model=krr_model,
+                               model=krr_model,
                                n_jobs=n_jobs,
                                batch_size=batch_size,
-                               calculate_predictions=True,
-                               calculate_variance=calculate_variance,
-                               calculate_derivative=calculate_derivative,
-                               verbose=10)
+                               return_variance=calculate_variance,
+                               return_derivative=calculate_derivative,
+                               verbose=1)
 
     sk_batch_n_time = time() - start
     print('Batch {} jobs, Predictions: {:.2f} secs'.format(n_jobs, sk_batch_n_time))
 
     error_mp = mean_absolute_error(y_test, ypred_mp)
 
-    np.testing.assert_equal(error, error_mp, 'Batch Cores MSE Error are no equal')
-    np.testing.assert_array_equal(ypred_mp, y_pred, 'Batch Cores Predictions are not equal...')
-    np.testing.assert_array_equal(var_mp, var, 'Batch Cores Variances are not equal...')
-    np.testing.assert_array_equal(der_mp, der, 'Batch Cores Derivatives are not equal...')
+    np.testing.assert_almost_equal(error, error_mp, err_msg='Batch Cores MSE Error are no equal')
+    np.testing.assert_array_almost_equal(ypred_mp, y_pred, err_msg='Batch Cores Predictions are not equal...')
+    np.testing.assert_array_almost_equal(var_mp, var, err_msg='Batch Cores Variances are not equal...')
+    np.testing.assert_array_almost_equal(der_mp, der, err_msg='Batch Cores Derivatives are not equal...')
 
     print('Speedup (naive): x{:.2f}'.format(naive_sk_time / sk_batch_n_time))
     print('Speedup (batch): x{:.2f}'.format(sk_batch_time / sk_batch_n_time))

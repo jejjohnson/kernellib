@@ -2,6 +2,7 @@ import sys
 sys.path.insert(0, '/home/emmanuel/github_repos/kernellib/')
 
 import numpy as np 
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (WhiteKernel, RBF, ConstantKernel,
                                               _check_length_scale)
@@ -51,7 +52,7 @@ def fit_gp(x_train, y_train, kernel='ard', scale=None,
     return length_scale, sigma
 
 
-class GP_Simple(object):
+class GP_Simple(BaseEstimator, RegressorMixin):
     def __init__(self, length_scale=None, sigma_y=None, scale=None, kernel='ard',
                  x_covariance=None):
         self.length_scale = length_scale
@@ -89,7 +90,7 @@ class GP_Simple(object):
             raise ValueError('Unrecognized kernel function.')
         
         # add white noise kernel
-        L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(K_train.shape[0])) 
+        L = np.linalg.cholesky(K_train + self.sigma_y * np.eye(K_train.shape[0])) 
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
@@ -146,8 +147,9 @@ class GP_Simple(object):
         return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + K_test - np.dot(v.T, v))
 
 
-class GP_Derivative(object):
-    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
+class GP_Derivative(BaseEstimator, RegressorMixin):
+    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None, 
+                 variance_func='diag'):
         
         if isinstance(length_scale, float):
             self.length_scale = np.array([length_scale])
@@ -158,6 +160,7 @@ class GP_Derivative(object):
         self.x_covariance = np.asarray(x_covariance)
         self.sigma_y = sigma_y
         self.scale = scale
+        self.variance_func = variance_func
         
     def fit(self, x, y):
         
@@ -187,29 +190,18 @@ class GP_Derivative(object):
         # Calculate the training kernel (ARD)
         K_train = ard_kernel(x_train, length_scale=self.length_scale, scale=self.scale)
         
-        # calculate the derivative
-        derivative = self._calculate_derivative(x_train, y_train, K_train)
-        # calculate the diagonal elements
-        derivative_term = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
-#         derivative_term = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
-            
-        
         # add white noise kernel and diagonal derivative term 
-        L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(N=self.n_train) + derivative_term)
+        L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(N=self.n_train))
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-
-        
         
         # save variables
         self.x_train = x_train
         self.y_train = y_train
         self.K_ = K_train
         self.L_ = L
-        self.derivative_ = derivative
         self.weights_ = weights
-        
         
     def predict(self, x, return_std=False):
         
@@ -254,12 +246,24 @@ class GP_Derivative(object):
         
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        derivative = ard_derivative(self.x_train, x_test, 
-                                    weights=self.weights_, 
-                                    length_scale=self.length_scale)
-        derivative_diag = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
-        
-        return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + derivative_diag +  K_test - np.dot(v.T, v))
+        if self.variance_func == 'diag':
+
+            derivative = ard_derivative(self.x_train, x_test, 
+                                        weights=self.weights_, 
+                                        length_scale=self.length_scale)
+            derivative = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
+            
+            return self.sigma_y * np.diag(derivative +  K_test - np.dot(v.T, v))
+
+        else:
+
+            derivative = ard_derivative(self.x_train, x_test, 
+                                        weights=self.weights_, 
+                                        length_scale=self.length_scale)
+            
+            derivative = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
+
+            return self.sigma_y**2 + np.diag(derivative +  K_test - np.dot(v.T, v))
 
 
 class GP_Corrective(object):

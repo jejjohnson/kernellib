@@ -30,15 +30,16 @@ class KernelRidge(BaseEstimator, RegressorMixin):
     Parameters
     ----------
     length_Scale : float, optional(default=1.0)
-        the parameter for the kernel function.
+        the parameter for the kernel function which controls the 
+        gaussian window along for the kernel function.
         NOTE - gamma in scikit learn is defined as follows:
             gamma = 1 / (2 * sigma ^ 2)
 
     sigma_y : float, options(default=0.01)
-        the trade-off parameter between the mean squared error
-        and the regularization term.
+        The noise parameter estimate to control the variance of the estimates.
 
-        alpha = inv(K + lam * reg) * y
+    scale : float, (default = 1.0)
+        The constant scale parameter for the signal variance of the data.
 
     calculate_variance : bool, default=False
         The flag whether or not to calculate the derivative of the kernel
@@ -51,6 +52,7 @@ class KernelRidge(BaseEstimator, RegressorMixin):
 
     K_ : array, [N x N]
         the kernel matrix with sigma parameter
+    
     Information
     -----------
     Author : J. Emmanuel Johnson
@@ -58,8 +60,6 @@ class KernelRidge(BaseEstimator, RegressorMixin):
            : juan.johnson@uv.es
     Date   : 6 - July - 2018
     """
-
-
     def __init__(self, length_scale=1.0, sigma_y=0.01, scale=1.0, kernel='rbf'):
         self.length_scale = length_scale
         self.sigma_y = sigma_y
@@ -119,9 +119,10 @@ class KernelRidge(BaseEstimator, RegressorMixin):
         K_test = ard_kernel(x_test, length_scale=self.length_scale)
 
         if K_traintest is None:
-            K_traintest = ard_kernel(x_test, self.x_test, length_scale=self.length_scale)
+            K_traintest = ard_kernel(x_test, length_scale=self.length_scale)
 
         return self.sigma_y  + np.diag(K_test - np.dot(K_traintest.T, np.dot(self.K_inv_, K_traintest)))
+
 
 def main():
     """Example script to test the KRR function.

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
-from kernels import rbf_kernel
+from kernellib.kernels import rbf_kernel
 from sklearn.gaussian_process.kernels import (_check_length_scale)
 
 # TODO: Write tests for derivative functions, gradients
