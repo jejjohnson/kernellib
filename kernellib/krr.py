@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import pdist
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from kernellib.utils import estimate_sigma, get_grid_estimates
+# from kernellib.batch import kernel_model_batch
 from sklearn.utils import check_random_state
 import scipy as scio
 import matplotlib
