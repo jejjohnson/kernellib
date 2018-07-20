@@ -77,6 +77,26 @@ def estimate_sigma(X, Y=None, method='mean', verbose=0):
 
     return sigma
 
+def get_grid_estimates(x_train, method='mean', n_grid=20, gamma_grid=None):
+    
+    mean_length_scale = estimate_sigma(x_train, method=method)
+    
+    if gamma_grid == 'extra':
+        min_log = 0.0001
+        max_log = 1000
+    elif gamma_grid == 'fine':
+        min_log = 0.001
+        max_log = 100
+    else:
+        min_log = 0.01
+        max_log = 10
+        
+    length_scale_min = np.log10(mean_length_scale * min_log)
+    length_scale_max = np.log10(mean_length_scale * max_log)
+    length_scales = np.logspace(length_scale_min, length_scale_max, n_grid)
+    sigma_ys = np.logspace(-7, 0, n_grid)
+    
+    return length_scales, sigma_ys
 
 def main():
 
