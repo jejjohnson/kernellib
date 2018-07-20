@@ -151,7 +151,7 @@ def main():
     """
     # generate dataset
     random_state = 123
-    num_points = 1000
+    num_points = 2000
     x_data, y_data = get_sample_data(random_state=random_state,
                                      num_points=num_points)
 
@@ -169,21 +169,49 @@ def main():
     y_test -= y_mean
 
     # Estimate the parameters
-    length_scale = estimate_sigma(x_train, method='mean')
-    sigma_y = 0.01
+
     # initialize the kernel ridge regression model
-    krr_model = train_krr(x_train, y_train)
+    krr_model = train_krr(x_train, y_train, grid='extra')
 
-
-
-    # fit model to data
-    krr_model.fit(x_train, y_train.squeeze())
 
     # predict using the krr model
     y_pred= krr_model.predict(x_test)
 
-    error = mean_absolute_error(y_test, y_pred)
-    print('\nMean Absolute Error: {:.4f}\n'.format(error))
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    print('\nMean Absolute Error: {:.4f}\n'.format(mae))
+    print('\nMean Squared Error: {:.4f}\n'.format(mse))
+
+    # plot the results
+    fig, ax = plt.subplots()
+
+    # plot kernel model
+    ax.scatter(x_test, y_pred, color='k', label='KRR Model')
+
+    # plot data
+    ax.scatter(x_test, y_test, color='r', label='Data')
+
+    ax.legend(fontsize=14)
+    plt.tight_layout()
+    plt.title('Fitted Model')
+
+    plt.show()
+
+    # -------------------------------
+    # KRR with Cross Validation
+    # -------------------------------
+       # fit model to data
+    length_scale = estimate_sigma(x_train, method='mean')
+    sigma_y = 0.01
+    krr_model = KernelRidge(sigma=sigma_y, length_scale=length_scale, kernel='rbf')
+    krr_model.fit(x_train, y_train.squeeze())
+    # predict using the krr model
+    y_pred= krr_model.predict(x_test)
+
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    print('\nMean Absolute Error: {:.4f}\n'.format(mae))
+    print('\nMean Squared Error: {:.4f}\n'.format(mse))
 
     # plot the results
     fig, ax = plt.subplots()
