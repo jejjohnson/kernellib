@@ -94,16 +94,18 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
-        
+
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
+            
         # save variables
         self.x_train = x_train
         self.y_train = y_train
         self.K_ = K_train
         self.L_ = L
         self.weights_ = weights
-        
-        
-    def predict(self, x, return_std=False):
+            
+    def predict(self, x, return_variance=False):
         
         x_test = check_array(x)
         
@@ -117,7 +119,7 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         else:
             raise ValueError('Unrecognized kernel function.')
         
-        if not return_std:
+        if not return_variance:
             return K_traintest.dot(self.weights_)
         
         else:
@@ -130,7 +132,7 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         
         x_test = check_array(x)
         
-        K_test = ard_kernel(x_test, length_scale=self.length_scale)
+        K_test = np.diag(ard_kernel(x_test, length_scale=self.length_scale))
         
         if K_traintest is None:
             if self.kernel in ['rbf', 'ard']:
@@ -144,12 +146,11 @@ class GP_Simple(BaseEstimator, RegressorMixin):
         
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + K_test - np.dot(v.T, v))
-
+        return self.sigma_y + K_test - np.diag(np.dot(v.T, v))
 
 class GP_Derivative(BaseEstimator, RegressorMixin):
     def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None, 
-                 variance_func='diag'):
+                 variance_func='diagonal'):
         
         if isinstance(length_scale, float):
             self.length_scale = np.array([length_scale])
@@ -191,19 +192,43 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         K_train = ard_kernel(x_train, length_scale=self.length_scale, scale=self.scale)
         
         # add white noise kernel and diagonal derivative term 
-        L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(N=self.n_train))
+        L = np.linalg.cholesky(K_train + self.sigma_y * np.eye(N=self.n_train))
         
         # Calculate the weights
         weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
+            
+        # Calculate the derivative for the training points
+        if self.variance_func == 'diagonal':
+            derivative = ard_derivative(x_train, x_train, 
+                                        weights=weights, 
+                                        length_scale=self.length_scale)
+            derivative = np.diag(np.diag(
+                np.dot(derivative, np.dot(np.diag(self.x_covariance), derivative.T))))
+            
+        elif self.variance_func == 'full':
+            derivative = ard_derivative(x_train, x_train, 
+                                        weights=weights, 
+                                        length_scale=self.length_scale)
+            
+            derivative = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
+        else:
+            raise ValueError('Unrecognized variance function type.')
+        
+        # add white noise kernel
+        L_der = np.linalg.cholesky(K_train + self.sigma_y * np.eye(K_train.shape[0]) + derivative)
         
         # save variables
         self.x_train = x_train
         self.y_train = y_train
         self.K_ = K_train
         self.L_ = L
+        self.derivative = derivative
+        self.L_der_ = L_der
         self.weights_ = weights
         
-    def predict(self, x, return_std=False):
+    def predict(self, x, return_variance=False):
         
         x_test = check_array(x)
         
@@ -211,7 +236,7 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         K_traintest = ard_kernel(x_test, self.x_train,
                                  length_scale=self.length_scale)
         
-        if not return_std:
+        if not return_variance:
             return K_traintest.dot(self.weights_)
         
         else:
@@ -219,8 +244,138 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
             
             variance = self._calculate_variance(x_test, K_traintest)
             return predictions, variance
+         
+    def _calculate_derivative(self, x, y, K_train=None):
         
+        # Calculate the training Kernel (ARD)
+        if K_train is None:
+            K_train = ard_kernel(x, length_scale=self.length_scale, scale=self.scale)
+
+        # Calculate the weights for the initial kernel
+        L = np.linalg.cholesky(K_train + self.sigma_y * np.eye(self.n_train))
+        initial_weights = np.linalg.solve(L.T, np.linalg.solve(L, y))[:, np.newaxis]
+        
+        # Calculate the derivative  
+        return ard_derivative(x, x, weights=initial_weights, length_scale=self.length_scale)
+
+    def _calculate_variance(self, x, K_traintest=None):
+        
+        x_test = check_array(x)
+        
+        K_test = np.diag(ard_kernel(x_test, length_scale=self.length_scale))
+        
+        if K_traintest is None:
+            K_traintest = ard_kernel(x_test, self.x_train, length_scale=self.length_scale)
+        
+
+        
+        v = np.linalg.solve(self.L_der_, K_traintest.T)
+        
+        
+        # calculate the derivative for the testing points
+        derivative = ard_derivative(self.x_train, x_test, weights=self.weights_, 
+                                    length_scale=self.length_scale)
+        
+        derivative = np.diag(np.dot(derivative, np.dot(np.diag(self.x_covariance), derivative.T)))
+        
+        return self.sigma_y + derivative + K_test - np.diag(np.dot(v.T, v))
+
+class GP_Corrective(object):
+    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
+        self.length_scale = length_scale
+        self.x_covariance = x_covariance
+        self.sigma_y = sigma_y
+        self.scale = scale
+        
+    def fit(self, x, y):
+        
+        # check input dimensions
+        x_train, y_train = check_X_y(x, y)
+        
+        self.n_train, self.d_dim = x_train.shape
+        
+        
+        self.length_scale = _check_length_scale(x, self.length_scale)
+        self.x_covariance = _check_length_scale(x, self.x_covariance)
+        
+        if np.ndim(self.length_scale) == 0:
+            self.length_scale = np.array([self.length_scale])
+            
+        if np.ndim(self.x_covariance) == 0:
+            self.x_covariance = np.array([self.x_covariance])
+            
+        # check if length scale and sigma y are there
+        try:
+            if self.length_scale.any() is None or self.sigma_y is None:            
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        except:
+            if self.length_scale is None or self.sigma_y is None:
+                self.length_scale, self.sigma_y = fit_gp(x_train, y_train, n_restarts=0)
+        
+            
+        if self.scale is None:
+            self.scale = 1.0
+        
+        # --------------------
+        # Initial Weights
+        # --------------------
+        
+        # Calculate the training Kernel (ARD)
+        K_train = ard_kernel(x_train, length_scale=self.length_scale, scale=self.scale)
+        
+        # add white noise kernel and diagonal derivative term 
+        L = np.linalg.cholesky(K_train + self.sigma_y * np.eye(N=self.n_train)) 
+        
+        
+        # Calculate the weights
+        init_weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
+        if init_weights.ndim == 1:
+            init_weights = init_weights[:, np.newaxis]
+        
+        # Calculate some initial weights
+        derivative = ard_derivative(x_train, x_train,  weights=init_weights, 
+                                    length_scale=self.length_scale)
+        derivative = np.diag(np.diag(
+            np.dot(derivative, np.dot(np.diag(self.x_covariance), derivative.T))))
+        
+        # ----------------------
+        # Final Weights
+        # ----------------------
+        L = np.linalg.cholesky(K_train + self.sigma_y * np.eye(N=self.n_train) + derivative) 
+                    
+        # Calculate the weights
+        weights = np.linalg.solve(L.T, np.linalg.solve(L, y_train))
+        
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
+        
+        # save variables
+        self.x_train = x_train
+        self.y_train = y_train
+        self.K_ = K_train
+        self.L_ = L
+        self.derivative_ = derivative
+        self.weights_ = weights
+        
+        return self
     
+    def predict(self, x, return_variance=False):
+        
+        x_test = check_array(x)
+        
+        # Calculate the weights
+        K_traintest = ard_kernel(x_test, self.x_train,
+                                 length_scale=self.length_scale)
+        
+        if not return_variance:
+            return K_traintest.dot(self.weights_)
+        
+        else:
+            predictions = K_traintest.dot(self.weights_)
+            
+            variance = self._calculate_variance(x_test, K_traintest)
+            return predictions, variance
+           
     def _calculate_derivative(self, x, y, K_train=None):
         
         # Calculate the training Kernel (ARD)
@@ -230,43 +385,35 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         # Calculate the weights for the initial kernel
         L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(self.n_train))
         initial_weights = np.linalg.solve(L.T, np.linalg.solve(L, y))[:, np.newaxis]
+        self.der_weights_ = initial_weights
         
-        # Calculate the derivative  
+        # Calculate the derivative        
         return ard_derivative(x, x, weights=initial_weights, length_scale=self.length_scale)
-
     
     def _calculate_variance(self, x, K_traintest=None):
         
         x_test = check_array(x)
         
-        K_test = ard_kernel(x_test, length_scale=self.length_scale)
+        K_test = np.diag(ard_kernel(x_test, length_scale=self.length_scale))
         
         if K_traintest is None:
             K_traintest = ard_kernel(x_test, self.x_train, length_scale=self.length_scale)
         
+
+        
         v = np.linalg.solve(self.L_, K_traintest.T)
         
-        if self.variance_func == 'diag':
+        
+        # calculate the derivative for the testing points
+        derivative = ard_derivative(self.x_train, x_test, weights=self.weights_, 
+                                    length_scale=self.length_scale)
+        
+        derivative = np.diag(np.dot(derivative, np.dot(np.diag(self.x_covariance), derivative.T)))
+        
+        return self.sigma_y + derivative + K_test - np.diag(np.dot(v.T, v))
 
-            derivative = ard_derivative(self.x_train, x_test, 
-                                        weights=self.weights_, 
-                                        length_scale=self.length_scale)
-            derivative = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
-            
-            return self.sigma_y * np.diag(derivative +  K_test - np.dot(v.T, v))
-
-        else:
-
-            derivative = ard_derivative(self.x_train, x_test, 
-                                        weights=self.weights_, 
-                                        length_scale=self.length_scale)
-            
-            derivative = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
-
-            return self.sigma_y**2 + np.diag(derivative +  K_test - np.dot(v.T, v))
-
-
-class GP_Corrective(object):
+        
+class GP_DCorrective(object):
     def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
         self.length_scale = length_scale
         self.x_covariance = x_covariance
