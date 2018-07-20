@@ -223,8 +223,11 @@ def gp_model_predictions(gp_model, x,
     # --------------------
     if return_variance:
         predictions, variance = gp_model.predict(x, return_std=True)
-        predictions = predictions[:, np.newaxis]
-        variance = variance[:, np.newaxis]
+        if np.ndim(predictions) == 1:
+
+            predictions = predictions[:, np.newaxis]
+        if np.ndim(variance) == 1:
+            variance = variance[:, np.newaxis]
     
     # --------------------
     # Derivatives
@@ -241,7 +244,9 @@ def gp_model_predictions(gp_model, x,
     # Predictive Mean
     # ----------------
     if not return_variance:
-        predictions = gp_model.predict(x)[:, np.newaxis]
+        predictions = gp_model.predict(x)
+        if np.ndim(predictions) == 1:
+            predictions = predictions[:, np.newaxis]
     return predictions, derivative, variance
 
 
