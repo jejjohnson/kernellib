@@ -1,7 +1,4 @@
-import sys
-sys.path.insert(0, '/home/emmanuel/github_repos/kernellib/')
-
-import numpy as np 
+import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (WhiteKernel, RBF, ConstantKernel,
@@ -15,10 +12,8 @@ from kernellib.derivatives import rbf_derivative, ard_derivative
 
 
 
-def fit_gp(x_train, y_train, kernel='ard', scale=None,
-           length_scale_bounds = (0.001, 100),
-           noise_level_bounds = (1e-4, 10),
-           n_restarts=3):
+def fit_gp(x_train, y_train, kernel='ard', scale=None, length_scale_bounds = (0.001, 100),
+           noise_level_bounds = (1e-4, 10), n_restarts=3):
     
     warnings.simplefilter('ignore')
     x_train, y_train = check_X_y(x_train, y_train)
