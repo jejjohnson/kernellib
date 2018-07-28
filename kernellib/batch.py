@@ -67,11 +67,9 @@ def generate_batches(n_samples, batch_size):
         yield start_index, n_samples
 
 
-def kernel_model_batch(x, kernel_model, batch_size=1000, return_variance=None,
-                       return_derivative=None):
-    predictions = None
-    derivative = None
-    variance = None
+def kernel_model_batch(x, kernel_model, batch_size=1000, return_variance=False,
+                       return_derivative=False):
+
     # initialize the predicted values
     n_samples = x.shape[0]
 
@@ -164,7 +162,7 @@ def kernel_model_predictions(kernel_model, x, return_derivative=False,
     # Derivative
     # ---------------------------------
     if return_derivative:
-        derivative = ard_derivative(x_train=kernel_model.X_fit_,
+        derivative = ard_derivative(x_train=kernel_model.x_train,
                                     x_test=x,
                                     weights=kernel_model.weights_,
                                     length_scale=kernel_model.length_scale,
@@ -225,11 +223,8 @@ def gp_model_predictions(gp_model, x,
     # --------------------
     if return_variance:
         predictions, variance = gp_model.predict(x, return_std=True)
-        if np.ndim(predictions) == 1:
-
-            predictions = predictions[:, np.newaxis]
-        if np.ndim(variance) == 1:
-            variance = variance[:, np.newaxis]
+        predictions = predictions[:, np.newaxis]
+        variance = variance[:, np.newaxis]
     
     # --------------------
     # Derivatives
@@ -246,9 +241,7 @@ def gp_model_predictions(gp_model, x,
     # Predictive Mean
     # ----------------
     if not return_variance:
-        predictions = gp_model.predict(x)
-        if np.ndim(predictions) == 1:
-            predictions = predictions[:, np.newaxis]
+        predictions = gp_model.predict(x)[:, np.newaxis]
     return predictions, derivative, variance
 
 
@@ -383,7 +376,6 @@ def times_multi_exp():
 
     return None
 
-
 def gp_test():
     print('Starting main script...')
 
@@ -503,17 +495,16 @@ def gp_test():
 
     return None
 
-
 def krr_test():
     print('Starting main script...')
 
-    sample_sizes = 50000
+    sample_sizes = 10000
     random_state = 123
     n_features = 50
     n_jobs = 4
     train_percent = 0.1
-    batch_size = 1000
-    calculate_variance = False
+    batch_size = 500
+    calculate_variance = True
     calculate_derivative = True
 
     print('Calculating variance: {}'.format(str(calculate_variance)))
@@ -541,7 +532,7 @@ def krr_test():
     # My KRR implementation
     # ---------------------------
 
-    krr_model = KernelRidge(sigma=sigma_y,
+    krr_model = KernelRidge(sigma_y=sigma_y,
                             length_scale=length_scale)
 
     # fit model to data
@@ -555,7 +546,7 @@ def krr_test():
     # predict using the naive krr model
     start = time()
 
-    y_pred, der, _ = kernel_model_predictions(krr_model, x_test,
+    y_pred, der, var = kernel_model_predictions(krr_model, x_test,
                                          return_derivative=calculate_derivative,
                                          return_variance=calculate_variance)
 
@@ -574,7 +565,7 @@ def krr_test():
     # Prediction Times
     start = time()
 
-    ypred_batch, der_batch, _ = kernel_model_batch(x=x_test,
+    ypred_batch, der_batch, var_batch = kernel_model_batch(x=x_test,
                             kernel_model=krr_model,
                             batch_size=batch_size,
                             return_variance=calculate_variance,
@@ -587,7 +578,7 @@ def krr_test():
 
     np.testing.assert_almost_equal(error, error_batch, err_msg='Batch MSE Error are no equal')
     np.testing.assert_array_almost_equal(ypred_batch, y_pred, err_msg='Batch Predictions are not equal...')
-    # np.testing.assert_array_almost_equal(var_batch, var, err_msg='Batch Variances are not equal...')
+    np.testing.assert_array_almost_equal(var_batch, var, err_msg='Batch Variances are not equal...')
     np.testing.assert_array_almost_equal(der_batch, der, err_msg='Batch Derivatives are not equal...')
 
     print('Speedup: x{:.2f}'.format(naive_sk_time / sk_batch_time))
@@ -600,7 +591,7 @@ def krr_test():
     # Prediction Times
     start = time()
 
-    ypred_mp, der_mp, _ = kernel_model_parallel(x=x_test,
+    ypred_mp, der_mp, var_mp = kernel_model_parallel(x=x_test,
                                kernel_model=krr_model,
                                n_jobs=n_jobs,
                                batch_size=batch_size,
@@ -615,7 +606,7 @@ def krr_test():
 
     np.testing.assert_almost_equal(error, error_mp, err_msg='Batch Cores MSE Error are no equal')
     np.testing.assert_array_almost_equal(ypred_mp, y_pred, err_msg='Batch Cores Predictions are not equal...')
-    # np.testing.assert_array_almost_equal(var_mp, var, err_msg='Batch Cores Variances are not equal...')
+    np.testing.assert_array_almost_equal(var_mp, var, err_msg='Batch Cores Variances are not equal...')
     np.testing.assert_array_almost_equal(der_mp, der, err_msg='Batch Cores Derivatives are not equal...')
 
     print('Speedup (naive): x{:.2f}'.format(naive_sk_time / sk_batch_n_time))
@@ -623,11 +614,10 @@ def krr_test():
 
     return None
 
-
 def main():
 
-    krr_test()
-    # gp_test()
+    # krr_test()
+    gp_test()
 
     return None
 

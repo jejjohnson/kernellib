@@ -2,15 +2,15 @@ import numpy as np
 from time import time
 import warnings
 from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics.pairwise import rbf_kernel
 from kernellib.kernels import ard_kernel
 from sklearn.utils import check_array, check_X_y, check_random_state
-from sklearn.utils.validation import check_is_fitted
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import pdist
+from scipy.linalg import cho_factor, cho_solve
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
-from kernellib.utils import estimate_sigma, get_grid_estimates
-# from kernellib.batch import kernel_model_batch
+from kernellib.utils import estimate_sigma
 from sklearn.utils import check_random_state
 import scipy as scio
 import matplotlib
@@ -60,99 +60,76 @@ class KernelRidge(BaseEstimator, RegressorMixin):
            : juan.johnson@uv.es
     Date   : 6 - July - 2018
     """
-    def __init__(self, length_scale=1.0, sigma=0.01, scale=1.0, kernel='rbf'):
+    def __init__(self, length_scale=1.0, sigma_y=0.01, scale=1.0, kernel='rbf'):
         self.length_scale = length_scale
-        self.sigma = sigma
+        self.sigma_y = sigma_y
         self.scale = scale
         self.kernel = kernel
 
     def fit(self, x, y=None):
         
         # check the input data
-        X, y = check_X_y(x, y, multi_output=True,
-                         y_numeric=True)
+        x_train, y_train = check_X_y(x, y)
 
-        if len(y.shape) == 1:
-            y = y.reshape(-1, 1)
-            ravel = True
-        
         # check input dimensions
-        self.n_train, self.d_dim = X.shape
-
-        #
-        self.sigma = np.atleast_1d(self.sigma)
+        self.n_train, self.d_dim = x_train.shape
 
         # calculate kernel function
-        K_train = ard_kernel(X, length_scale=self.length_scale, scale=self.scale)
+        self.x_train = x
+        K_train = ard_kernel(self.x_train, length_scale=self.length_scale)
 
         # Solve for the weights
-        weights = _solve_cholesky_kernel(K_train, y, self.sigma)
+        K_train_inv = np.linalg.inv(K_train + self.sigma_y * np.eye(N=x_train.shape[0]))
 
-        self.X_fit_ = X
+        try:
+            weights = np.dot(K_train_inv, y)
+        except:
+            weights = _solve_cholesky_kernel(K_train, y, self.sigma_y)
+
+        # make sure weights is a 2d array
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
+
         self.K_ = K_train
+        self.K_inv_ = K_train_inv
         self.weights_ = weights
 
         return self
 
-    def predict(self, X, return_variance=False):
-
-        check_is_fitted(self, ["X_fit_", "weights_"])
+    def predict(self, x, return_variance=False):
 
         # check inputs
-        X = check_array(X)
+        x_test = check_array(x)
 
         # calculate the kernel function with new points
-        K_traintest = ard_kernel(x=self.X_fit_, y=X, length_scale=self.length_scale)
+        K_traintest = ard_kernel(x=self.x_train, y=x, length_scale=self.length_scale)
 
-        return np.dot(K_traintest.T, self.weights_)
+        if not return_variance:
+            return np.dot(K_traintest.T, self.weights_)
 
+        else:
+            predictions = np.dot(K_traintest.T, self.weights_)
 
-def train_krr(X, Y, seed=0, grid=None):
+            return predictions, self._calculate_variance(x_test, K_traintest)
 
-    # Split data into training and validation
-    x_train, x_test, y_train, y_test = train_test_split(X, Y, train_size=0.33,
-                                                        random_state=seed)
-    
-    # Get length scale and sigma y values to check
-    length_scales, sigma_ys = get_grid_estimates(X, method='mean', n_grid=20, gamma_grid='extra')
-    
-    
-    
-    rmse = np.inf
-    best_length_scale = 0
-    best_sigma_y = 0
-    
-    for ilength_scale in length_scales:
-        
-        Ktrain = ard_kernel(x_train, length_scale=ilength_scale)
-        Ktest = ard_kernel(x_test, x_train, length_scale=ilength_scale)
-        
-        for isigma in sigma_ys:
-            
-            # Train
-            weights = _solve_cholesky_kernel(Ktrain, y_train, isigma)
-            
-            # Validate
-            y_pred = np.dot(Ktest, weights)
-            
-            # check results
-            residuals = mean_squared_error(y_pred, y_test)
-            
-            if residuals < rmse:
-                best_length_scale = ilength_scale
-                best_sigma = isigma
-                
-    krr_model = KernelRidge(kernel='rbf', length_scale=best_length_scale, sigma=best_sigma)
-    krr_model.fit(X, Y)
-    
-    return krr_model
+    def _calculate_variance(self, x, K_traintest=None):
+
+        x_test = check_array(x)
+
+        K_test = ard_kernel(x_test, length_scale=self.length_scale)
+
+        if K_traintest is None:
+            K_traintest = ard_kernel(x_test, length_scale=self.length_scale)
+
+        return self.sigma_y  + np.diag(K_test - np.dot(K_traintest.T, np.dot(self.K_inv_, K_traintest)))
+
 
 def main():
     """Example script to test the KRR function.
     """
     # generate dataset
     random_state = 123
-    num_points = 2000
+    num_points = 1000
     x_data, y_data = get_sample_data(random_state=random_state,
                                      num_points=num_points)
 
@@ -170,49 +147,21 @@ def main():
     y_test -= y_mean
 
     # Estimate the parameters
-
-    # initialize the kernel ridge regression model
-    krr_model = train_krr(x_train, y_train, grid='extra')
-
-
-    # predict using the krr model
-    y_pred= krr_model.predict(x_test)
-
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    print('\nMean Absolute Error: {:.4f}\n'.format(mae))
-    print('\nMean Squared Error: {:.4f}\n'.format(mse))
-
-    # plot the results
-    fig, ax = plt.subplots()
-
-    # plot kernel model
-    ax.scatter(x_test, y_pred, color='k', label='KRR Model')
-
-    # plot data
-    ax.scatter(x_test, y_test, color='r', label='Data')
-
-    ax.legend(fontsize=14)
-    plt.tight_layout()
-    plt.title('Fitted Model')
-
-    plt.show()
-
-    # -------------------------------
-    # KRR with Cross Validation
-    # -------------------------------
-       # fit model to data
     length_scale = estimate_sigma(x_train, method='mean')
     sigma_y = 0.01
-    krr_model = KernelRidge(sigma=sigma_y, length_scale=length_scale, kernel='rbf')
-    krr_model.fit(x_train, y_train.squeeze())
-    # predict using the krr model
-    y_pred= krr_model.predict(x_test)
+    # initialize the kernel ridge regression model
+    krr_model = KernelRidge(length_scale=length_scale, sigma_y=sigma_y)
 
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    print('\nMean Absolute Error: {:.4f}\n'.format(mae))
-    print('\nMean Squared Error: {:.4f}\n'.format(mse))
+
+
+    # fit model to data
+    krr_model.fit(x_train, y_train.squeeze())
+
+    # predict using the krr model
+    y_pred, var = krr_model.predict(x_test, return_variance=True)
+
+    error = mean_absolute_error(y_test, y_pred)
+    print('\nMean Absolute Error: {:.4f}\n'.format(error))
 
     # plot the results
     fig, ax = plt.subplots()
