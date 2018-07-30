@@ -4,12 +4,13 @@ import warnings
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics.pairwise import rbf_kernel
-from kernels import ard_kernel
+from kernellib.kernels import ard_kernel
+from sklearn.utils import check_array, check_X_y, check_random_state
 from sklearn.model_selection import train_test_split
 from scipy.spatial.distance import pdist
 from scipy.linalg import cho_factor, cho_solve
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
-from utils import estimate_sigma
+from kernellib.utils import estimate_sigma
 from sklearn.utils import check_random_state
 import scipy as scio
 import matplotlib
@@ -20,25 +21,25 @@ from matplotlib import pyplot as plt
 # TODO - Test Variance
 
 
-class KRR(BaseEstimator, RegressorMixin):
-    """Kernel Ridge Regression with different regularizers.
-    An implementation of KRR algorithm with different
-    regularization parameters (weights, 1st derivative and the
-    2nd derivative). Used the scikit-learn class system for demonstration
-    purposes.
+class KernelRidge(BaseEstimator, RegressorMixin):
+    """A simple Kernel Ridge Regression Algorithm. It is based off of
+    the scikit-learn implementation and it uses the  scikit-learn 
+    base/regression estimator system to gain access to the gridsearch
+    features.
 
     Parameters
     ----------
-    sigma : float, optional(default=None)
-        the parameter for the kernel function.
+    length_Scale : float, optional(default=1.0)
+        the parameter for the kernel function which controls the 
+        gaussian window along for the kernel function.
         NOTE - gamma in scikit learn is defined as follows:
             gamma = 1 / (2 * sigma ^ 2)
 
-    lam : float, options(default=None)
-        the trade-off parameter between the mean squared error
-        and the regularization term.
+    sigma_y : float, options(default=0.01)
+        The noise parameter estimate to control the variance of the estimates.
 
-        alpha = inv(K + lam * reg) * y
+    scale : float, (default = 1.0)
+        The constant scale parameter for the signal variance of the data.
 
     calculate_variance : bool, default=False
         The flag whether or not to calculate the derivative of the kernel
@@ -51,6 +52,7 @@ class KRR(BaseEstimator, RegressorMixin):
 
     K_ : array, [N x N]
         the kernel matrix with sigma parameter
+    
     Information
     -----------
     Author : J. Emmanuel Johnson
@@ -58,61 +60,68 @@ class KRR(BaseEstimator, RegressorMixin):
            : juan.johnson@uv.es
     Date   : 6 - July - 2018
     """
-
-
-    def __init__(self, sigma=None, lam=None):
-        self.sigma = sigma
-        self.lam = lam
+    def __init__(self, length_scale=1.0, sigma_y=0.01, scale=1.0, kernel='rbf'):
+        self.length_scale = length_scale
+        self.sigma_y = sigma_y
+        self.scale = scale
+        self.kernel = kernel
 
     def fit(self, x, y=None):
+        
+        # check the input data
+        x_train, y_train = check_X_y(x, y)
 
-        # regularization trade off parameter
-        if self.lam is None:
-
-            # common heuristic for minimizing the lambda value
-            self.lam = 1.0e-4
-
-        # kernel length scale parameter
-        if self.sigma is None:
-
-            # common heuristic for finding the sigma value
-            self.sigma = estimate_sigma(x, method='mean')
+        # check input dimensions
+        self.n_train, self.d_dim = x_train.shape
 
         # calculate kernel function
-        self.X_fit_ = x
-        self.K_ = ard_kernel(self.X_fit_, y=self.X_fit_, length_scale=self.sigma)
+        self.x_train = x
+        K_train = ard_kernel(self.x_train, length_scale=self.length_scale)
 
         # Solve for the weights
-        self.weights_ = _solve_cholesky_kernel(self.K_, y, self.lam)
+        K_train_inv = np.linalg.inv(K_train + self.sigma_y * np.eye(N=x_train.shape[0]))
+
+        try:
+            weights = np.dot(K_train_inv, y)
+        except:
+            weights = _solve_cholesky_kernel(K_train, y, self.sigma_y)
 
         # make sure weights is a 2d array
-        if self.weights_.ndim == 1:
-            self.weights_ = self.weights_[:, np.newaxis]
+        if weights.ndim == 1:
+            weights = weights[:, np.newaxis]
+
+        self.K_ = K_train
+        self.K_inv_ = K_train_inv
+        self.weights_ = weights
 
         return self
 
     def predict(self, x, return_variance=False):
 
+        # check inputs
+        x_test = check_array(x)
+
         # calculate the kernel function with new points
-        K_traintest = ard_kernel(x=self.X_fit_, y=x, length_scale=self.sigma)
+        K_traintest = ard_kernel(x=self.x_train, y=x, length_scale=self.length_scale)
 
-        # calculate the predictions
-        predictions = np.dot(K_traintest.T, self.weights_)
+        if not return_variance:
+            return np.dot(K_traintest.T, self.weights_)
 
-        # calculate the variance
-        if return_variance:
-            K_test = ard_kernel(x, length_scale=self.sigma)
-            self.K_inverse_ = np.linalg.inv(self.K_)
+        else:
+            predictions = np.dot(K_traintest.T, self.weights_)
 
+            return predictions, self._calculate_variance(x_test, K_traintest)
 
-            self.variance_ = np.diag(K_test) - \
-                             np.diag(
-                                 np.dot(K_traintest.T,
-                                        np.dot(self.K_inverse_,
-                                               K_traintest)))
+    def _calculate_variance(self, x, K_traintest=None):
 
-        # return the project points
-        return predictions
+        x_test = check_array(x)
+
+        K_test = ard_kernel(x_test, length_scale=self.length_scale)
+
+        if K_traintest is None:
+            K_traintest = ard_kernel(x_test, length_scale=self.length_scale)
+
+        return self.sigma_y  + np.diag(K_test - np.dot(K_traintest.T, np.dot(self.K_inv_, K_traintest)))
 
 
 def main():
@@ -137,14 +146,19 @@ def main():
     y_train -= y_mean
     y_test -= y_mean
 
+    # Estimate the parameters
+    length_scale = estimate_sigma(x_train, method='mean')
+    sigma_y = 0.01
     # initialize the kernel ridge regression model
-    krr_model = KRR()
+    krr_model = KernelRidge(length_scale=length_scale, sigma_y=sigma_y)
+
+
 
     # fit model to data
-    krr_model.fit(x_train, y_train)
+    krr_model.fit(x_train, y_train.squeeze())
 
     # predict using the krr model
-    y_pred = krr_model.predict(x_test)
+    y_pred, var = krr_model.predict(x_test, return_variance=True)
 
     error = mean_absolute_error(y_test, y_pred)
     print('\nMean Absolute Error: {:.4f}\n'.format(error))
@@ -161,7 +175,6 @@ def main():
     ax.legend(fontsize=14)
     plt.tight_layout()
     plt.title('Fitted Model')
-
     plt.show()
 
     return None
