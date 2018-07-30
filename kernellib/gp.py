@@ -7,10 +7,12 @@ from sklearn.gaussian_process.kernels import (WhiteKernel, RBF, ConstantKernel,
                                               _check_length_scale)
 from sklearn.utils import check_array, check_X_y, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.base import BaseEstimator, RegressorMixin
 import warnings
 from kernellib.kernels import (rbf_kernel, calculate_q_numba,
                                ard_kernel, ard_kernel_weighted)
 from kernellib.derivatives import rbf_derivative, ard_derivative
+
 
 
 
@@ -51,7 +53,7 @@ def fit_gp(x_train, y_train, kernel='ard', scale=None,
     return length_scale, sigma
 
 
-class GP_Simple(object):
+class GP_Simple(BaseEstimator, RegressorMixin):
     def __init__(self, length_scale=None, sigma_y=None, scale=None, kernel='ard',
                  x_covariance=None):
         self.length_scale = length_scale
@@ -146,8 +148,8 @@ class GP_Simple(object):
         return np.diag(self.sigma_y*np.eye(N=x_test.shape[0]) + K_test - np.dot(v.T, v))
 
 
-class GP_Derivative(object):
-    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None):
+class GP_Derivative(BaseEstimator, RegressorMixin):
+    def __init__(self, length_scale=None, x_covariance=1.0, sigma_y=None, scale=None, cov='diag'):
         
         if isinstance(length_scale, float):
             self.length_scale = np.array([length_scale])
@@ -158,6 +160,7 @@ class GP_Derivative(object):
         self.x_covariance = np.asarray(x_covariance)
         self.sigma_y = sigma_y
         self.scale = scale
+        self.cov = cov
         
     def fit(self, x, y):
         
@@ -190,9 +193,11 @@ class GP_Derivative(object):
         # calculate the derivative
         derivative = self._calculate_derivative(x_train, y_train, K_train)
         # calculate the diagonal elements
-        derivative_term = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
-#         derivative_term = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
-            
+        if self.cov == 'full':
+            derivative_term = derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)
+        else:
+            derivative_term = np.diag(np.diag(derivative.dot(np.diag(self.x_covariance)).dot(derivative.T)))
+        
         
         # add white noise kernel and diagonal derivative term 
         L = np.linalg.cholesky(K_train + self.sigma_y**2 * np.eye(N=self.n_train) + derivative_term)
@@ -209,8 +214,7 @@ class GP_Derivative(object):
         self.L_ = L
         self.derivative_ = derivative
         self.weights_ = weights
-        
-        
+            
     def predict(self, x, return_std=False):
         
         x_test = check_array(x)
@@ -226,8 +230,7 @@ class GP_Derivative(object):
             predictions = K_traintest.dot(self.weights_)
             
             variance = self._calculate_variance(x_test, K_traintest)
-            return predictions, variance
-        
+            return predictions, variance      
     
     def _calculate_derivative(self, x, y, K_train=None):
         
@@ -242,7 +245,6 @@ class GP_Derivative(object):
         # Calculate the derivative  
         return ard_derivative(x, x, weights=initial_weights, length_scale=self.length_scale)
 
-    
     def _calculate_variance(self, x, K_traintest=None):
         
         x_test = check_array(x)
