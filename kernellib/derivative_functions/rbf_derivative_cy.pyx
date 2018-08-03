@@ -48,6 +48,7 @@ def rbf_derivative(np.float64_t[:, :] x_train,
     Author: Juan Emmanuel Johnson
     Email : jej2744@rit.edu
             juan.johnson@uv.es
+    Date  : October, 2017
     """
     cdef int d_dimensions = x_function.shape[1]
     cdef int n_test = x_function.shape[0]
