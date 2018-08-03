@@ -2,27 +2,28 @@ import numpy as np
 from time import time
 from scipy.spatial.distance import pdist
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
-from sklearn.kernel_approximation import Nystroem, RBFSampler
+from sklearn.kernel_approximation import RBFSampler
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.metrics import mean_squared_error, pairwise_kernels
 from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from sklearn.utils import check_array, check_random_state
 from sklearn.exceptions import NotFittedError
-from sklearn.random_projection import GaussianRandomProjection
-from nystrom import KRRNystrom
+from kernellib.nystrom import KRRNystrom
 
-# TODO - Documentation
+# TODO - More Complete Documentation
 # TODO - Speed Experiment
 # TODO - Merge RFF and RBFSampler into 1 class
 # TODO - Add other kernels
 # TODO - Add not fitted exception (sklearn.exceptions, NotFittedError)
 # TODO - Complete RFF Class
 
+
 class KRRRFF(BaseEstimator, RegressorMixin):
-    def __init__(self, lam=1e-3, sigma=None, n_components=100, projection='cos',
-                 random_state=None):
-        self.lam = lam
-        self.sigma = sigma
+    def __init__(self, sigma_y=1e-3, length_scale=None, kernel='rbf', n_components=100, 
+                 projection='cos', random_state=None):
+        self.sigma_y = sigma_y
+        self.length_scale = length_scale
+        self.kernel = kernel
         self.n_components = n_components
         self.projection = projection
         self.random_state = random_state
@@ -34,10 +35,10 @@ class KRRRFF(BaseEstimator, RegressorMixin):
         X = check_array(X)
 
         # kernel length scale parameter
-        if self.sigma is None:
+        if self.length_scale is None:
 
             # common heuristic for finding the sigma value
-            self.sigma = np.mean(pdist(X, metric='euclidean'))
+            self.length_scale = estimate_sigma(X)
 
         rnd = check_random_state(self.random_state)
         n_dimensions = X.shape[1]
@@ -47,22 +48,22 @@ class KRRRFF(BaseEstimator, RegressorMixin):
         # L = np.exp(1j * X.dot(self.rand_mat_.T))
 
         # Get the RFF transformation
-        self.rff = RFF(n_components=self.n_components, sigma=self.sigma,
+        self.rff = RFF(n_components=self.n_components, length_scale=self.length_scale,
                        projection=self.projection, random_state=self.random_state)
 
         L = self.rff.fit_transform(X)
 
         # Solve the kernel matrix
         rhs = L.T.dot(y)
-        lhs = self.lam  * np.eye(L.shape[1]) + L.T.dot(L)
-        self.weights_ = _solve_cholesky_kernel(lhs, rhs, self.lam)
+        lhs = self.sigma_y  * np.eye(L.shape[1]) + L.T.dot(L)
+        self.weights_ = _solve_cholesky_kernel(lhs, rhs, self.sigma_y)
 
-        self.X_fit_ = X
+        self.x_train = X
 
         return self
 
     def predict(self, X):
-        
+
         # L = np.exp(1j * X.dot(self.rand_mat_.T))
         # return np.real(np.dot(L, self.weights_))
 
@@ -70,34 +71,32 @@ class KRRRFF(BaseEstimator, RegressorMixin):
 
         return np.dot(L, self.weights_)
 
-
 class RFF(BaseEstimator, TransformerMixin):
     """Randomized Fourier Feature Algorithm.
-    
-    
+
+
     Resources:
     https://github.com/hichamjanati/srf
     """
-    def __init__(self, sigma=None, n_components=50, 
-                 random_state=None, projection='cos'):
-        self.sigma = sigma
+    def __init__(self, length_scale=None, n_components=50, random_state=None, projection='exp'):
+        self.length_scale = length_scale
         self.n_components = n_components
         self.random_state = random_state
         self.projection = projection
-    
+
     def fit(self, X, y=None):
         """Generates MonteCarlo Random Samples"""
         n_dims = X.shape[1]
-        
+
         rnd = check_random_state(self.random_state)
 
         # Generate n_components iid samples from p(w)
         if self.projection in ['cos', 'cosine']:
-            self.W = np.sqrt(1/self.sigma) * rnd.normal(size=(self.n_components, n_dims))
+            self.W = np.sqrt(self.length_scale) * rnd.normal(size=(self.n_components, n_dims))
             # generate n_components from Uniform (0, 2*pi)
             self.u = 2*np.pi*rnd.rand(self.n_components)
         elif self.projection in ['exp']:
-            self.W = (1/self.sigma) * rnd.randn(self.n_components, n_dims)
+            self.W = (self.length_scale) * rnd.randn(self.n_components, n_dims)
 
         self.fitted = True
 
@@ -105,12 +104,12 @@ class RFF(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         """Transforms the data to the new map space.
-        
+
         Parameters
         ----------
         X : array, (nsamples x n features)
-        
-        Returns 
+
+        Returns
         -------
         Z(X) : array, (n samples x n components)
         """
@@ -203,8 +202,10 @@ def generate_data(n_train_samples=1e4, n_test_samples=1e4, random_state=None):
 
     return x_train, x_test, y_train, y_test
 
+
 def main():
 
+    print('Starting Demo...')
     random_state = 123      # reproducibility
 
     x_train, x_test, y_train, y_test = generate_data(random_state=random_state)
@@ -212,17 +213,18 @@ def main():
     # Experimental Parameters
     n_components = 100          # number of sample components to keep
     k_rank = 50                 # rank of the matrix for rsvd
-    lam = 1e-3                  # regularization parameter
+    sigma_y = 1e-3                  # regularization parameter
     kernel = 'rbf'              # rbf kernel matrix
-    sigma = np.mean(pdist(x_train, metric='euclidean'))
-    gamma = 1 / (2 * sigma**2)  # length scale for rbf kernel
+    length_scale = np.mean(pdist(x_train, metric='euclidean'))
+    gamma = 1 / (length_scale**2)  # length scale for rbf kernel
 
     # -----------------------------
     # KRR RRF Approximation
     # -----------------------------
+    print('\nRunning KRR with Random Fourier Features Approximation ...\n')
     t0 = time()
 
-    krr_rff = KRRRFF(lam=lam, sigma=sigma,
+    krr_rff = KRRRFF(length_scale=length_scale, sigma_y=sigma_y,
                      n_components=n_components,
                      random_state=random_state,
                      projection='cos')
@@ -231,8 +233,8 @@ def main():
 
     y_pred = krr_rff.predict(x_test)
 
-    t1 = time() - t0
-    print('RFF (time): {:.4f} secs'.format(t1))
+    t1_rff = time() - t0
+    print('RFF (time): {:.4f} secs'.format(t1_rff))
 
     error_nystrom = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
     print('RFF (MSE): {:5f}'.format(error_nystrom))
@@ -240,9 +242,10 @@ def main():
     # -----------------------------
     # RBF Sampler Approximation
     # -----------------------------
+    print('\nRunning KRR with RBF Sampler Approximation ...\n')
     t0 = time()
 
-    krr_nystrom = KRRRBFSampler(lam=lam, kernel=kernel, sigma=sigma,
+    krr_nystrom = KRRRBFSampler(lam=sigma_y, kernel=kernel, sigma=length_scale,
                              n_components=2000,
                              random_state=random_state)
 
@@ -250,18 +253,19 @@ def main():
 
     y_pred = krr_nystrom.predict(x_test)
 
-    t1 = time() - t0
-    print('RBF Sampler (time): {:.4f} secs'.format(t1))
+    t1_rbf = time() - t0
+    print('RBF Sampler (time): {:.4f} secs'.format(t1_rbf))
 
-    error_nystrom = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
-    print('RBF Sampler (MSE): {:5f}'.format(error_nystrom))
+    error_rbf = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
+    print('RBF Sampler (MSE): {:5f}'.format(error_rbf))
 
     # -----------------------------
     # Nystrom Approximation
     # -----------------------------
+    print('\nRunning KRR with Nystrom Approximation ...\n')
     t0 = time()
 
-    krr_nystrom = KRRNystrom(lam=lam, kernel=kernel, sigma=sigma,
+    krr_nystrom = KRRNystrom(lam=sigma_y, kernel=kernel, sigma=length_scale,
                              n_components=n_components, k_rank=k_rank,
                              random_state=random_state)
 
@@ -269,29 +273,33 @@ def main():
 
     y_pred = krr_nystrom.predict(x_test)
 
-    t1 = time() - t0
-    print('Nystrom (time): {:.4f} secs'.format(t1))
+    t1_nystrom = time() - t0
+    print('Nystrom (time): {:.4f} secs'.format(t1_nystrom))
 
     error_nystrom = mean_squared_error(y_pred.squeeze(), y_test.squeeze())
     print('Nystrom (MSE): {:5f}'.format(error_nystrom))
 
     # -----------------------------
-    # Sklearn KRR 
+    # Sklearn KRR
     # -----------------------------
+    print('\nRunning KRR without Approximation ...\n')
     t0 = time()
 
-    krr_model = KernelRidge(alpha=lam, kernel=kernel, gamma=gamma)
+    krr_model = KernelRidge(alpha=sigma_y, kernel=kernel, gamma=gamma)
     krr_model.fit(x_train, y_train)
 
-    t1 = time() - t0
-    print('Sklearn KRR (Time): {:2f} secs'.format(t1))
-
     y_pred = krr_model.predict(x_test)
+
+    t1_normal = time() - t0
+    print('Sklearn KRR (Time): {:2f} secs'.format(t1_normal))
 
     error_normal = mean_squared_error(y_pred.squeeze(),
                                     y_test.squeeze())
     print('Sklearn KRR (MSE): {:5f}'.format(error_normal))
 
+    print('\nSpeedup (RFF): x{:.2f}'.format(t1_normal / t1_rff))
+    print('Speedup (Nystrom): x{:.2f}'.format(t1_normal / t1_nystrom))
+    print('Speedup (RBF Sampler): x{:.2f}\n'.format(t1_normal / t1_rbf))
 
     return None
 
