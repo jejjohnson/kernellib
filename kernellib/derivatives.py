@@ -1,8 +1,10 @@
 import numpy as np
+from kernellib.kernels import ard_kernel
+from sklearn.metrics import pairwise_kernels
+from sklearn.kernel_ridge import KernelRidge
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
-from kernellib.kernels import rbf_kernel
-from sklearn.gaussian_process.kernels import (_check_length_scale)
+from sklearn.gaussian_process.kernels import _check_length_scale
 
 # TODO: Write tests for derivative functions, gradients
 # TODO: Implement Derivative w/ 1 loop for memory conservation
@@ -10,76 +12,95 @@ from sklearn.gaussian_process.kernels import (_check_length_scale)
 # TODO: Do Derivative for other kernel methods (ARD, Polynomial)
 
 
-def ard_kernel(x, y=None, length_scale=None, scale=None, weighted=None, x_cov=None):
-    """The Automatic Relevance Determination Kernel.
-    
-    Parameters
-    ----------
-    x : array-like, (n_samples x n_dimensions)
-        An array for the left argument for the returned kernel K(X,Y)
-        
-    y : array-like, optional (n_samples x n_dimensions), default = None
-        The right argument for the returned kernel K(X, Y). If none, 
-        K(X, X) is evaulated instead.
-        
-    length_scale : array (n_dimensions), default: 1.0
-        The length scale of the kernel. 
-        
-    scale : float, default: 1.0
-        The vertical scale relative to the zero mean of the process in the 
-        output space.
-        
-    Returns
-    -------
-    K : array, (n_samples x n_samples)
-        The kernel matrix for K(X,Y) or K(X,X)
-        
-    Information
-    -----------
-    Author : Juan Emmanuel Johnson
-    
-    References
-    ----------
-    Scikit-Learn (RBF Kernel): https://goo.gl/Sz5icv
-    """
-    # check if x, y have the same shape
-    if y is not None:
-        x, y = check_pairwise_arrays(x, y)
-    
-    # grab samples and dimensions
-    n_samples, n_dimensions = x.shape
-    
-    # get default sigma values
-    if length_scale is None:
-        length_scale = np.ones(shape=n_dimensions)
-    else:
-        length_scale = _check_length_scale(x, length_scale)
+class RBFDerivative(object):
+    def __init__(self, krr_model):
+        self.krr_model = krr_model
+        self.weights = krr_model.dual_coef_
+        self.gamma = krr_model.gamma
+        self.x_train = krr_model.X_fit_
 
-        
-    # get default scale value
-    if scale is None:
-        scale = 1.0
-    
-    # compute the euclidean distances
-    if y is None:
-        dists = pdist(x / length_scale, metric='sqeuclidean')
-        
-        K = np.exp(-.5 * dists)
-        
-        # convert from upper-triangular matrix to square matrix
-        K = squareform(K)
-        np.fill_diagonal(K, 1)
-        
-    else:
-        dists = cdist(x / length_scale, y / length_scale, metric='sqeuclidean')
-        
-        # exponentiate the distances
-        K = scale * np.exp( -0.5 * dists)
-        
-    return K
+    def derivative(self, x_test, full=False):
+
+        if full:
+            return rbf_full_derivative(self.x_train, x_test, self.weights, self.gamma)
+        else:
+            return rbf_derivative(self.x_train, x_test, self.weights, self.gamma)
+
+    def point_sensitivity(self, x_test, sample='point', method='squared'):
+
+        derivative = rbf_derivative(self.x_train, x_test,
+                                    self.weights, self.gamma)
+
+        # Define the method of stopping term cancellations
+        if method == 'squared':
+            derivative **= 2
+        else:
+            np.abs(derivative, derivative)
+
+        # Point Sensitivity or Dimension Sensitivity
+        if sample == 'dim':
+            return np.mean(derivative, axis=0)
+        else:
+            return np.mean(derivative, axis=1)
+
+    def sensitivity(self, x_test, method='squared'):
+        """"""
+        der = rbf_derivative(self.x_train, x_test, self.weights, self.gamma)
+
+        if method == 'squared':
+            return np.mean(np.mean(der**2))
+        else:
+            return np.mean(np.mean(np.abs(der)))
 
 
-def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
+
+
+class ARDDerivative(object):
+    def __init__(self, gp_model):
+        self.gp_model = gp_model
+        self.weights = gp_model.alpha_
+        self.length_scale = gp_model.kernel_.get_params()['k1__k2__length_scale']
+        self.scale = gp_model.kernel_.get_params()['k1__k1__constant_value']
+        self.x_train = gp_model.X_train_
+
+    def derivative(self, x_test, full=False):
+
+        if full:
+            raise NotImplementedError('This has not been implemented yet.')
+        else:
+            return ard_derivative(self.x_train, x_test, self.weights,
+                                  self.length_scale, self.scale)
+
+    def point_sensitivity(self, x_test, sample='point', method='squared'):
+
+        derivative = ard_derivative(self.x_train, x_test, self.weights,
+                                    self.length_scale, self.scale)
+
+        # Define the method of stopping term cancellations
+        if method == 'squared':
+            derivative **= 2
+        else:
+            np.abs(derivative, derivative)
+
+        # Point Sensitivity or Dimension Sensitivity
+        if sample == 'dim':
+            return np.mean(derivative, axis=0)
+        else:
+            return np.mean(derivative, axis=1)
+
+    def sensitivity(self, x_test, method='squared'):
+        """"""
+        der = ard_derivative(self.x_train, x_test, self.weights,
+                             self.length_scale, self.scale)
+
+        if method == 'squared':
+            return np.mean(np.mean(der**2))
+        else:
+            return np.mean(np.mean(np.abs(der)))
+
+
+
+def ard_derivative(x_train, x_test, weights, length_scale, scale, n_der=1):
     """Derivative of the GP mean function of the ARD Kernel. This function 
     computes the derivative of the mean function that has been trained with an
     ARD kernel with respect to the testing points.
@@ -118,15 +139,12 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
     Differenting GPs:
         http://mlg.eng.cam.ac.uk/mchutchon/DifferentiatingGPs.pdf
     """
-    
     # check the sizes of x_train and x_test
     err_msg = "xtrain and xtest d dimensions are not equivalent."
     np.testing.assert_equal(x_test.shape[1], x_train.shape[1], err_msg=err_msg)
     
     n_train_samples, d_dimensions = x_train.shape
     n_test_samples = x_test.shape[0]
-    d_length_scale = np.shape(length_scale)
-    
     length_scale = _check_length_scale(x_train, length_scale)
     
     # Make the length_scale 1 dimensional
@@ -136,14 +154,13 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
         weights = weights[:, np.newaxis]
 
     if len(length_scale) == 1 and d_dimensions > 1:
-        length_scale = length_scale * np.ones(shape=(d_dimensions))
+        length_scale = length_scale * np.ones(shape=d_dimensions)
     elif len(length_scale) != d_dimensions:
         raise ValueError('Incorrect Input for length_scale.')
     
     # check the n_samples for x_train and weights are equal
     err_msg = "Number of training samples for xtrain and weights are not equal."
     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
-
 
     if int(n_der) == 1:
         constant_term = np.diag(- np.power(length_scale**2, -1))
@@ -169,7 +186,7 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
     else:
         for itest in range(n_test_samples):
             
-            x_term = np.dot(constant_term2, np.ones(shape=(n_dimensions,
+            x_term = np.dot(constant_term2, np.ones(shape=(d_dimensions,
                                                           n_train_samples)))
             
             x_term += np.dot(constant_term4, (x_test[itest, :] - x_train).T**2)
@@ -178,7 +195,64 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale=None, n_der=1):
             
     return derivative
 
-def rbf_derivative(x_train, x_function, weights, length_scale=1.0):
+
+def rbf_full_derivative(x_train, x_test, weights, gamma):
+
+    if np.ndim(x_test) == 1:
+        x_test = x_test[np.newaxis, :]
+
+    if np.ndim(weights) == 1:
+        weights = weights[:, np.newaxis]
+
+    n_test, d_dims = x_test.shape
+    n_train, d_dimst = x_train.shape
+
+    assert(d_dims == d_dimst)
+
+    full_derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    K = pairwise_kernels(x_test, x_train, gamma=gamma, metric='rbf')
+    constant = -2 * gamma
+
+    for itest in range(n_test):
+
+        term1 = (np.tile(x_test[itest, :], (n_train, 1)) - x_train)
+        term2 = np.tile(weights, (1, d_dims))
+        term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+
+        full_derivative[itest, :, :] = term1 * term2 * term3
+
+    full_derivative *= constant
+
+    return full_derivative
+
+
+def rbf_full_derivative_loops(x_train, x_function, weights, gamma):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+
+    K = pairwise_kernels(x_function, x_train, gamma=gamma)
+
+    full_derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    constant = - 2 * gamma
+
+    for itest in range(n_test):
+        for itrain in range(n_train):
+            for idim in range(d_dims):
+
+                full_derivative[itest, itrain, idim] = \
+                    weights[itrain] \
+                    * (x_function[itest, idim] - x_train[itrain, idim]) \
+                    * K[itest, itrain]
+
+    full_derivative *= constant
+
+    return full_derivative
+
+
+def rbf_derivative(x_train, x_function, weights, gamma):
     
     # check the sizes of x_train and x_test
     err_msg = "xtrain and xtest d dimensions are not equivalent."
@@ -187,31 +261,32 @@ def rbf_derivative(x_train, x_function, weights, length_scale=1.0):
     # check the n_samples for x_train and weights are equal
     err_msg = "Number of training samples for xtrain and weights are not equal."
     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
-    
-    
-    kernel_mat = rbf_kernel(x_function, x_train, length_scale=length_scale)
+
+    K = pairwise_kernels(x_function, x_train, gamma=gamma, metric='rbf')
     
     n_test, n_dims = x_function.shape
-    
-    
+
     derivative = np.zeros(shape=x_function.shape)
+
+    constant = - 2 * gamma
     
     for itest in range(n_test):
 
         if n_dims < 2: 
             derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T, 
-                                (kernel_mat[itest, :][:, np.newaxis] * weights))
+                                (K[itest, :][:, np.newaxis] * weights))
             
         else:
             derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T, 
-                    (kernel_mat[itest, :] * weights).T)
-    derivative *= - 1.0 * ( 1 / length_scale**2)
+                    (K[itest, :] * weights).T)
+
+    derivative *= constant
         
     return derivative
 
 
-def rbf_derivative_slow(x_train, x_function, weights, kernel_mat=None,
-                   n_derivative=1, gamma=1.0):
+def rbf_derivative_slow(x_train, x_function, weights,
+                        n_derivative=1, gamma=1.0):
     """This function calculates the rbf derivative
     Parameters
     ----------
@@ -253,8 +328,7 @@ def rbf_derivative_slow(x_train, x_function, weights, kernel_mat=None,
     derivative = np.zeros(np.shape(x_function))
 
     # check for kernel mat
-    if kernel_mat is None:
-        kernel_mat = rbf_kernel(x_train, x_function, gamma=gamma)
+    K = pairwise_kernels(x_function, x_train, gamma=gamma)
 
     # consolidate the parameters
     theta = 2 * gamma
@@ -274,8 +348,8 @@ def rbf_derivative_slow(x_train, x_function, weights, kernel_mat=None,
                     # calculate the derivative for the test points
                     derivative[iTest, dim] += theta * weights[iTrain] * \
                                               (x_train[iTrain, dim] -
-                                               x_function[iTest, dim]) * \
-                                              kernel_mat[iTrain, iTest]
+                                              x_function[iTest, dim]) * \
+                                              K[iTrain, iTest]
 
     # 2nd derivative
     elif n_derivative == 2:
@@ -292,12 +366,12 @@ def rbf_derivative_slow(x_train, x_function, weights, kernel_mat=None,
                                               (theta ** 2 *
                                                (x_train[iTrain, dim] - x_function[iTest, dim]) ** 2
                                                - theta) * \
-                                              kernel_mat[iTrain, iTest]
+                                              K[iTrain, iTest]
 
     return derivative
 
 
-def rbf_derivative_memory(x_train, x_function, weights, gamma, n_derivative=1):
+def rbf_full_derivative_memory(x_train, x_function, weights, gamma):
     """This function calculates the rbf derivative using no
     loops but it requires a large memory load.
 
@@ -340,12 +414,7 @@ def rbf_derivative_memory(x_train, x_function, weights, gamma, n_derivative=1):
     n_test_samples = x_function.shape[0]
     n_dimensions = x_train.shape[1]
     
-    kernel_mat = rbf_kernel(x_train, x_function, gamma=gamma)
-
-    # create empty derivative matrix
-    derivative = np.empty(shape=(n_train_samples,
-                                 n_test_samples,
-                                 n_dimensions))
+    K = pairwise_kernels(x_function, x_train, gamma=gamma)
 
     # create empty block matrices and sum
     derivative = np.tile(weights[:, np.newaxis, np.newaxis],
@@ -354,15 +423,12 @@ def rbf_derivative_memory(x_train, x_function, weights, gamma, n_derivative=1):
                               (n_train_samples, 1, 1)) - \
                       np.tile(x_train[:, np.newaxis, :],
                            (1, n_test_samples, 1))) * \
-                      np.tile(kernel_mat[:, :, np.newaxis],
+                      np.tile(K[:, :, np.newaxis],
                               (1, 1, n_dimensions))
 
     # TODO: Write code for 2nd Derivative
     # multiply by the constant
     derivative *= -2 * gamma
-
-    # sum all of the training samples to get M x N matrix
-    derivative = derivative.sum(axis=0).squeeze()
 
     return derivative
 
