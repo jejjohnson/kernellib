@@ -52,9 +52,6 @@ class RBFDerivative(object):
         else:
             return np.mean(np.mean(np.abs(der)))
 
-
-
-
 class ARDDerivative(object):
     def __init__(self, gp_model):
         self.gp_model = gp_model
