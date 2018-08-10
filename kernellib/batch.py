@@ -114,7 +114,11 @@ def kernel_model_parallel(x, kernel_model, n_jobs=10, batch_size=1000,
     else:
         raise ValueError('Unrecognized number of n_jobs...')
 
-    return predictions, derivative
+
+    if return_derivative:
+        return predictions, derivative
+    else:
+        return predictions
 
 
 def kernel_model_predictions(kernel_model, x, return_derivative=False):
@@ -208,17 +212,24 @@ def gp_model_parallel(x, gp_model, n_jobs=10, batch_size=100,
 
         # Aggregate results (predictions, derivatives, variances)
         predictions, derivative, variance = tuple(zip(*results))
-        predictions = np.vstack(predictions)
+        predictions = np.hstack(predictions)
         derivative = np.vstack(derivative)
-        variance = np.vstack(variance)
+        variance = np.hstack(variance)
     
-    elif n_jobs == 1:
+    else:
         predictions, derivative, variance = gp_model_predictions(
             gp_model, x, 
             return_derivative=return_derivative,
             return_variance=return_variance)
-        
-    return predictions, derivative, variance
+
+    if return_variance and return_derivative:
+        return predictions[:, np.newaxis], derivative, variance
+    elif return_variance:
+        return predictions[:, np.newaxis], variance
+    elif return_derivative:
+        return predictions[:, np.newaxis], derivative
+    else:
+        return predictions[:, np.newaxis]
 
 
 def gp_model_predictions(gp_model, x, 
@@ -235,8 +246,8 @@ def gp_model_predictions(gp_model, x,
     # --------------------
     if return_variance:
         predictions, variance = gp_model.predict(x, return_std=True)
-        predictions = predictions[:, np.newaxis]
-        variance = variance[:, np.newaxis]
+        predictions = predictions.flatten()
+        variance = variance.flatten()
     
     # --------------------
     # Derivatives
@@ -248,12 +259,14 @@ def gp_model_predictions(gp_model, x,
                                     length_scale=gp_model.length_scale,
                                     scale=gp_model.scale,
                                     n_der=1)
-        
+
     # ----------------
     # Predictive Mean
     # ----------------
     if not return_variance:
-        predictions = gp_model.predict(x)[:, np.newaxis]
+        predictions = gp_model.predict(x)
+        predictions = predictions.flatten()
+
     return predictions, derivative, variance
 
 

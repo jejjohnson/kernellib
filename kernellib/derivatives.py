@@ -5,6 +5,7 @@ from sklearn.kernel_ridge import KernelRidge
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import _check_length_scale
+from scipy.linalg import cholesky, cho_solve
 
 # TODO: Write tests for derivative functions, gradients
 # TODO: Implement Derivative w/ 1 loop for memory conservation
@@ -15,6 +16,8 @@ from sklearn.gaussian_process.kernels import _check_length_scale
 class RBFDerivative(object):
     def __init__(self, krr_model):
         self.krr_model = krr_model
+
+
         self.weights = krr_model.dual_coef_
         self.gamma = krr_model.gamma
         self.x_train = krr_model.X_fit_
@@ -55,29 +58,75 @@ class RBFDerivative(object):
 class ARDDerivative(object):
     def __init__(self, gp_model):
         self.gp_model = gp_model
-        self.weights = gp_model.alpha_
-        self.length_scale = gp_model.kernel_.get_params()['k1__k2__length_scale']
-        self.scale = gp_model.kernel_.get_params()['k1__k1__constant_value']
         self.x_train = gp_model.X_train_
+        self.n_samples, self.d_dimensions = self.x_train.shape
+        self.kernel = gp_model.kernel_
 
-    def derivative(self, x_test, full=False):
-
-        if full:
-            raise NotImplementedError('This has not been implemented yet.')
+        # check the weights
+        if np.ndim(gp_model.alpha_) == 1:
+            self.weights = np.atleast_2d(gp_model.alpha_).T
         else:
-            return ard_derivative(self.x_train, x_test, self.weights,
-                                  self.length_scale, self.scale)
+            self.weights = gp_model.alpha_
 
-    def point_sensitivity(self, x_test, sample='point', method='squared'):
+        # Check the Length_scale
+        # Check the length scale
+        length_scale = gp_model.kernel_.get_params()['k1__k2__length_scale']
+        self.length_scale = _check_length_scale(self.x_train, length_scale)
 
-        derivative = ard_derivative(self.x_train, x_test, self.weights,
-                                    self.length_scale, self.scale)
+        if isinstance(length_scale, float):
+            self.length_scale = np.array([self.length_scale])
+
+        self.scale = gp_model.kernel_.get_params()['k1__k1__constant_value']
+        self.noise = gp_model.kernel_.get_params()['k2__noise_level']
+
+
+
+    def __call__(self, x):
+
+        # Get dimensions of data
+        n_test_samples, d_dimensions = x.shape
+
+        err_msg = "xtrain and xtest d dimensions are not equivalent."
+        np.testing.assert_equal(self.d_dimensions, d_dimensions, err_msg=err_msg)
+        length_scale = self.length_scale
+        if len(length_scale) == 1 and d_dimensions > 1:
+            length_scale = length_scale * np.ones(shape=d_dimensions)
+        length_scale = np.diag(- np.power(length_scale**2, -1))
+
+        # Calculate the kernel matrix
+        K = self.kernel(x, self.x_train)
+
+        # initialize the derivative matrix
+        derivative = np.zeros(shape=(n_test_samples, d_dimensions))
+
+        for itest in range(n_test_samples):
+
+            x_tilde = (x[itest, :] - self.x_train).T
+            kernel_term = (K[itest, :][:, np.newaxis] * self.weights)
+            derivative[itest, :] = length_scale.dot(x_tilde).dot(kernel_term).squeeze()
+
+
+        return derivative
+
+    # def derivative(self, x_test, full=False):
+    #
+    #     if full:
+    #         raise NotImplementedError('This has not been implemented yet.')
+    #     else:
+    #         return ard_derivative(self.x_train, x_test, self.weights,
+    #                               self.length_scale, self.scale)
+
+    def sensitivity(self, x_test, sample='dim', method='squared'):
+
+        derivative = self.__call__(x_test)
 
         # Define the method of stopping term cancellations
-        if method == 'squared':
+        if method.lower() == 'squared':
             derivative **= 2
-        else:
+        elif method.lower() == 'abs':
             np.abs(derivative, derivative)
+        else:
+            raise ValueError('Unrecognized function.')
 
         # Point Sensitivity or Dimension Sensitivity
         if sample == 'dim':
@@ -85,15 +134,38 @@ class ARDDerivative(object):
         else:
             return np.mean(derivative, axis=1)
 
-    def sensitivity(self, x_test, method='squared'):
-        """"""
-        der = ard_derivative(self.x_train, x_test, self.weights,
-                             self.length_scale, self.scale)
+    # def sensitivity(self, x_test, method='squared'):
+    #     """"""
+    #     der = ard_derivative(self.x_train, x_test, self.weights,
+    #                          self.length_scale, self.scale)
+    #
+    #     if method == 'squared':
+    #         return np.mean(np.mean(der**2))
+    #     else:
+    #         return np.mean(np.mean(np.abs(der)))
 
-        if method == 'squared':
-            return np.mean(np.mean(der**2))
-        else:
-            return np.mean(np.mean(np.abs(der)))
+
+    # def ard_full_derivative(self, X):
+    #
+    #     length_scale = np.diag(np.power(self.length_scale**2, -1))
+    #
+    #
+    #     n_samples, d_dimensions = self.x_train.shape
+    #     m_samples, d_dimensions = X.shape
+    #
+    #     # K Matrix
+    #     K = self.kernel(self.x_train, X)
+    #
+    #     weights = self.weights
+    #     if np.ndim(weights) == 1:
+    #         weights = np.atleast_2d(weights)
+    #     elif weights.shape[1] != 1:
+    #         weights = weights.T
+    #
+    #     derivative = self.scale * \
+    #                  length_scale.dot(self.x_train.T).dot(np.diag(weights.flatten()).dot(K) - np.diag(weights.dot(K))).T
+    #
+    #     return derivative
 
 
 
