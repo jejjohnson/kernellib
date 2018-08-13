@@ -1,5 +1,6 @@
 import numpy as np
-# import numba
+import numba
+from numba import prange
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import (_check_length_scale)
@@ -97,7 +98,7 @@ def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
     
     scale_term = np.diag(x_cov * (length_scale**2)**(-1)) + np.eye(N=n_dimensions)
     scale_term = np.linalg.det(scale_term)
-    scale_term = np.power(scale_term, -1/2) 
+    scale_term = scale * np.power(scale_term, -1/2) 
     
     if y is None:
         dists = pdist(x / exp_scale, metric='sqeuclidean')
@@ -121,145 +122,173 @@ def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
     return K
 
 
-# @numba.jit(nopython=True, nogil=True)
-# def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
-#     """Calculates the Q matrix used to compute the variance of the
-#     inputs with a noise covariance matrix. This uses numba to 
-#     speed up the calculations.
+@numba.jit(nopython=True, nogil=True)
+def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
+    """Calculates the Q matrix used to compute the variance of the
+    inputs with a noise covariance matrix. This uses numba to 
+    speed up the calculations.
     
-#     Parameters
-#     ----------
-#     x_train : array, (n_samples x d_dimensions)
-#         The data used to train the weights.
+    Parameters
+    ----------
+    x_train : array, (n_samples x d_dimensions)
+        The data used to train the weights.
     
-#     x_test : array, (d_dimensions)
-#         A vector of test points.
+    x_test : array, (d_dimensions)
+        A vector of test points.
         
-#     K : array, (n_samples)
-#         The portion of the kernel matrix of the training points at 
-#         test point i, e.g. K = full_kernel_mat[:, i_test]
+    K : array, (n_samples)
+        The portion of the kernel matrix of the training points at 
+        test point i, e.g. K = full_kernel_mat[:, i_test]
         
-#     det_term : float
-#         The determinant term that's in from of the exponent
-#         term.
+    det_term : float
+        The determinant term that's in from of the exponent
+        term.
         
-#     exp_scale : array, (d_dimensions)
-#         The length_scale that's used within the exponential term.
+    exp_scale : array, (d_dimensions)
+        The length_scale that's used within the exponential term.
         
-#     Returns
-#     -------
-#     Q : array, (n_samples x n_samples)
-#         The Q matrix used to calculate the variance of the samples.
+    Returns
+    -------
+    Q : array, (n_samples x n_samples)
+        The Q matrix used to calculate the variance of the samples.
         
-#     Information
-#     -----------
-#     Author : J. Emmanuel Johnson
-#     Email  : jemanjohnson34@gmail.com
-#     Date   : 13 - 06 - 2018
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 13 - 06 - 2018
     
-#     References
-#     ----------
-#     McHutchen et al. - Gaussian Process Training with Input Noise
-#     http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
-#     """
-#     n_train, d_dimensions = x_train.shape
+    References
+    ----------
+    McHutchen et al. - Gaussian Process Training with Input Noise
+    http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
+    """
+    n_train, d_dimensions = x_train.shape
     
-#     Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
     
-#     # Loop through the row terms
-#     for iterrow in range(n_train):
+    # Loop through the row terms
+    for iterrow in range(n_train):
         
-#         # Calculate the row terms
-#         x_train_row = 0.5 * x_train[iterrow, :]  - x_test
+        # Calculate the row terms
+        x_train_row = 0.5 * x_train[iterrow, :]  - x_test
         
-#         K_row = K[iterrow] * det_term
+        K_row = K[iterrow] * det_term
         
-#         # Loop through column terms
-#         for itercol in range(n_train):
+        # Loop through column terms
+        for itercol in range(n_train):
             
-#             # Z Term
-#             z_term = x_train_row + 0.5 * x_train[itercol, :]
+            # Z Term
+            z_term = x_train_row + 0.5 * x_train[itercol, :]
             
-#             # EXPONENTIAL TERM
-#             exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
+            # EXPONENTIAL TERM
+            exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
             
-#             # CONSTANT TERM
-#             constant_term = K_row * K[itercol] 
+            # CONSTANT TERM
+            constant_term = K_row * K[itercol] 
             
-#             # Q Matrix (Corrective Gaussian Kernel)
-#             Q[iterrow, itercol] = constant_term * exp_term
+            # Q Matrix (Corrective Gaussian Kernel)
+            Q[iterrow, itercol] = constant_term * exp_term
             
-#     return Q
+    return Q
 
+@numba.njit(parallel=True)
+def calculate_Q(xtrain, xtest, K, det_term, exp_scale):
+    
+    n_train, d_dimensions = xtrain.shape
+    m_test, d_dimensions = xtest.shape
+    
+    Q = np.zeros(shape=(m_test, n_train, n_train), dtype=np.float64)
+    
+    # Loop through test points
+    for itest in prange(m_test):
+        for irow in range(n_train):
+            x_train_row = 0.5 * xtrain[irow, :] - xtest[itest, :]
+            K_row = K[irow, itest] * det_term
+            for icol in range(n_train):
+                
+                # Calculate Z = .5 (xi - xj)
+                z_term = x_train_row + 0.5 * xtrain[icol, :]
+                
+                # Exponential
+                exp_term = np.exp( np.sum(z_term**2 * exp_scale))
+                # constant term
+                constant_term = K_row * K[icol, itest]
+                
+                # Q matrix
+                Q[itest, irow, icol] = constant_term * exp_term
 
-# def calculate_q(x_train, x_test, K, det_term, exp_scale):
-#     """Calculates the Q matrix used to compute the variance of the
-#     inputs with a noise covariance matrix. This is the pure python
-#     version. ( Note: there is a working Numba version which is 
-#     significantly faster, a x35 speedup)
     
-#     Parameters
-#     ----------
-#     x_train : array, (n_samples x d_dimensions)
-#         The data used to train the weights.
+    return Q
+
+def calculate_q(x_train, x_test, K, det_term, exp_scale):
+    """Calculates the Q matrix used to compute the variance of the
+    inputs with a noise covariance matrix. This is the pure python
+    version. ( Note: there is a working Numba version which is 
+    significantly faster, a x35 speedup)
     
-#     x_test : array, (d_dimensions)
-#         A vector of test points.
-        
-#     K : array, (n_samples)
-#         The portion of the kernel matrix of the training points at 
-#         test point i, e.g. K = full_kernel_mat[:, i_test]
-        
-#     det_term : float
-#         The determinant term that's in from of the exponent
-#         term.
-        
-#     exp_scale : array, (d_dimensions)
-#         The length_scale that's used within the exponential term.
-        
-#     Returns
-#     -------
-#     Q : array, (n_samples x n_samples)
-#         The Q matrix used to calculate the variance of the samples.
-        
-#     Information
-#     -----------
-#     Author : J. Emmanuel Johnson
-#     Email  : jemanjohnson34@gmail.com
-#     Date   : 13 - 06 - 2018
+    Parameters
+    ----------
+    x_train : array, (n_samples x d_dimensions)
+        The data used to train the weights.
     
-#     References
-#     ----------
-#     McHutchen et al. - Gaussian Process Training with Input Noise
-#     http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
-#     """
-#     n_train, d_dimensions = x_train.shape
+    x_test : array, (d_dimensions)
+        A vector of test points.
+        
+    K : array, (n_samples)
+        The portion of the kernel matrix of the training points at 
+        test point i, e.g. K = full_kernel_mat[:, i_test]
+        
+    det_term : float
+        The determinant term that's in from of the exponent
+        term.
+        
+    exp_scale : array, (d_dimensions)
+        The length_scale that's used within the exponential term.
+        
+    Returns
+    -------
+    Q : array, (n_samples x n_samples)
+        The Q matrix used to calculate the variance of the samples.
+        
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 13 - 06 - 2018
     
-#     Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    References
+    ----------
+    McHutchen et al. - Gaussian Process Training with Input Noise
+    http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
+    """
+    n_train, d_dimensions = x_train.shape
     
-#     # Loop through the row terms
-#     for iterrow in range(n_train):
+    Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    
+    # Loop through the row terms
+    for iterrow in range(n_train):
         
-#         # Calculate the row terms
-#         x_train_row = 0.5 * x_train[iterrow, :]  - x_test
+        # Calculate the row terms
+        x_train_row = 0.5 * x_train[iterrow, :]  - x_test
         
-#         K_row = K[iterrow] * det_term
+        K_row = K[iterrow] * det_term
         
-#         # Loop through column terms
-#         for itercol in range(n_train):
+        # Loop through column terms
+        for itercol in range(n_train):
             
-#             # Z Term
-#             z_term = x_train_row + 0.5 * x_train[itercol, :]
+            # Z Term
+            z_term = x_train_row + 0.5 * x_train[itercol, :]
             
-#             # EXPONENTIAL TERM
-#             exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
+            # EXPONENTIAL TERM
+            exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
             
-#             # CONSTANT TERM
-#             constant_term = K_row * K[itercol] 
+            # CONSTANT TERM
+            constant_term = K_row * K[itercol] 
             
-#             # Q Matrix (Corrective Gaussian Kernel)
-#             Q[iterrow, itercol] = constant_term * exp_term
+            # Q Matrix (Corrective Gaussian Kernel)
+            Q[iterrow, itercol] = constant_term * exp_term
             
-#     return Q
+    return Q
 
 
