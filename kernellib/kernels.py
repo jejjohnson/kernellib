@@ -192,7 +192,7 @@ def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
             
     return Q
 
-@numba.njit(parallel=True)
+@numba.njit(parallel=True, fastmath=True)
 def calculate_Q(xtrain, xtest, K, det_term, exp_scale):
     
     n_train, d_dimensions = xtrain.shape
