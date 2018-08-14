@@ -1,4 +1,5 @@
 import numpy as np
+import numba
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (WhiteKernel, RBF, ConstantKernel,
@@ -49,6 +50,10 @@ def fit_gp(x_train, y_train, kernel='ard', scale=None,
     sigma = gpr_model.kernel_.k2.noise_level
     
     return length_scale, sigma
+
+
+class GPCorrective(BaseEstimator, RegressorMixin):
+    pass
 
 
 class GP_Simple(BaseEstimator, RegressorMixin):
@@ -220,7 +225,7 @@ class GP_Derivative(BaseEstimator, RegressorMixin):
         K_traintest = ard_kernel(x_test, self.x_train,
                                  length_scale=self.length_scale)
         
-        if not return_variance:
+        if not return_std:
             return K_traintest.dot(self.weights_)
         
         else:
