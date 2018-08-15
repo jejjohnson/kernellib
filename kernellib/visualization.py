@@ -29,6 +29,10 @@ def plot_gp(xtest, predictions, std=None, xtrain=None, ytrain=None,  title=None,
     ax.legend()
     if title is not None:
         ax.set_title(title)
-    plt.show()
+
+    if save_name:
+        pass
+    else:
+        plt.show()
 
     return fig

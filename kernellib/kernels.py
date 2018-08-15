@@ -68,13 +68,9 @@ def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
         
     # grab samples and dimensions
     n_samples, n_dimensions = x.shape
-    
+    # print(np.squeeze(length_scale).astype(float).shape, x.shape)
     # get the default sigma values
-    if length_scale is None:
-        length_scale = np.ones(shape=n_dimensions)
-        
-    else:
-        length_scale = _check_length_scale(x, length_scale)
+    length_scale = _check_length_scale(x, length_scale)
         
     # check covariance values
     if x_cov is None:
@@ -192,7 +188,7 @@ def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
             
     return Q
 
-@numba.njit(parallel=True, fastmath=True)
+@numba.njit(parallel=False, fastmath=True, nogil=True)
 def calculate_Q(xtrain, xtest, K, det_term, exp_scale):
     
     n_train, d_dimensions = xtrain.shape
@@ -201,7 +197,7 @@ def calculate_Q(xtrain, xtest, K, det_term, exp_scale):
     Q = np.zeros(shape=(m_test, n_train, n_train), dtype=np.float64)
     
     # Loop through test points
-    for itest in prange(m_test):
+    for itest in range(m_test):
         for irow in range(n_train):
             x_train_row = 0.5 * xtrain[irow, :] - xtest[itest, :]
             K_row = K[irow, itest] * det_term
@@ -217,7 +213,9 @@ def calculate_Q(xtrain, xtest, K, det_term, exp_scale):
                 
                 # Q matrix
                 Q[itest, irow, icol] = constant_term * exp_term
-
+                break
+            break
+        break
     
     return Q
 

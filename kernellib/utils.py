@@ -2,9 +2,9 @@ import numpy as np
 from sklearn.utils import check_X_y, check_array
 from scipy.spatial.distance import pdist
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from scipy.stats import pearsonr
-
+from scipy.stats import pearsonr, spearmanr
 import scipy as scio
+import pandas as pd
 
 def estimate_sigma(X, Y=None, method='mean', verbose=0):
     """A function to provide a reasonable estimate of the sigma values
@@ -90,13 +90,69 @@ def r_assessment(y_pred, y_test, verbose=0):
     r2 = r2_score(y_pred, y_test)
     rmse = np.sqrt(mse)
 
+
     if verbose:
         print('MAE: {:.3f}'.format(mae))
         print('MSE: {:.3f}'.format(mse))
         print('RMSE: {:.3f}'.format(rmse))
         print('R2: {:.3f}'.format(r2))
 
-    return None
+    return mae, mse, r2, rmse
+
+
+def get_gp_stats(predictions, labels, std_devs, describe=False, verbose=True):
+    predictions = predictions.flatten()
+    labels = labels.flatten()
+    std_devs = std_devs.flatten()
+    variances = (std_devs**2).flatten()
+
+    # Average Statistics
+    mse = mean_squared_error(predictions, labels)
+    mae = mean_absolute_error(predictions, labels)
+    r2 = r2_score(predictions, labels)
+    rmse = np.sqrt(mse)
+
+    # Error Between Each sample
+    mse_err = (predictions - labels)**2
+    mae_err = np.abs(predictions - labels)
+
+    # Correlations
+    pear_corr_mae = pearsonr(mae_err, std_devs)
+    pear_corr_mse = pearsonr(mse_err, variances)
+    spear_corr_mae = spearmanr(mae_err, std_devs)
+    spear_corr_mse = spearmanr(mse_err, variances)
+
+    df_stats = pd.DataFrame({
+        'MAE': mean_absolute_error(predictions, labels),
+        'MSE': mean_squared_error(predictions, labels),
+        'RMSE': np.sqrt(mean_squared_error(predictions, labels)),
+        'R2': r2_score(predictions, labels),
+        'Pearson MAE Coefficient':  pear_corr_mae[0],
+        'Pearson MAE P-Value': pear_corr_mae[1],
+        'Pearson MSE Coefficient':  pear_corr_mse[0],
+        'Pearson MSE P-Value': pear_corr_mse[1],
+        'Spearman MAE Coefficient':  spear_corr_mae[0],
+        'Spearman MAE P-Value': spear_corr_mae[1],
+        'Spearman MSE Coefficient':  spear_corr_mse[0],
+        'Spearman MSE P-Value': spear_corr_mse[1],
+    }, index=['Results'])
+
+    if describe:
+
+        df_results = pd.DataFrame({
+            'Predictions': predictions,
+            'Labels': labels,
+            'Variances': std_devs**2,
+            'Standard Deviations': std_devs
+        })
+
+        df_results = df_results.describe()
+
+
+        return df_stats, df_results
+    else:
+        return df_stats
+
 
 def main():
 

@@ -1,5 +1,6 @@
 import numpy as np
 import numba
+from numba import prange
 from kernellib.kernels import ard_kernel
 from sklearn.metrics.pairwise import rbf_kernel
 from sklearn.metrics import pairwise_kernels
@@ -287,7 +288,7 @@ class ARDDerivative(object):
         return derivative
 
     @staticmethod
-    @numba.njit(fastmath=True, nogil=True)
+    @numba.njit(parallel=True, fastmath=True)
     def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
 
         #     # check the sizes of x_train and x_test
@@ -309,8 +310,6 @@ class ARDDerivative(object):
                                           (K[itest, :].reshape(-1, 1) * weights))
 
         return derivative
-
-
 
 
 
@@ -346,6 +345,53 @@ class ARDDerivative(object):
     #
     #     return derivative
 
+
+@numba.njit(fastmath=True, nogil=True)
+def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
+    #     # check the sizes of x_train and x_test
+    #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+    #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+    #     # check the n_samples for x_train and weights are equal
+    #     err_msg = "Number of training samples for xtrain and weights are not equal."
+    #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+
+    length_scale = np.diag(- np.power(length_scale, -2))
+
+    for itest in prange(n_test):
+        derivative[itest, :] = np.dot(np.dot(length_scale, (x_function[itest, :] - x_train).T),
+                                      (K[itest, :].reshape(-1, 1) * weights))
+
+    return derivative
+
+
+@numba.njit(fastmath=True)
+def rbf_derivative_numba(x_train, x_function, K, weights, gamma):
+    #     # check the sizes of x_train and x_test
+    #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+    #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+    #     # check the n_samples for x_train and weights are equal
+    #     err_msg = "Number of training samples for xtrain and weights are not equal."
+    #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+
+    constant = - 2 * gamma
+
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
+                                      (K[itest, :].reshape(-1, 1) * weights))
+
+    derivative *= constant
+
+    return derivative
 
 
 def rbf_derivative_full(x_train, x_function, K, weights, gamma):

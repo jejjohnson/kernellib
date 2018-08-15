@@ -8,7 +8,7 @@ from sklearn.utils import check_array, check_X_y, check_random_state
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.base import BaseEstimator, RegressorMixin
 import warnings
-from kernellib.kernels import (rbf_kernel, calculate_q_numba,
+from kernellib.kernels import (calculate_q_numba,
                                ard_kernel, ard_kernel_weighted)
 from kernellib.derivatives import rbf_derivative, ard_derivative
 
