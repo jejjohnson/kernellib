@@ -111,14 +111,13 @@ class GPRVariance(BaseEstimator, RegressorMixin):
     """
     def __init__(self, kernel=None, x_cov=None, alpha=1e-10,
                  optimizer="fmin_l_bfgs_b", n_restarts_optimizer=0,
-                 normalize_y=False, copy_X_train=True, random_state=None,
+                 normalize_y=False,  random_state=None, weights='standard',
                  der_term='full', var_method='standard', mean='standard'):
         self.kernel = kernel
         self.alpha = alpha
         self.optimizer = optimizer
         self.n_restarts_optimizer = n_restarts_optimizer
         self.normalize_y = normalize_y
-        self.copy_X_train = copy_X_train
         self.random_state = random_state
         if isinstance(x_cov, float):
             x_cov = np.array([x_cov])
@@ -126,6 +125,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         self.der_term = der_term
         self.var_method = var_method
         self.mean = mean
+        self.weights = weights
 
     @property
     @deprecated("Attribute rng was deprecated in version 0.19 and "
@@ -178,17 +178,9 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         else:
             self._y_train_mean = np.zeros(1)
 
-        if np.iterable(self.alpha) \
-           and self.alpha.shape[0] != y.shape[0]:
-            if self.alpha.shape[0] == 1:
-                self.alpha = self.alpha[0]
-            else:
-                raise ValueError("alpha must be a scalar or an array"
-                                 " with same number of entries as y.(%d != %d)"
-                                 % (self.alpha.shape[0], y.shape[0]))
 
-        self.X_train_ = np.copy(X) if self.copy_X_train else X
-        self.y_train_ = np.copy(y) if self.copy_X_train else y
+        self.X_train_ =  X
+        self.y_train_ =  y
 
         if self.optimizer is not None and self.kernel_.n_dims > 0:
             # Choose hyperparameters based on maximizing the log-marginal
@@ -245,18 +237,34 @@ class GPRVariance(BaseEstimator, RegressorMixin):
                         % self.kernel_,) + exc.args
             raise
 
-        alpha = cho_solve((self.L_, True), self.y_train_)  # Line 3
-        if np.ndim(alpha) < 2:
-            alpha = np.atleast_2d(alpha).T
+        self.alpha_ = cho_solve((self.L_, True), self.y_train_)  # Line 3
 
+        # Modify the Variance Term
+        if (self.var_method is not 'standard') or (self.weights is 'derivative'):
+            self.modify_variance(self.alpha_)
+        else:
+            L_inv = solve_triangular(self.L_.T, np.eye(self.L_.shape[0]))
+            self.K_inv = L_inv.dot(L_inv.T)
 
+        return self
 
+    def modify_variance(self, weights):
+        """"""
+        if np.ndim(weights) < 2:
+            weights = np.atleast_2d(weights).T
+
+        # print('Modifying Variance...')
         #######################################
         # Modifications for the Variance Term
         #######################################
-        self.signal_variance = self.kernel_.get_params()['k1__k1__constant_value']
-        self.length_scale = self.kernel_.get_params()['k1__k2__length_scale']
-        self.noise_likelihood = self.kernel_.get_params()['k2__noise_level']
+        try:
+            self.signal_variance = self.kernel_.get_params()['k1__k1__constant_value']
+            self.length_scale = self.kernel_.get_params()['k1__k2__length_scale']
+            self.noise_likelihood = self.kernel_.get_params()['k2__noise_level']
+        except KeyError:
+            self.signal_variance = 1.0
+            self.length_scale = self.kernel_.get_params()['k1__length_scale']
+            self.noise_likelihood = self.kernel_.get_params()['k2__noise_level']
 
         if isinstance(self.length_scale, float):
             self.numba_length_scale = self.length_scale * np.eye(self.X_train_.shape[1])
@@ -269,13 +277,10 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         K = self.kernel_(self.X_train_)
         K[np.diag_indices_from(K)] += self.alpha
 
-        # print(self.X_train_.shape, K.shape, self.alpha_.shape, self.numba_length_scale.shape)
-        # print('here')
         derivative = ard_derivative_numba(self.X_train_, self.X_train_,
                                           K=K,
-                                          weights=alpha,
+                                          weights=weights,
                                           length_scale=self.numba_length_scale)
-        self.derivative_train_ = derivative
         # derivative_term = np.diag(np.diag(np.dot(derivative, np.dot(self.x_covariance, derivative.T))))
         if self.der_term == 'diag':
             derivative_term = np.einsum("ij,ij->i", np.dot(derivative, self.x_cov), derivative)
@@ -283,17 +288,23 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         else:
             K += np.dot(derivative, np.dot(self.x_cov, derivative.T))
 
-        self.L_ = np.linalg.cholesky(K)
+        L_ = np.linalg.cholesky(K)
 
-        self.alpha_ = cho_solve((self.L_, True), self.y_train_)  # Line 3
-        L_inv = solve_triangular(self.L_.T, np.eye(self.L_.shape[0]))
+        alpha = cho_solve((L_, True), self.y_train_)  # Line 3
+        L_inv = solve_triangular(L_.T, np.eye(L_.shape[0]))
         K_inv = L_inv.dot(L_inv.T)
 
         self.derivative_train_ = derivative
         self.K_inv = K_inv
+
+        if self.weights == 'derivative':
+            # print('Modifying weights')
+            self.L_ = L_
+            self.alpha_ = alpha
+
         return self
 
-    def predict(self, X, return_std=False, return_cov=False):
+    def predict(self, X, return_std=False):
         """Predict using the Gaussian process regression model
         We can also predict based on an unfitted model by using the GP prior.
         In addition to the mean of the predictive distribution, also its
@@ -320,50 +331,26 @@ class GPRVariance(BaseEstimator, RegressorMixin):
             Covariance of joint predictive distribution a query points.
             Only returned when return_cov is True.
         """
-        if return_std and return_cov:
-            raise RuntimeError(
-                "Not returning standard deviation of predictions when "
-                "returning full covariance.")
-
         X = check_array(X)
 
-        if not hasattr(self, "X_train_"):  # Unfitted;predict based on GP prior
-            if self.kernel is None:
-                kernel = (C(1.0, constant_value_bounds="fixed") *
-                          RBF(1.0, length_scale_bounds="fixed") +
-                          WhiteKernel(1.0, noise_level_bounds="fixed"))
-            else:
-                kernel = self.kernel
-            y_mean = np.zeros(X.shape[0])
-            if return_cov:
-                y_cov = kernel(X)
-                return y_mean, y_cov
-            elif return_std:
-                y_var = kernel.diag(X)
-                return y_mean, np.sqrt(y_var)
-            else:
-                return y_mean
-        else:  # Predict based on GP posterior
-            if self.mean == 'standard':
+        if self.mean == 'standard':
 
-                K_trans = self.kernel_(X, self.X_train_)
-            else:
-                # print(self.length_scale.shape, self.x_cov.shape)
-                K_trans = ard_kernel_weighted(X, self.X_train_,
-                                              x_cov=np.diag(self.x_cov),
-                                              length_scale=self.length_scale,
-                                              scale=self.signal_variance)
-            y_mean = K_trans.dot(self.alpha_)  # Line 4 (y_mean = f_star)
-            y_mean = self._y_train_mean + y_mean  # undo normal.
+            K_trans = self.kernel_(X, self.X_train_)
+        else:
+            # print(self.length_scale.shape, self.x_cov.shape)
+            K_trans = ard_kernel_weighted(X, self.X_train_,
+                                          x_cov=np.diag(self.x_cov),
+                                          length_scale=self.length_scale,
+                                          scale=self.signal_variance)
+        y_mean = K_trans.dot(self.alpha_)  # Line 4 (y_mean = f_star)
+        y_mean = self._y_train_mean + y_mean  # undo normal.
 
-            if return_cov:
-                return y_mean, self.covariance(X, K_trans)
 
-            elif return_std:
+        if return_std:
 
-                return y_mean, np.sqrt(self.variance(X, K_trans))
-            else:
-                return y_mean
+            return y_mean, np.sqrt(self.variance(X, K_trans))
+        else:
+            return y_mean
 
     def variance(self, X, K_trans=None):
 
@@ -466,51 +453,6 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
 
         return y_var
-
-        # @numba.njit()
-        # def calculate_var( )
-
-    def covariance(self, X, K_trans=None):
-
-        if K_trans is None:
-            K_trans = self.kernel_(X, self.X_train_)
-
-        v = cho_solve((self.L_, True), K_trans.T)  # Line 5
-        y_cov = self.kernel_(X) - K_trans.dot(v)  # Line 6
-
-        return y_cov
-
-    def sample_y(self, X, n_samples=1, random_state=0):
-        """Draw samples from Gaussian process and evaluate at X.
-        Parameters
-        ----------
-        X : array-like, shape = (n_samples_X, n_features)
-            Query points where the GP samples are evaluated
-        n_samples : int, default: 1
-            The number of samples drawn from the Gaussian process
-        random_state : int, RandomState instance or None, optional (default=0)
-            If int, random_state is the seed used by the random number
-            generator; If RandomState instance, random_state is the
-            random number generator; If None, the random number
-            generator is the RandomState instance used by `np.random`.
-        Returns
-        -------
-        y_samples : array, shape = (n_samples_X, [n_output_dims], n_samples)
-            Values of n_samples samples drawn from Gaussian process and
-            evaluated at query points.
-        """
-        rng = check_random_state(random_state)
-
-        y_mean, y_cov = self.predict(X, return_cov=True)
-        if y_mean.ndim == 1:
-            y_samples = rng.multivariate_normal(y_mean, y_cov, n_samples).T
-        else:
-            y_samples = \
-                [rng.multivariate_normal(y_mean[:, i], y_cov,
-                                         n_samples).T[:, np.newaxis]
-                 for i in range(y_mean.shape[1])]
-            y_samples = np.hstack(y_samples)
-        return y_samples
 
     def log_marginal_likelihood(self, theta=None, eval_gradient=False):
         """Returns log-marginal likelihood of theta for training data.
@@ -691,14 +633,13 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
     """
     def __init__(self, kernel=None, x_cov=None, alpha=1e-10,
                  optimizer="fmin_l_bfgs_b", n_restarts_optimizer=0,
-                 normalize_y=False, copy_X_train=True, random_state=None,
+                 normalize_y=False, random_state=None,
                  der_term='full', var_method='standard', mean='standard'):
         self.kernel = kernel
         self.alpha = alpha
         self.optimizer = optimizer
         self.n_restarts_optimizer = n_restarts_optimizer
         self.normalize_y = normalize_y
-        self.copy_X_train = copy_X_train
         self.random_state = random_state
         if isinstance(x_cov, float):
             x_cov = np.array([x_cov])
@@ -829,16 +770,13 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
 
         self.alpha_ = alpha
 
-        # compute inverse K_inv of K based on its Cholesky
-        # decomposition L and its inverse L_inv
-        L_inv = solve_triangular(self.L_.T, np.eye(self.L_.shape[0]))
-        self.K_inv = L_inv.dot(L_inv.T)
 
         #######################################
         # Modifications for the Variance Term
         #######################################
         self.signal_variance = self.kernel_.get_params()['k1__k1__constant_value']
         self.length_scale = self.kernel_.get_params()['k1__k2__length_scale']
+        self.noise_likelihood = self.kernel_.get_params()['k2__noise_level']
 
         if isinstance(self.length_scale, float):
             self.numba_length_scale = self.length_scale * np.eye(self.X_train_.shape[1])
@@ -855,7 +793,7 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
         # print('here')
         derivative = ard_derivative_numba(self.X_train_, self.X_train_,
                                           K=K,
-                                          weights=self.alpha_,
+                                          weights=alpha,
                                           length_scale=self.numba_length_scale)
         self.derivative_train_ = derivative
         # derivative_term = np.diag(np.diag(np.dot(derivative, np.dot(self.x_covariance, derivative.T))))
@@ -866,7 +804,8 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
             K += np.dot(derivative, np.dot(self.x_cov, derivative.T))
 
         L = np.linalg.cholesky(K)
-        L_inv = solve_triangular(self.L_.T, np.eye(self.L_.shape[0]))
+
+        L_inv = solve_triangular(L.T, np.eye(L.shape[0]))
         K_inv = L_inv.dot(L_inv.T)
 
         self.derivative_train_ = derivative
