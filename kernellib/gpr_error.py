@@ -12,7 +12,7 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as
 from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.utils.deprecation import deprecated
-from kernellib.kernels import ard_kernel_weighted, calculate_Q
+from kernellib.kernels import ard_kernel_weighted, calculate_Q, calculate_Qi
 # from kernellib.derivatives import ard_derivative_numba
 
 
@@ -256,7 +256,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         #######################################
         self.signal_variance = self.kernel_.get_params()['k1__k1__constant_value']
         self.length_scale = self.kernel_.get_params()['k1__k2__length_scale']
-        self.length_scale = self.kernel_.get_params()['k1__k2__length_scale']
+        self.noise_likelihood = self.kernel_.get_params()['k2__noise_level']
 
         if isinstance(self.length_scale, float):
             self.numba_length_scale = self.length_scale * np.eye(self.X_train_.shape[1])
@@ -434,8 +434,13 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
 
         # Exponential Term
+        if np.ndim(self.x_cov) > 1:
+            numba_x_cov = np.diag(self.x_cov)
+        else:
+            numba_x_cov = self.x_cov
+
         exp_scale = np.power(np.power(self.length_scale, 2) +
-                             0.5 * np.power(self.length_scale, 4) * np.power(self.x_cov, -1), -1).flatten()
+                             0.5 * np.power(self.length_scale, 4) * np.power(numba_x_cov, -1), -1).flatten()
         exp_scale = np.atleast_1d(exp_scale)
 
         Kweight = ard_kernel_weighted(self.X_train_,
@@ -447,15 +452,23 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
         mu = np.dot(Kweight.T, self.alpha_)
         mu = self._y_train_mean + mu
-        print(self.X_train_.shape, X.shape, K_trans.shape, exp_scale.shape)
+        # print(self.X_train_.shape, X.shape, K_trans.shape, exp_scale.shape)
         Q = calculate_Q(self.X_train_, X, K_trans, det_term, exp_scale)
 
         y_var = self.signal_variance - mu**2
         for itest in range(y_var.shape[0]):
-            y_var[itest] -= np.trace(np.dot(self.K_inv, Q[itest, ...]))
-            y_var[itest] += np.dot(self.alpha_.T, np.dot(Q[itest, :, :], self.alpha_))[0][0]
+            print('Iteration: ', itest)
+            Qi = calculate_Qi(self.X_train_, X[itest, :], K_trans[:, itest], det_term, exp_scale)
+            # y_var[itest] -= np.trace(np.dot(self.K_inv, Q[itest, ...]))
+            # y_var[itest] += np.dot(self.alpha_.T, np.dot(Q[itest, :, :], self.alpha_))
+            y_var[itest] -= np.trace(np.dot(self.K_inv, Qi))
+            y_var[itest] += np.dot(self.alpha_.T, np.dot(Qi, self.alpha_))
+
+
         return y_var
 
+        # @numba.njit()
+        # def calculate_var( )
 
     def covariance(self, X, K_trans=None):
 

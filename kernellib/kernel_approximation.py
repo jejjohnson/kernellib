@@ -99,7 +99,7 @@ class RandomizedNystrom(BaseEstimator, TransformerMixin):
                                         gamma=self.gamma)
 
         # Randomized SVD
-        U, S, V = randomized_svd(basis_kernel, self.k_rank, self.random_state)
+        U, S, V = randomized_svd(basis_kernel, self.k_rank, random_state=self.random_state)
 
         S = np.maximum(S, 1e-12)
 

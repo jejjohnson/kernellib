@@ -119,6 +119,77 @@ def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):
 
 
 @numba.jit(nopython=True, nogil=True)
+def calculate_Qi(xtrain, xtest, K, det_term, exp_scale):
+    """Calculates the Q matrix used to compute the variance of the
+    inputs with a noise covariance matrix. This uses numba to 
+    speed up the calculations.
+    
+    Parameters
+    ----------
+    x_train : array, (n_samples x d_dimensions)
+        The data used to train the weights.
+    
+    x_test : array, (d_dimensions)
+        A vector of test points.
+        
+    K : array, (n_samples)
+        The portion of the kernel matrix of the training points at 
+        test point i, e.g. K = full_kernel_mat[:, i_test]
+        
+    det_term : float
+        The determinant term that's in from of the exponent
+        term.
+        
+    exp_scale : array, (d_dimensions)
+        The length_scale that's used within the exponential term.
+        
+    Returns
+    -------
+    Q : array, (n_samples x n_samples)
+        The Q matrix used to calculate the variance of the samples.
+        
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 13 - 06 - 2018
+    
+    References
+    ----------
+    McHutchen et al. - Gaussian Process Training with Input Noise
+    http://mlg.eng.cam.ac.uk/pub/pdf/MchRas11.pdf
+    """
+    n_train, d_dimensions = xtrain.shape
+    
+    Q = np.zeros(shape=(n_train, n_train), dtype=np.float64)
+    
+    # Loop through the row terms
+    for irow in range(n_train):
+        
+        # Calculate the row terms
+        x_train_row = 0.5 * xtrain[irow, :]  - xtest
+        
+        K_row = K[irow] * det_term
+        
+        # Loop through column terms
+        for icol in range(n_train):
+            
+            # Z Term
+            z_term = x_train_row + 0.5 * xtrain[icol, :]
+            
+            # EXPONENTIAL TERM
+            exp_term = np.exp( np.sum( z_term**2 * exp_scale) )
+            
+            # CONSTANT TERM
+            constant_term = K_row * K[irow] 
+            
+            # Q Matrix (Corrective Gaussian Kernel)
+            Q[irow, icol] = constant_term * exp_term
+            
+    return Q
+
+
+@numba.jit(nopython=True, nogil=True)
 def calculate_q_numba(x_train, x_test, K, det_term, exp_scale):
     """Calculates the Q matrix used to compute the variance of the
     inputs with a noise covariance matrix. This uses numba to 
