@@ -12,12 +12,9 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as
 from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.utils.deprecation import deprecated
-<<<<<<< Updated upstream
-from kernellib.kernels import ard_kernel_weighted, calculate_Q, calculate_Qi
-=======
+
 from kernellib.kernels import ard_kernel_weighted, calculate_Q, calculate_q_numba
 
->>>>>>> Stashed changes
 # from kernellib.derivatives import ard_derivative_numba
 
 
@@ -418,7 +415,6 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
     def uncertain_variance(self, X):
 
-<<<<<<< Updated upstream
         # Determinant Term
         det_term = np.array([2 * self.x_cov * np.power(self.length_scale, -2) + 1])
 
@@ -435,8 +431,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         exp_scale = np.power(np.power(self.length_scale, 2) +
                              0.5 * np.power(self.length_scale, 4) * np.power(numba_x_cov, -1), -1).flatten()
         exp_scale = np.atleast_1d(exp_scale)
-=======
->>>>>>> Stashed changes
+
 
         Kweight = ard_kernel_weighted(self.X_train_,
                                       X, x_cov=np.diag(self.x_cov),
@@ -447,7 +442,6 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
         mu = np.dot(Kweight.T, self.alpha_)
         mu = self._y_train_mean + mu
-<<<<<<< Updated upstream
         # print(self.X_train_.shape, X.shape, K_trans.shape, exp_scale.shape)
         Q = calculate_Q(self.X_train_, X, K_trans, det_term, exp_scale)
 
