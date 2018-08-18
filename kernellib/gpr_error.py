@@ -12,7 +12,12 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as
 from sklearn.utils import check_random_state
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.utils.deprecation import deprecated
+<<<<<<< Updated upstream
 from kernellib.kernels import ard_kernel_weighted, calculate_Q, calculate_Qi
+=======
+from kernellib.kernels import ard_kernel_weighted, calculate_Q, calculate_q_numba
+
+>>>>>>> Stashed changes
 # from kernellib.derivatives import ard_derivative_numba
 
 
@@ -413,6 +418,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
     def uncertain_variance(self, X):
 
+<<<<<<< Updated upstream
         # Determinant Term
         det_term = np.array([2 * self.x_cov * np.power(self.length_scale, -2) + 1])
 
@@ -429,6 +435,8 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         exp_scale = np.power(np.power(self.length_scale, 2) +
                              0.5 * np.power(self.length_scale, 4) * np.power(numba_x_cov, -1), -1).flatten()
         exp_scale = np.atleast_1d(exp_scale)
+=======
+>>>>>>> Stashed changes
 
         Kweight = ard_kernel_weighted(self.X_train_,
                                       X, x_cov=np.diag(self.x_cov),
@@ -439,6 +447,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
 
         mu = np.dot(Kweight.T, self.alpha_)
         mu = self._y_train_mean + mu
+<<<<<<< Updated upstream
         # print(self.X_train_.shape, X.shape, K_trans.shape, exp_scale.shape)
         Q = calculate_Q(self.X_train_, X, K_trans, det_term, exp_scale)
 
@@ -1013,6 +1022,43 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
             y_samples = np.hstack(y_samples)
         return y_samples
 
+=======
+        y_var = 1.0
+        length_scale = self.length_scale
+        if np.ndim(length_scale) < 1:
+            length_scale = np.atleast_1d(length_scale).T
+        if len(length_scale) != X.shape[1]:
+            length_scale = length_scale * np.ones(X.shape[1])
+
+        x_cov = self.x_cov
+        if np.ndim(x_cov) < 1:
+            x_cov = np.atleast_1d(x_cov)
+        elif np.ndim(x_cov) == 2:
+            x_cov = np.diag(x_cov)
+        else:
+            raise ValueError('Covariance has unrecognized dimensions.')
+        # print('Xtrain:', self.X_train_.shape)
+        # print('xtest:', X.shape)
+        # print('Ktrans:', K_trans.shape)
+        # print('Kinv:', self.K_inv.shape)
+        # print('weights:', self.alpha_.shape)
+        # print('mu:', mu.flatten().shape)
+        # print('signal:', self.signal_variance)
+        # print('Lengthscale:', length_scale.shape)
+        # print('xcov', x_cov.shape)
+        # y_var = 1.0
+        y_var = uncertain_variance_numba(self.X_train_,
+                                   X, K_trans, self.K_inv, 
+                                   self.alpha_, 
+                                   mu.flatten(),
+                                   self.signal_variance, 
+                                   length_scale, 
+                                   x_cov)
+
+
+        return y_var
+
+>>>>>>> Stashed changes
     def log_marginal_likelihood(self, theta=None, eval_gradient=False):
         """Returns log-marginal likelihood of theta for training data.
         Parameters
@@ -1097,6 +1143,7 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
 
         return theta_opt, func_min
 
+<<<<<<< Updated upstream
 # @numba.njit(parallel=True, fastmath=True)
 # def ard_derivative_numba(x_train, x_function, K, weights, length_scale, signal_variance):
 #
@@ -1118,6 +1165,34 @@ class GPRVarianceold(BaseEstimator, RegressorMixin):
 #         derivative[itest, :] = np.dot(np.dot(length_scale, x_function[itest, :] - x_train).T, (K[itest, :].reshape(-1, 1) * weights))
 #     derivative *= signal_variance
 #     return derivative
+=======
+@numba.njit(fastmath=True, nogil=True)
+def uncertain_variance_numba(xtrain, xtest, K, Kinv, weights, mu, 
+                             signal_variance, length_scale, x_cov):
+    
+    # calculate the determinant constant
+    det_term = 2 * x_cov * np.power(length_scale, -2) + 1
+    det_term = 1 / np.sqrt(np.linalg.det(np.diag(det_term)))
+    
+    # calculate the exponential scale
+    exp_scale = np.power(length_scale, 2) + 0.5 * np.power(length_scale, 4) * np.power(x_cov, -1)
+    exp_scale = np.power(exp_scale, -1)
+    
+    # Calculate the constants
+    y_var = signal_variance - mu**2
+    
+    n_test = xtest.shape[0]
+    
+    for itest in range(n_test):
+        qi = calculate_q_numba(xtrain, xtest[itest, :], K[:, itest], det_term, exp_scale)
+        y_var[itest] -= np.trace(np.dot(Kinv, qi))
+        y_var[itest] += np.dot(weights.T, np.dot(qi, weights))[0][0]
+    
+    
+    
+    return np.sqrt(y_var)
+
+>>>>>>> Stashed changes
 @numba.njit(fastmath=True, nogil=True)
 def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
     #     # check the sizes of x_train and x_test
