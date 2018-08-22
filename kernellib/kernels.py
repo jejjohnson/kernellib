@@ -4,9 +4,50 @@ from numba import prange
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import (_check_length_scale)
+import numexpr as ne
 
 
-def ard_kernel(X, Y=None, length_scale=None, scale=1.0):
+def rbf_kernel(X, Y=None, length_scale=1.0, signal_variance=1.0):
+    """This function calculates the RBF kernel. It has been optimized
+    using some advice found online.
+    
+    Parameters
+    ----------
+    X : array, (n_samples x d_dimensions)
+    
+    Y : array, (n_samples x d_dimensions)
+    
+    length_scale : float, default: 1.0
+    
+    signal_variance : float, default: 1.0
+    
+    Returns
+    -------
+    K : array, (n_samples x d_dimensions)
+    """
+    # check the inputs
+#     print(X.shape, Y.shape)
+    # X, Y = check_pairwise_arrays(X, Y)
+    
+    X_norm = np.einsum('ij,ij->i', X, X)
+    if Y is not None:
+        Y_norm = np.einsum('ij,ij->i', Y, Y)
+    else:
+        Y = X
+        Y_norm = X_norm
+
+    K = ne.evaluate('v * exp(-g * (A + B - 2 * C))', {
+        'A': X_norm[:, None],
+        'B': Y_norm[None, :],
+        'C': np.dot(X, Y.T),
+        'g': 1 / (2 * length_scale**2),
+        'v': signal_variance
+    })
+    
+    return K
+
+
+def ard_kernel(X, Y=None, length_scale=None, signal_variance=1.0):
     """The Automatic Relevance Determination Kernel.
 
     Parameters
@@ -38,26 +79,16 @@ def ard_kernel(X, Y=None, length_scale=None, scale=1.0):
     ----------
     Scikit-Learn (RBF Kernel): https://goo.gl/Sz5icv
     """
-    X = np.atleast_1d(X)
+    X, Y = check_pairwise_arrays(X, Y)
+
     length_scale = _check_length_scale(X, length_scale)
 
-    # compute the euclidean distances
-    if Y is None:
-        dists = pdist(X / length_scale, metric='sqeuclidean')
+    dists = cdist(X / length_scale, Y / length_scale, metric='sqeuclidean')
 
-        K = np.exp(-.5 * dists)
+    # exponentiate the distances
+    K = np.exp(-0.5 * dists)
 
-        # convert from upper-triangular matrix to square matrix
-        K = squareform(K)
-        np.fill_diagonal(K, 1)
-
-    else:
-        dists = cdist(X / length_scale, Y / length_scale, metric='sqeuclidean')
-
-        # exponentiate the distances
-        K = np.exp(-0.5 * dists)
-
-    return scale * K
+    return signal_variance * K
 
 
 def ard_kernel_weighted(x, y=None, x_cov=None, length_scale=None, scale=None):

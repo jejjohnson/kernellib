@@ -6,26 +6,13 @@ from sklearn.linear_model.ridge import _solve_cholesky_kernel
 from sklearn.utils import check_array, check_X_y
 from sklearn.utils.validation import check_is_fitted
 from kernellib.kernels import rbf_kernel
-
+import numba
+from numba import float64
 
 class KernelRidge(BaseEstimator, RegressorMixin):
     """Kernel ridge regression.
-    Kernel ridge regression (KRR) combines ridge regression (linear least
-    squares with l2-norm regularization) with the kernel trick. It thus
-    learns a linear function in the space induced by the respective kernel and
-    the data. For non-linear kernels, this corresponds to a non-linear
-    function in the original space.
-    The form of the model learned by KRR is identical to support vector
-    regression (SVR). However, different loss functions are used: KRR uses
-    squared error loss while support vector regression uses epsilon-insensitive
-    loss, both combined with l2 regularization. In contrast to SVR, fitting a
-    KRR model can be done in closed-form and is typically faster for
-    medium-sized datasets. On the other  hand, the learned model is non-sparse
-    and thus slower than SVR, which learns a sparse model for epsilon > 0, at
-    prediction-time.
-    This estimator has built-in support for multi-variate regression
-    (i.e., when y is a 2d-array of shape [n_samples, n_targets]).
-    Read more in the :ref:`User Guide <kernel_ridge>`.
+    My custom kernel ridge regression algorithm. It strictly utilizes the 
+    RBF kernel 
     Parameters
     ----------
     alpha : {float, array-like}, shape = [n_targets]
@@ -34,15 +21,10 @@ class KernelRidge(BaseEstimator, RegressorMixin):
         ``(2*C)^-1`` in other linear models such as LogisticRegression or
         LinearSVC. If an array is passed, penalties are assumed to be specific
         to the targets. Hence they must correspond in number.
-    kernel : string or callable, default="linear"
-        Kernel mapping used internally. A callable should accept two arguments
-        and the keyword arguments passed to this object as kernel_params, and
-        should return a floating point number.
-    gamma : float, default=None
-        Gamma parameter for the RBF, laplacian, polynomial, exponential chi2
-        and sigmoid kernels. Interpretation of the default value is left to
-        the kernel; see the documentation for sklearn.metrics.pairwise.
-        Ignored by other kernels.
+    length_scale : float, default=None
+        length_scale parameter for the RBF kernel.
+    signal_variance : float, default=1.0
+        signal_variance parameter for the RBF kernel.
 
     Attributes
     ----------
@@ -74,11 +56,10 @@ class KernelRidge(BaseEstimator, RegressorMixin):
     KernelRidge(alpha=1.0, coef0=1, degree=3, gamma=None, kernel='linear',
                 kernel_params=None)
     """
-    def __init__(self, alpha=0.01, gamma=1.0, scale=1.0):
+    def __init__(self, alpha=1, length_scale=1.0, signal_variance=1.0):
         self.alpha = alpha
-        self.gamma = gamma
-        self.scale = scale
-
+        self.length_scale = length_scale
+        self.signal_variance = signal_variance
 
     def fit(self, X, y=None):
         """Fit Kernel Ridge regression model
@@ -98,16 +79,15 @@ class KernelRidge(BaseEstimator, RegressorMixin):
         X, y = check_X_y(X, y, accept_sparse=("csr", "csc"), multi_output=True,
                          y_numeric=True)
 
-        K = rbf_kernel(X, y, gamma=self.gamma, scale=self.scale)
-        L = np.linalg.cholesky(K + (self.alpha + 1e-10) * np.eye(X.shape[0]))
-
+        K = rbf_kernel(X, length_scale=self.length_scale, signal_variance=self.signal_variance)
+        alpha = np.atleast_1d(self.alpha)
 
         ravel = False
         if len(y.shape) == 1:
             y = y.reshape(-1, 1)
             ravel = True
 
-        self.dual_coef_ = np.linalg.solve(L.T, np.linalg.solve(L, y))
+        self.dual_coef_ = _solve_cholesky_kernel(K, y, alpha)
         if ravel:
             self.dual_coef_ = self.dual_coef_.ravel()
 
@@ -127,5 +107,56 @@ class KernelRidge(BaseEstimator, RegressorMixin):
             Returns predicted values.
         """
         check_is_fitted(self, ["X_fit_", "dual_coef_"])
-        K = rbf_kernel(X, self.X_fit_, gamma=self.gamma, scale=self.scale)
+        K = rbf_kernel(X, self.X_fit_, length_scale=self.length_scale, 
+                       signal_variance=self.signal_variance)
         return np.dot(K, self.dual_coef_)
+
+    def derivative(self, X):
+        
+        X = check_array(X)
+
+        K = rbf_kernel(X, self.X_fit_, length_scale=self.length_scale, 
+                       signal_variance=self.signal_variance)
+        
+        return self.rbf_derivative(self.X_fit_, X, K, self.dual_coef_, self.length_scale)
+
+    def sensitivity(self, x_test, sample='point', method='squared'):
+        derivative = self.derivative(x_test)
+
+        # Define the method of stopping term cancellations
+        if method == 'squared':
+            derivative **= 2
+        else:
+            np.abs(derivative, derivative)
+
+        # Point Sensitivity or Dimension Sensitivity
+        if sample == 'dim':
+            return np.mean(derivative, axis=0)
+        elif sample == 'point':
+            return np.mean(derivative, axis=1)
+        else:
+            raise ValueError('Unrecognized sample type.')
+
+    @staticmethod
+    @numba.njit('float64[:,:](float64[:,:],float64[:,:],float64[:,:],float64[:,:],float64)',fastmath=True, nogil=True)
+    def rbf_derivative(x_train, x_function, K, weights, length_scale):
+        #     # check the sizes of x_train and x_test
+        #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+        #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+        #     # check the n_samples for x_train and weights are equal
+        #     err_msg = "Number of training samples for xtrain and weights are not equal."
+        #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+        n_test, n_dims = x_function.shape
+
+        derivative = np.zeros(shape=x_function.shape)
+
+        for itest in range(n_test):
+            derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
+                                          (np.expand_dims(K[itest, :], axis=1) * weights))
+
+        derivative *= - 1 / length_scale**2
+
+        return derivative 
+

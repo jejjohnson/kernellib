@@ -1,10 +1,11 @@
 import numpy as np
 import numba
+from numba import float64
 from numba import prange
 from kernellib.kernels import ard_kernel
-from sklearn.metrics.pairwise import rbf_kernel
+from kernellib.kernels import rbf_kernel
 from sklearn.metrics import pairwise_kernels
-from sklearn.kernel_ridge import KernelRidge
+from kernellib.krr import KernelRidge
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import _check_length_scale
@@ -17,30 +18,24 @@ from scipy.linalg import cholesky, cho_solve
 
 
 class RBFDerivative(object):
-    def __init__(self, krr_model, method='python'):
+    def __init__(self, krr_model):
         self.krr_model = krr_model
-        self.method = method
 
         self.weights = krr_model.dual_coef_
-        self.gamma = krr_model.gamma
+        if np.ndim(self.weights.shape) == 1:
+            self.weights = np.atleast_2d(self.weights).T
+        self.length_scale = krr_model.length_scale
+        self.signal_variance = krr_model.signal_variance
         self.x_train = krr_model.X_fit_
 
     def __call__(self, x, full=False, nder=1):
-        K = rbf_kernel(x, self.x_train, gamma=self.gamma)
+        K = rbf_kernel(x, self.x_train, length_scale=self.length_scale, signal_variance=self.signal_variance)
+        # print(self.x_train.shape, x.shape, K.shape, self.weights.shape, self.length_scale.shape)
+        return self.rbf_derivative(self.x_train, x, K, self.weights, self.length_scale)
+                
 
-        if self.method == 'python':
-            if full or nder == 2:
-                return self.rbf_derivative_full(self.x_train, x, K, self.weights, self.gamma, nder=nder)
-            else:
-                return self.rbf_derivative(self.x_train, x, K, self.weights, self.gamma)
-        else:
-            if full or nder == 2:
-                return self.rbf_derivative_full_numba(self.x_train, x, K, self.weights, self.gamma)
-            else:
-                return self.rbf_derivative_numba(self.x_train, x, K, self.weights, self.gamma)
-
-    def point_sensitivity(self, x_test, sample='point', method='squared', nder=1):
-        derivative = self.__call__(x_test, nder=nder)
+    def sensitivity(self, x_test, sample='point', method='squared'):
+        derivative = self.__call__(x_test)
 
         # Define the method of stopping term cancellations
         if method == 'squared':
@@ -51,69 +46,14 @@ class RBFDerivative(object):
         # Point Sensitivity or Dimension Sensitivity
         if sample == 'dim':
             return np.mean(derivative, axis=0)
-        else:
+        elif sample == 'point':
             return np.mean(derivative, axis=1)
-
-    def sensitivity(self, x_test, method='squared'):
-        """"""
-        der = rbf_derivative(self.x_train, x_test, self.weights, self.gamma)
-
-        if method == 'squared':
-            return np.mean(np.mean(der**2))
         else:
-            return np.mean(np.mean(np.abs(der)))
+            raise ValueError('Unrecognized sample type.')
 
     @staticmethod
-    def rbf_derivative_full(x_train, x_function, K, weights, gamma, nder=1):
-
-        n_test, d_dims = x_function.shape
-        n_train, d_dims = x_train.shape
-
-        derivative = np.zeros(shape=(n_test, n_train, d_dims))
-
-        weights = np.tile(weights.flatten(), (1, d_dims))
-
-        if nder == 1:
-
-            constant = -2 * gamma
-
-            for itest in range(n_test):
-
-                term1 = (np.tile(x_function[itest, :], (n_train, 1)) - x_train)
-                term3 = np.tile(K[itest, :].T, (1, d_dims)).T
-                derivative[itest, :, :] = term1 * weights * term3
-
-        else:
-
-            constant = 2 * gamma
-            for itest in range(n_test):
-
-
-                term1 = constant * (np.tile(x_function[itest, :], (n_train, 1)) - x_train) ** 2 - 1
-                term3 = np.tile(K[itest, :].T, (1, d_dims)).T
-                derivative[itest, :, :] = term1 * weights * term3
-
-        derivative *= constant
-        return derivative
-
-    @staticmethod
-    def rbf_derivative(x_train, x_function, K, weights, gamma):
-
-        n_test, n_dims = x_function.shape
-
-        derivative = np.zeros(shape=x_function.shape)
-
-        for itest in range(n_test):
-            derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
-                                          (K[itest, :].reshape(-1, 1) * weights))
-
-        derivative *= - 2 * gamma
-
-        return derivative
-
-    @staticmethod
-    @numba.njit(fastmath=True)
-    def rbf_derivative_numba(x_train, x_function, K, weights, gamma):
+    @numba.njit('float64[:,:](float64[:,:],float64[:,:],float64[:,:],float64[:,:],float64)',fastmath=True, nogil=True)
+    def rbf_derivative(x_train, x_function, K, weights, length_scale):
         #     # check the sizes of x_train and x_test
         #     err_msg = "xtrain and xtest d dimensions are not equivalent."
         #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
@@ -126,53 +66,20 @@ class RBFDerivative(object):
 
         derivative = np.zeros(shape=x_function.shape)
 
-        constant = - 2 * gamma
-
         for itest in range(n_test):
-            derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
-                                          (K[itest, :].reshape(-1, 1) * weights))
+            derivative[itest, :] = np.dot((np.expand_dims(x_function[itest, :], axis=0) - x_train).T,
+                                          (np.expand_dims(K[itest, :], axis=1) * weights)).flatten()
 
-        derivative *= constant
-
-        return derivative
-
-    @staticmethod
-    @numba.njit(fastmath=True)
-    def rbf_derivative_full_numba(x_train, x_function, K, weights, gamma, nder=1):
-        n_test, d_dims = x_function.shape
-        n_train, d_dims = x_train.shape
-
-        derivative = np.zeros(shape=(n_test, n_train, d_dims))
-
-        if nder == 1:
-            for idim in range(d_dims):
-                for itrain in range(n_train):
-                    w = weights[itrain]
-                    for itest in range(n_test):
-                        #                 print(weights.shape)
-                        derivative[itest, itrain, idim] = \
-                            w * (x_function[itest, idim] - x_train[itrain, idim]) * K[itest, itrain]
-
-            derivative *= - 2 * gamma
-
-        else:
-            constant = 2 * gamma
-            for idim in range(d_dims):
-                for itrain in range(n_train):
-                    for itest in range(n_test):
-                        derivative[itest, itrain, idim] = \
-                            weights[itrain] \
-                            * (constant * (x_function[itest, idim] - x_train[itrain, idim]) ** 2 - 1) \
-                            * K[itest, itrain]
-            derivative *= constant
+        derivative *= - 1 / length_scale**2
 
         return derivative
+
+
 
 
 class ARDDerivative(object):
-    def __init__(self, gp_model, method='python'):
+    def __init__(self, gp_model):
         self.gp_model = gp_model
-        self.method = method
         self.x_train = gp_model.X_train_
         self.n_samples, self.d_dimensions = self.x_train.shape
         self.kernel = gp_model.kernel_
@@ -190,107 +97,48 @@ class ARDDerivative(object):
 
         if isinstance(length_scale, float):
             self.length_scale = np.array([self.length_scale])
-
+        if len(self.length_scale) == 1 and len(self.length_scale) != self.x_train.shape[1]:
+            self.length_scale = self.length_scale * np.ones(self.x_train.shape[1])
         self.scale = gp_model.kernel_.get_params()['k1__k1__constant_value']
         self.noise = gp_model.kernel_.get_params()['k2__noise_level']
 
 
-    def __call__(self, x, full=False):
-
+    def __call__(self, X, full=False):
+    
         #TODO Check the inputs
 
 
         # Calculate the kernel matrix
-        K = self.kernel(x, self.x_train)
+        K = self.kernel(X, self.x_train)
+        # print(self.x_train.shape, X.shape, K.shape, self.weights.shape, self.length_scale.shape)
+        return self.ard_derivative_numba(self.x_train, X, K, self.weights, self.length_scale)
+                
 
-        if self.method == 'python':
-            if full:
-                return self.ard_derivative_full(self.x_train, x, K, self.weights, self.length_scale)
-            else:
-                return self.ard_derivative(self.x_train, x, K, self.weights, self.length_scale)
-        else:
-            if full:
-                return self.ard_derivative_full_numba(self.x_train, x, K, self.weights, self.length_scale)
-            else:
-                return self.ard_derivative_numba(self.x_train, x, K, self.weights, self.length_scale)
-
-    def sensitivity(self, x_test, sample='dim', method='squared'):
+    def sensitivity(self, x_test, sample='point', method='squared'):
 
         derivative = self.__call__(x_test)
 
         # Define the method of stopping term cancellations
-        if method.lower() == 'squared':
+        if method == 'squared':
             derivative **= 2
-        elif method.lower() == 'abs':
-            np.abs(derivative, derivative)
         else:
-            raise ValueError('Unrecognized function.')
+            np.abs(derivative, derivative)
 
         # Point Sensitivity or Dimension Sensitivity
         if sample == 'dim':
             return np.mean(derivative, axis=0)
-        else:
+        elif sample == 'point':
             return np.mean(derivative, axis=1)
+        else:
+            raise ValueError('Unrecognized sample type.')
+
+
+
 
     @staticmethod
-    def ard_derivative_full(x_train, x_function, K, weights, length_scale):
-
-        n_test, d_dims = x_function.shape
-        n_train, d_dims = x_train.shape
-        derivative = np.zeros(shape=(n_test, n_train, d_dims))
-
-        constant = np.diag(-np.power(length_scale, -2))
-
-        weights = np.tile(weights, (1, d_dims))
-
-        for itest in range(n_test):
-            X = (np.tile(x_function[itest, :], (n_train, 1)) - x_train).dot(constant)
-
-            term3 = np.tile(K[itest, :].T, (1, d_dims)).T
-            derivative[itest, :, :] = X * weights * term3
-
-        return derivative
-
-    @staticmethod
-    def ard_derivative(x_train, x_function, K, weights, length_scale):
-
-        n_test, n_dims = x_function.shape
-
-        derivative = np.zeros(shape=x_function.shape)
-        length_scale = np.diag(- np.power(length_scale, -2))
-        for itest in range(n_test):
-            derivative[itest, :] = np.dot(length_scale.dot((x_function[itest, :] - x_train).T),
-                                          (K[itest, :].reshape(-1, 1) * weights))
-
-        return derivative
-
-        # def sensitivity(self, x_test, method='squared'):
-
-    @staticmethod
-    @numba.njit(fastmath=True)
-    def ard_derivative_full_numba(x_train, x_function, K, weights, length_scale):
-
-        n_test, d_dims = x_function.shape
-        n_train, d_dims = x_train.shape
-
-        derivative = np.zeros(shape=(n_test, n_train, d_dims))
-
-        constant = -np.power(length_scale, -2)
-
-        for idim in range(d_dims):
-            for itrain in range(n_train):
-                for itest in range(n_test):
-                    derivative[itest, itrain, idim] = \
-                        constant[idim] * weights[itrain] \
-                        * (x_function[itest, idim] - x_train[itrain, idim]) \
-                        * K[itest, itrain]
-
-        return derivative
-
-    @staticmethod
-    @numba.njit(parallel=True, fastmath=True)
+    @numba.njit('float64[:,:](float64[:,:],float64[:,:],float64[:,:],float64[:,:],float64[:])',
+                nogil=True, fastmath=True)
     def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
-
         #     # check the sizes of x_train and x_test
         #     err_msg = "xtrain and xtest d dimensions are not equivalent."
         #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
@@ -306,11 +154,146 @@ class ARDDerivative(object):
         length_scale = np.diag(- np.power(length_scale, -2))
 
         for itest in range(n_test):
-            derivative[itest, :] = np.dot(length_scale.dot((x_function[itest, :] - x_train).T),
-                                          (K[itest, :].reshape(-1, 1) * weights))
+            # print( np.expand_dims(x_function[itest, :], axis=0).shape, x_train.shape)
+            # print(length_scale.shape, (np.expand_dims(x_function[itest, :], axis=0) - x_train).T.shape)
+            # print(np.expand_dims(K[itest, :], axis=1).shape, weights.shape)
+            # print(derivative[itest, :].shape)
+            derivative[itest, :] = np.dot(np.dot(length_scale, (np.expand_dims(x_function[itest, :], axis=0) - x_train).T),
+                                          (np.expand_dims(K[itest, :], axis=1) * weights)).flatten()
+            break
 
         return derivative
 
+def ard_derivative_full(x_train, x_function, K, weights, length_scale):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    constant = np.diag(-np.power(length_scale, -2))
+
+    weights = np.tile(weights, (1, d_dims))
+
+    for itest in range(n_test):
+        X = (np.tile(x_function[itest, :], (n_train, 1)) - x_train).dot(constant)
+
+        term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+        derivative[itest, :, :] = X * weights * term3
+
+    return derivative
+
+def ard_derivative(x_train, x_function, K, weights, length_scale):
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+    length_scale = np.diag(- np.power(length_scale, -2))
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot(length_scale.dot((x_function[itest, :] - x_train).T),
+                                        (K[itest, :].reshape(-1, 1) * weights))
+
+    return derivative
+
+    # def sensitivity(self, x_test, method='squared'):
+
+@numba.njit(fastmath=True)
+def ard_derivative_full_numba(x_train, x_function, K, weights, length_scale):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    constant = -np.power(length_scale, -2)
+
+    for idim in range(d_dims):
+        for itrain in range(n_train):
+            for itest in range(n_test):
+                derivative[itest, itrain, idim] = \
+                    constant[idim] * weights[itrain] \
+                    * (x_function[itest, idim] - x_train[itrain, idim]) \
+                    * K[itest, itrain]
+
+    return derivative
+
+
+@numba.njit(parallel=True, fastmath=True)
+def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
+
+    #     # check the sizes of x_train and x_test
+    #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+    #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+    #     # check the n_samples for x_train and weights are equal
+    #     err_msg = "Number of training samples for xtrain and weights are not equal."
+    #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+
+    length_scale = np.diag(- np.power(length_scale, -2))
+
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot(length_scale.dot((x_function[itest, :] - x_train).T),
+                                        (K[itest, :].reshape(-1, 1) * weights))
+
+    return derivative
+
+@numba.njit(fastmath=True)
+def rbf_derivative_numba(x_train, x_function, K, weights, gamma):
+    #     # check the sizes of x_train and x_test
+    #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+    #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+    #     # check the n_samples for x_train and weights are equal
+    #     err_msg = "Number of training samples for xtrain and weights are not equal."
+    #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+
+    constant = - 2 * gamma
+
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
+                                        (K[itest, :].reshape(-1, 1) * weights))
+
+    derivative *= constant
+
+    return derivative
+
+@numba.njit(fastmath=True)
+def rbf_derivative_full_numba(x_train, x_function, K, weights, gamma, nder=1):
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    if nder == 1:
+        for idim in range(d_dims):
+            for itrain in range(n_train):
+                w = weights[itrain]
+                for itest in range(n_test):
+                    #                 print(weights.shape)
+                    derivative[itest, itrain, idim] = \
+                        w * (x_function[itest, idim] - x_train[itrain, idim]) * K[itest, itrain]
+
+        derivative *= - 2 * gamma
+
+    else:
+        constant = 2 * gamma
+        for idim in range(d_dims):
+            for itrain in range(n_train):
+                for itest in range(n_test):
+                    derivative[itest, itrain, idim] = \
+                        weights[itrain] \
+                        * (constant * (x_function[itest, idim] - x_train[itrain, idim]) ** 2 - 1) \
+                        * K[itest, itrain]
+        derivative *= constant
+
+    return derivative
 
 
     #     """"""
@@ -346,6 +329,39 @@ class ARDDerivative(object):
     #     return derivative
 
 
+@numba.njit(fastmath=True)
+def ard_derivative_full_numba(x_train, x_function, K, weights, length_scale):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    constant = -np.power(length_scale, -2)
+
+    for idim in range(d_dims):
+        for itrain in range(n_train):
+            for itest in range(n_test):
+                derivative[itest, itrain, idim] = \
+                    constant[idim] * weights[itrain] \
+                    * (x_function[itest, idim] - x_train[itrain, idim]) \
+                    * K[itest, itrain]
+
+    return derivative
+
+def ard_derivative(x_train, x_function, K, weights, length_scale):
+
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+    length_scale = np.diag(- np.power(length_scale, -2))
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot(length_scale.dot((x_function[itest, :] - x_train).T),
+                                        (K[itest, :].reshape(-1, 1) * weights))
+
+    return derivative
+
+
 @numba.njit(fastmath=True, nogil=True)
 def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
     #     # check the sizes of x_train and x_test
@@ -368,8 +384,7 @@ def ard_derivative_numba(x_train, x_function, K, weights, length_scale):
 
     return derivative
 
-
-@numba.njit(fastmath=True)
+@numba.njit(fastmath=True, nogil=True)
 def rbf_derivative_numba(x_train, x_function, K, weights, gamma):
     #     # check the sizes of x_train and x_test
     #     err_msg = "xtrain and xtest d dimensions are not equivalent."
@@ -389,28 +404,47 @@ def rbf_derivative_numba(x_train, x_function, K, weights, gamma):
         derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
                                       (K[itest, :].reshape(-1, 1) * weights))
 
-    derivative *= constant
+    derivative *= - 1 / length_scale**2
 
     return derivative
 
 
-def rbf_derivative_full(x_train, x_function, K, weights, gamma):
-
-    n_test, d_dims = x_function.shape
-    n_train, d_dims = x_train.shape
+def rbf_derivative_full(xtrain, xtest, K, weights, length_scale):
+    """The Derivative of the RBF kernel. It returns the full 
+    derivative as a 3D matrix.
+    
+    Parameters
+    ----------
+    xtrain : array, (n_train_samples x d_dimensions)
+    
+    xtest : array, (ntest_samples, d_dimensions)
+    
+    K : array, (ntest_samples, ntrain_samples)
+    
+    weights : array, (ntrain_samples)
+    
+    length_scale : float,
+    
+    Return
+    ------
+    
+    Derivative : array, (n_test, n_train, d_dimensions)
+    
+    """
+    n_test, d_dims = xtest.shape
+    n_train, d_dims = xtrain.shape
 
     derivative = np.zeros(shape=(n_test, n_train, d_dims))
 
-    constant = -2 * gamma
-
-    weights = np.tile(weights.flatten(), (1, d_dims))
+    weights = np.tile(weights, (1, d_dims))
 
     for itest in range(n_test):
-        term1 = (np.tile(x_function[itest, :], (n_train, 1)) - x_train)
-        term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+        term1 = (np.tile(xtest[itest, :], (n_train, 1)) - xtrain)
+        term3 = np.tile(K[itest, ].T, (1, d_dims)).T
         derivative[itest, :, :] = term1 * weights * term3
 
-    derivative *= constant
+
+    derivative *= - 1 / (length_scale**2)
     return derivative
 
 
@@ -510,6 +544,25 @@ def ard_derivative(x_train, x_test, weights, length_scale, scale, n_der=1):
     return derivative
 
 
+@staticmethod
+def ard_derivative_full(x_train, x_function, K, weights, length_scale):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    constant = np.diag(-np.power(length_scale, -2))
+
+    weights = np.tile(weights, (1, d_dims))
+
+    for itest in range(n_test):
+        X = (np.tile(x_function[itest, :], (n_train, 1)) - x_train).dot(constant)
+
+        term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+        derivative[itest, :, :] = X * weights * term3
+
+    return derivative
+
 def rbf_full_derivative(x_train, x_test, weights, gamma):
 
     if np.ndim(x_test) == 1:
@@ -541,6 +594,38 @@ def rbf_full_derivative(x_train, x_test, weights, gamma):
     return full_derivative
 
 
+def rbf_derivative_full(x_train, x_function, K, weights, length_scale, nder=1):
+
+    n_test, d_dims = x_function.shape
+    n_train, d_dims = x_train.shape
+
+    derivative = np.zeros(shape=(n_test, n_train, d_dims))
+
+    weights = np.tile(weights, (1, d_dims))
+
+    if nder == 1:
+
+        constant = - 1 / length_scale**2
+
+        for itest in range(n_test):
+
+            term1 = (np.tile(x_function[itest, :], (n_train, 1)) - x_train)
+            term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+            derivative[itest, :, :] = term1 * weights * term3
+
+    else:
+
+        constant = 1 / length_scale**2
+        for itest in range(n_test):
+
+
+            term1 = constant * (np.tile(x_function[itest, :], (n_train, 1)) - x_train) ** 2 - 1
+            term3 = np.tile(K[itest, :].T, (1, d_dims)).T
+            derivative[itest, :, :] = term1 * weights * term3
+
+    derivative *= constant
+    return derivative
+
 def rbf_full_derivative_loops(x_train, x_function, weights, gamma):
 
     n_test, d_dims = x_function.shape
@@ -564,6 +649,41 @@ def rbf_full_derivative_loops(x_train, x_function, weights, gamma):
     full_derivative *= constant
 
     return full_derivative
+
+
+def rbf_derivative(x_train, x_function, K, weights, length_scale):
+    """The Derivative of the RBF kernel. It returns the 
+    derivative as a 2D matrix.
+    
+    Parameters
+    ----------
+    xtrain : array, (n_train_samples x d_dimensions)
+    
+    xtest : array, (ntest_samples, d_dimensions)
+    
+    K : array, (ntest_samples, ntrain_samples)
+    
+    weights : array, (ntrain_samples)
+    
+    length_scale : float,
+    
+    Return
+    ------
+    
+    Derivative : array, (n_test,d_dimensions)
+    
+    """
+    n_test, n_dims = x_function.shape
+
+    derivative = np.zeros(shape=x_function.shape)
+
+    for itest in range(n_test):
+        derivative[itest, :] = np.dot((x_function[itest, :] - x_train).T,
+                                      (K[itest, :].reshape(-1, 1) * weights))
+
+    derivative *= - 1 / length_scale**2
+
+    return derivative
 
 
 def rbf_derivative(x_train, x_function, weights, gamma):

@@ -423,7 +423,7 @@ class GPRVariance(BaseEstimator, RegressorMixin):
         K_trans = self.kernel_(self.X_train_, X)
 
         mu = np.dot(Kweight.T, self.alpha_)
-        mu = self._y_train_mean + mu
+        # mu = self._y_train_mean + mu
         y_var = 1.0
         length_scale = self.length_scale
         if np.ndim(length_scale) < 1:

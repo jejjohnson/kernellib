@@ -26,12 +26,21 @@ def plot_gp(xtest, predictions, std=None, xtrain=None, ytrain=None,  title=None,
 
         ax.fill_between(xtest, upper_bound, lower_bound,
                         color='red', alpha=0.2, label='95% Condidence Interval')
-    ax.legend()
+    # ax.legend()
     if title is not None:
         ax.set_title(title)
+        
+    ax.tick_params(
+    axis='both', 
+    which='both',
+    bottom=False, 
+    top=False, 
+    left=False,
+    labelleft=False,
+    labelbottom=False)
 
     if save_name:
-        pass
+        fig.savefig(save_name)
     else:
         plt.show()
 
