@@ -85,19 +85,20 @@ def r_assessment(y_pred, y_test, verbose=0):
     y_pred = y_pred.flatten()
     y_test = y_test.flatten()
 
-    mae = mean_absolute_error(y_pred, y_test)
-    mse = mean_squared_error(y_pred, y_test)
-    r2 = r2_score(y_pred, y_test)
-    rmse = np.sqrt(mse)
+
+
+    df = pd.DataFrame({
+        'mae': mean_absolute_error(y_pred, y_test),
+        'mse': mean_squared_error(y_pred, y_test),
+        'r2': r2_score(y_pred, y_test),
+        'rmse': np.sqrt(mean_squared_error(y_pred, y_test))
+    }, index=['Results'])
 
 
     if verbose:
-        print('MAE: {:.3f}'.format(mae))
-        print('MSE: {:.3f}'.format(mse))
-        print('RMSE: {:.3f}'.format(rmse))
-        print('R2: {:.3f}'.format(r2))
+        print(df.head())
 
-    return mae, mse, r2, rmse
+    return df
 
 
 def get_gp_stats(predictions, labels, std_devs, describe=False, verbose=True):

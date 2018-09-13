@@ -1,5 +1,5 @@
 import numpy as np
-from kernellib.kernel_approximation import RandomizedNystrom, RandomFourierFeatures
+from kernellib.kernel_approximation import RandomizedNystrom, RandomFourierFeatures, FastFood
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.kernel_approximation import Nystroem, RBFSampler
 from sklearn.utils import check_array, check_X_y, check_random_state
@@ -17,11 +17,11 @@ class RKSKernelRidge(BaseEstimator, RegressorMixin):
             emanjohnson91@gmail.com
     Date  : 3rd - August, 2018
     """
-    def __init__(self, n_components=10, alpha=1e-3, gamma=1.0,
+    def __init__(self, n_components=10, alpha=1e-3, sigma=1.0,
                  random_state=None):
         self.n_components = n_components
         self.alpha = alpha
-        self.gamma = gamma
+        self.sigma = sigma
         self.random_state = random_state
 
     def fit(self, X, y):
@@ -51,7 +51,7 @@ class RKSKernelRidge(BaseEstimator, RegressorMixin):
         rng = check_random_state(self.random_state)
 
         # Generate n_components iid samples (Random Projection Matrix)
-        self.w = np.sqrt(2 * self.gamma) * rng.randn(self.n_components, X.shape[1])
+        self.w = np.sqrt(1 / (self.sigma**2)) * rng.randn(self.n_components, X.shape[1])
 
         # Explicitly project the features
         self.L = np.exp(1j * np.dot(X, self.w.T))
@@ -105,17 +105,18 @@ class KernelRidge(BaseEstimator, RegressorMixin):
             emanjohnson91@gmail.com
     Date  : 3rd - August, 2018
     """
-    def __init__(self, n_components=10, alpha=1e-3, gamma=1.0,
+    def __init__(self, n_components=10, alpha=1e-3, sigma=None,
                  random_state=None, approximation='nystrom',
-                 k_rank=10, kernel='rbf'):
+                 k_rank=10, kernel='rbf', trade_off='acc'):
         self.n_components = n_components
         self.alpha = alpha
-        self.gamma = gamma
+        self.sigma = sigma
         self.random_state = random_state
         self.approximation = approximation
         self.k_rank = k_rank
         self.n_components = n_components
         self.kernel = kernel
+        self.trade_off = trade_off
 
     def fit(self, X, y):
 
@@ -125,6 +126,10 @@ class KernelRidge(BaseEstimator, RegressorMixin):
 
         # iniate randomization
         rng = check_random_state(self.random_state)
+        
+        # Sigma
+        if self.sigma is None:
+            self.sigma = 1.0
 
         # Kernel Approximation Step
         self.L = self._kernel_approximation(X)
@@ -157,13 +162,13 @@ class KernelRidge(BaseEstimator, RegressorMixin):
         if self.approximation == 'rff':
             self.trans = RandomFourierFeatures(
                 n_components=self.n_components,
-                gamma=self.gamma
+                gamma=1 / np.sqrt(2 * self.sigma**2)
             )
 
         # RBF Sampler (Variant of Random Kitchen Sinks)
         elif self.approximation == 'rks':
             self.trans = RBFSampler(
-                gamma=self.gamma,
+                gamma=1 / np.sqrt(2 * self.sigma**2),
                 n_components=self.n_components,
                 random_state=self.random_state)
 
@@ -171,15 +176,23 @@ class KernelRidge(BaseEstimator, RegressorMixin):
         elif self.approximation == 'nystrom':
             self.trans = Nystroem(
                 kernel=self.kernel,
-                gamma=self.gamma,
-                n_components=self.n_components
+                gamma=1 / np.sqrt(2 * self.sigma**2),
+                n_components=self.n_components,
+                random_state=self.random_state
             )
-
+        # Fast Food Approximation
+        elif self.approximation == 'fastfood':
+            self.trans = FastFood(
+                 sigma=self.sigma,
+                 n_components=self.n_components,
+                 tradeoff_mem_accuracy=self.trade_off,
+                 random_state=self.random_state
+            )
         # Randomized Nystrom Approximation
         elif self.approximation == 'rnystrom':
             self.trans = RandomizedNystrom(
                 kernel=self.kernel,
-                sigma=self.gamma,
+                sigma=self.sigma,
                 n_components=self.n_components,
                 k_rank=self.k_rank,
                 random_state=self.random_state
@@ -208,6 +221,5 @@ class KernelRidge(BaseEstimator, RegressorMixin):
 
         K = self.trans.transform(X)
 
-        return np.real(np.dot(K, self.dual_coef_))
-
+        return np.real(np.dot(K, self.dual_coef_)) 
 
