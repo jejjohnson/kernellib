@@ -21,17 +21,25 @@ class RBFDerivative(object):
     def __init__(self, krr_model):
         self.krr_model = krr_model
 
-        self.weights = krr_model.dual_coef_
-        if np.ndim(self.weights.shape) == 1:
-            self.weights = np.atleast_2d(self.weights).T
+        self.weights = krr_model.dual_coef_.flatten()
+        # print(self.weights.shape)
+        # if np.ndim(self.weights) == 1:
+        #     self.weights = np.atleast_2d(self.weights).T
+        # print(self.weights.shape)
         self.length_scale = krr_model.length_scale
         self.signal_variance = krr_model.signal_variance
         self.x_train = krr_model.X_fit_
 
     def __call__(self, x, full=False, nder=1):
+        x = x.astype(np.float64)
         K = rbf_kernel(x, self.x_train, length_scale=self.length_scale, signal_variance=self.signal_variance)
-        # print(self.x_train.shape, x.shape, K.shape, self.weights.shape, self.length_scale.shape)
-        return self.rbf_derivative(self.x_train, x, K, self.weights, self.length_scale)
+        # print(self.x_train.shape, x.shape, K.shape, self.weights.shape, self.length_scale)
+        
+#         if not num:
+        return self.rbf_derivative(
+            self.x_train, x, K, self.weights.flatten(), self.length_scale)
+#         else:
+#             return self.rbf_derivative_num(x, self.weights, self.length_scale)
                 
 
     def sensitivity(self, x_test, sample='point', method='squared'):
@@ -51,9 +59,69 @@ class RBFDerivative(object):
         else:
             raise ValueError('Unrecognized sample type.')
 
+    # @staticmethod
+    # @numba.njit('float64[:,:](float64[:,:],float64[:,:],float64[:,:],float64[:],float64)',fastmath=True, nogil=True)
+    # def rbf_derivative(x_train, x_function, K, weights, length_scale):
+    #     #     # check the sizes of x_train and x_test
+    #     #     err_msg = "xtrain and xtest d dimensions are not equivalent."
+    #     #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
+
+    #     #     # check the n_samples for x_train and weights are equal
+    #     #     err_msg = "Number of training samples for xtrain and weights are not equal."
+    #     #     np.testing.assert_equal(x_train.shape[0], weights.shape[0], err_msg=err_msg)
+
+    #     n_test, n_dims = x_function.shape
+
+    #     derivative = np.zeros(shape=x_function.shape)
+
+    #     for itest in range(n_test):
+    #         derivative[itest, :] = np.dot((np.expand_dims(x_function[itest, :], axis=0) - x_train).T,
+    #                                       (K[itest, :] * weights)).flatten()
+
+    #     derivative *= - 1 / length_scale**2
+
+    #     return derivative
+    @staticmethod
+    def rbf_derivative(x_train, x_function, K, weights, length_scale):
+        """The Derivative of the RBF kernel. It returns the 
+        derivative as a 2D matrix.
+
+        Parameters
+        ----------
+        xtrain : array, (n_train_samples x d_dimensions)
+
+        xtest : array, (ntest_samples, d_dimensions)
+
+        K : array, (ntest_samples, ntrain_samples)
+
+        weights : array, (ntrain_samples)
+
+        length_scale : float,
+
+        Return
+        ------
+
+        Derivative : array, (n_test,d_dimensions)
+
+        """
+        n_test, n_dims = x_function.shape
+
+        derivative = np.zeros(shape=x_function.shape)
+
+        for itest in range(n_test):
+            t1 = (np.expand_dims(x_function[itest, :], axis=0) - x_train).T
+            t2 = K[itest, :] * weights.squeeze()
+            t3 = np.dot(t1, t2)
+
+            derivative[itest, :] = t3
+
+        derivative *= - 1 / length_scale**2
+
+        return derivative
+
     @staticmethod
     @numba.njit('float64[:,:](float64[:,:],float64[:,:],float64[:,:],float64[:,:],float64)',fastmath=True, nogil=True)
-    def rbf_derivative(x_train, x_function, K, weights, length_scale):
+    def numba_rbf_derivative(x_train, x_function, K, weights, length_scale):
         #     # check the sizes of x_train and x_test
         #     err_msg = "xtrain and xtest d dimensions are not equivalent."
         #     np.testing.assert_equal(x_function.shape[1], x_train.shape[1], err_msg=err_msg)
