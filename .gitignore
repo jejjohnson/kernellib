@@ -69,3 +69,5 @@ kernellib/bin/activate
 .idea/deployment.xml
 \.idea/
 \.DS_Store
+
+\.vscode/

@@ -25,10 +25,6 @@ def rbf_kernel(X, Y=None, length_scale=1.0, signal_variance=1.0):
     -------
     K : array, (n_samples x d_dimensions)
     """
-    # check the inputs
-#     print(X.shape, Y.shape)
-    # X, Y = check_pairwise_arrays(X, Y)
-    
     X_norm = np.einsum('ij,ij->i', X, X)
     if Y is not None:
         Y_norm = np.einsum('ij,ij->i', Y, Y)
@@ -45,7 +41,6 @@ def rbf_kernel(X, Y=None, length_scale=1.0, signal_variance=1.0):
     })
     
     return K
-
 
 def ard_kernel(X, Y=None, length_scale=None, signal_variance=1.0):
     """The Automatic Relevance Determination Kernel.
