@@ -78,7 +78,6 @@ class RKSKernelRidge(BaseEstimator, RegressorMixin):
 
         return self
 
-
     def predict(self, X, return_real=True):
         """Predict using the RKS Kernel Model
 
@@ -98,8 +97,21 @@ class RKSKernelRidge(BaseEstimator, RegressorMixin):
 
 class KernelRidge(BaseEstimator, RegressorMixin):
     """Kernel Ridge Regression with kernel Approximations.
+    Large scale
 
+    Parameters
+    ----------
+    alpha : {float}, 
+        The noise parameter for the outputs according to the KRR
+        formulation.
+    
+    n_components : int, default=10
+        The number of components (subset) to keep from the original
+        data.
 
+    sigma : float, default=None
+        The length scale parameter
+        
     Author: J. Emmanuel Johnson
     Email : jemanjohnson34@gmail.com
             emanjohnson91@gmail.com
