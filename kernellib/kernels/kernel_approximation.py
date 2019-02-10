@@ -70,7 +70,7 @@ class RandomizedNystrom(BaseEstimator, TransformerMixin):
     Date  : December, 2017
     """
     def __init__(self, kernel='rbf', sigma=1.0, n_components=100,
-                 k_rank=1, random_state=None):
+                 k_rank=1, random_state=None, **kwargs):
         self.kernel = kernel
         self.sigma = sigma
         self.n_components = n_components
