@@ -469,3 +469,203 @@ def maximum(mata, matb):
     bisbigger.data = np.where(bisbigger.data < 0, 1, 0)
     return mata - mata.multiply(bisbigger) + matb.multiply(bisbigger)
 
+def normalized_laplacian(A):
+    """Returns a normalized laplacian matrix.
+    
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    I = np.identity(A.shape[0])
+    d = A.sum(axis=0)
+    d = np.sqrt(1 / d)
+    D = np.diag(d)
+    L = I - np.dot( np.dot(D, A), A )
+
+    return L
+
+def regularized_laplacian(A, sigma=1):
+    """Returns a regularized laplacian matrix.
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    sigma : float, default=1
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    I = np.identity(A.shape[0])
+    L = normalized_laplacian(A)
+    K = np.linalg.inv(I + sigma**2 * L)
+    return K
+
+def psu_inverse_laplacian(A):
+    """Returns the psuedo inverse of a normalized laplacian matrix.
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+    
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    L = normalized_laplacian(A)
+    K = np.linalg.pinv(L)
+    return K
+
+def diffusion_kernel(A, beta=0.5):
+    """Returns the diffusion process kernel.
+
+    K = exp(beta * H),
+        where: H = -L = A - D
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    beta : float 
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+    
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    A = np.array(A)
+    H = A - np.diag(np.sum(A, axis=1))
+    w, Q = np.linalg.eigh(H)
+    lam = np.diag(np.exp(beta * w))
+    K = np.dot(np.dot(Q, lam), Q.T)
+    return K
+
+def vndkernel(A, alpha=0.5):
+    """Returns the Von Neumann Diffusion kernel on 
+    graph (Zhou et al. 2004) a.k.a. label spreading kernel.
+
+    K = (I - alpha*S)^-1, where S = D^-1/2*A*D^-1/2
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    alpha : float 
+        hyperparameter
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+    
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    I = np.identity(A.shape[0])
+    d = A.sum(axis=0)
+    d = np.sqrt(1 / d)
+    D = np.diag(d)
+    S = np.dot( np.dot(D, A), D)
+    K = np.linalg.inv( I - alpha*S)
+    return K
+
+def rwkernel(A, p=1, a=2):
+    """Returns the p-step Random Walk kernel with a>1
+
+    K = (aI-L)^p
+        where:
+        * p > 1
+        * L is the normalized Laplacian 
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    p : float, default=1
+        step hyperparameter
+
+    a : float, default=1
+        hyperparameter
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+    
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    p = int(p)
+
+    if p < 1:
+        raise Exception('Step parameter p needs to be larger than 0.')
+
+    if a <= 1:
+        a = 1.0001
+
+    I = np.identity(A.shape[0])
+    L = normalized_laplacian(A)
+    K = np.linalg.matrix_power(a * I - L, p)
+
+    return K
+
+def cos_kernel(A):
+    """Returns the Cosine kernel (also inverse cosine kernel)
+
+    K = cos (L*pi/4)
+        where:
+        * L is the normalized Laplacian 
+
+    Parameters
+    ----------
+    A : adjacency matrix
+
+    Returns
+    -------
+    K : Kernel matrix (n_samples x n_samples)
+    
+    Information
+    -----------
+    Author  : J. Emmanuel Johnson
+    Date    : 10-Feb-2019
+    Email   : emanjohnson91@gmail.com
+    Source: https://goo.gl/egb65a
+    """
+    L = normalized_laplacian(A)
+    K = np.cos(L * np.pi/A)
+    return K
+
