@@ -239,9 +239,9 @@ class RHSIC(object):
 
         for idim in range(self.dx_dimensions):
             for isample in range(self.n_samples):
-                Jx[idim]            = 1
+                Jx[:, idim]            = 1
                 aux                 = 1j * Jx @ self.Wx
-                Jx[idim]            = 0
+                Jx[:, idim]            = 0
                 derX                = self.Zx[isample, :] * aux
                 mapX[isample, idim] = np.real(BBx[isample, :][None, :] @ derX.T).squeeze()
 
@@ -251,9 +251,9 @@ class RHSIC(object):
 
         for idim in range(self.dy_dimensions):
             for isample in range(self.n_samples):
-                Jy[idim]            = 1
+                Jy[:, idim]            = 1
                 aux                 = 1j * Jy @ self.Wy
-                Jy[idim]            = 0
+                Jy[:, idim]            = 0
                 derY                = self.Zy[isample, :] * aux
                 mapY[isample, idim] = np.real(BBy[isample, :][None, :] @ derY.T).squeeze()
 
