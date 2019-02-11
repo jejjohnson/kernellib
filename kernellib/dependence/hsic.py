@@ -15,8 +15,10 @@ class HSIC(object):
     kernel: str, 
     
     """
-    def __init__(self, kernel='rbf', random_state=1234):
-        self.kernel = RBF()
+    def __init__(self, kernel='rbf', random_state=1234, sigma_x=None, sigma_y=None):
+        self.kernel = kernel
+        self.sigma_x = sigma_x
+        self.sigma_y = sigma_y
         self.rng = check_random_state(random_state)
         
         self.hsic_fit = None
@@ -40,22 +42,32 @@ class HSIC(object):
         self.Y_train_ = Y
             
         # Estimate sigma parameter (RBF) kernel only
-        self.sigma_x = self._estimate_length_scale(X)
-        self.sigma_y = self._estimate_length_scale(Y)
+        if self.sigma_x is None:
+            self.sigma_x = self._estimate_length_scale(X)
+            
+        if self.sigma_y is None:
+            self.sigma_y = self._estimate_length_scale(Y)
         
         # Calculate Kernel Matrices for X, Y
-        self.K_x = RBF(self.sigma_x)(X)
-        self.K_y = RBF(self.sigma_y)(Y)
-        
+        if self.kernel is 'rbf':
+            self.K_x = RBF(self.sigma_x)(X)
+            self.K_y = RBF(self.sigma_y)(Y)
+
+        elif self.kernel is 'lin':
+            self.K_x = X * X.T
+            self.K_y = Y * Y.T
+        else:
+            raise ValueError('No kernel.')
+
         # Center Kernel
         self.H = np.eye(self.n_samples) - ( 1 / self.n_samples ) * np.ones(self.n_samples)
-        self.K_xc = np.dot(self.K_x, self.H)
-        self.K_yc = np.dot(self.K_y, self.H)
+        self.K_xc = self.K_x @ self.H
+        self.K_yc = self.K_y @ self.H
         
         # TODO: check kernelcentering (sklearn)
         
         # Compute HSIC value
-        self.hsic_value = (1 / (self.n_samples - 1)**2) * np.einsum('ij,ij->', self.K_xc, self.K_yc)
+        self.hsic_value = (1 / (self.n_samples - 1)**2) * (self.K_xc.T * self.K_yc).sum().sum()#np.einsum('ij,ij->', self.K_xc, self.K_yc)
         
         self.hsic_fit = True
         return self
@@ -64,7 +76,6 @@ class HSIC(object):
         
         # Subsample data
         if data.shape[0] > 5e2:
-            
             # Random Permutation
             n_sub_samples = self.rng.permutation(data.shape[0])
             
@@ -131,11 +142,23 @@ class RHSIC(object):
     
     Parameters
     ----------
-    kernel: str, 
+    kernel: str, default='rbf'
+        {'lin', 'rbf'}
+        
+    n_features : int, default=10
+    
+    sigma_x : float/bool, optional, default=None
+    
+    sigma_y : float/bool, optional, default=None
+    
+    random_state : int, default=None
+    
     
     """
-    def __init__(self, kernel='rbf', n_features=10, random_state=1234):
-        self.kernel = RBF()
+    def __init__(self, kernel='rbf', n_features=10, sigma_x=None, sigma_y=None, random_state=None):
+        self.kernel = kernel
+        self.sigma_x = sigma_x
+        self.sigma_y = sigma_y
         self.n_features = n_features
         self.rng = check_random_state(random_state)
         self.hsic_fit = None
@@ -160,8 +183,11 @@ class RHSIC(object):
         self.Y_train_ = Y
             
         # Estimate sigma parameter (RBF) kernel only
-        self.sigma_x = self._estimate_length_scale(X)
-        self.sigma_y = self._estimate_length_scale(Y)
+        if self.sigma_x is None:
+            self.sigma_x = self._estimate_length_scale(X)
+            
+        if self.sigma_y is None:
+            self.sigma_y = self._estimate_length_scale(Y)
         
         # =================================
         # Calculate Kernel Matrices for X
@@ -170,31 +196,34 @@ class RHSIC(object):
         self.Wx = (1 / self.sigma_x) * self.rng.randn(self.dx_dimensions, self.n_features)
 
         # Explicitly project the features
-        self.Zx = (1 / np.sqrt(self.n_features)) * np.exp(1j * X @ self.Wx)
+        self.Zx = (1 / np.sqrt(self.n_features)) * np.exp((1j * X) @ self.Wx)
         
         # Remove the Mean
-        self.Zxc = self.Zx - np.mean(self.Zx, axis=0)
+        self.Zxc = self.Zx - np.mean(self.Zx, axis=0)[None, :]
+        self.Zx_mean = np.mean(self.Zx,axis=0)
 
         # =================================
         # Calculate Kernel Matrices for Y
         # =================================
-        
-        # Calcualte Kernel Matrix for Y
         self.Wy = (1 / self.sigma_y) * self.rng.randn(self.dy_dimensions, self.n_features)
-        self.Zy = (1 / np.sqrt(self.n_features)) * np.exp(1j * Y @ self.Wy)
-        self.Zyc = self.Zy - np.mean(self.Zy, axis=0)
+        self.Zy = (1 / np.sqrt(self.n_features)) * np.exp((1j * Y) @ self.Wy)
+        self.Zyc = self.Zy - np.mean(self.Zy, axis=0)[None, :]
+        self.Zy_mean = np.mean(self.Zy,axis=0)
         
         # ====================
         # Compute HSIC Value
         # ====================
         if self.n_features < self.n_samples:
-            Rxy = self.Zxc.T @ self.Zyc
+            Rxy = np.matrix.getH(self.Zxc) @ self.Zyc
+            self.Rxy = Rxy
 #             rh = factor * np.real(np.einsum('ij,ij->', Rxy, Rxy))
-            rh = factor * np.real(np.trace(Rxy @ Rxy.T))
+            rh = factor * np.real(np.trace(Rxy @ np.matrix.getH(Rxy)))
+#             rh = factor * np.real((self.Rxy.T * self.Rxy).sum().sum())
         else:
-            Zxx = self.Zx @ self.Zxc.T
-            Zyy = self.Zy @ self.Zyc.T
-            rh = factor * np.real(Zxx @ Zyy).sum().sum()
+            Zxx = self.Zx @ np.matrix.getH(self.Zxc)
+            Zyy = self.Zy @ np.matrix.getH(self.Zyc)
+            rh = factor * np.real(np.trace(Zxx @ Zyy))
+#             rh = factor * np.real(Zxx @ Zyy).sum().sum()
 #             rh = factor * np.real(np.einsum('ij,ji->', Zxx, Zyy))
             
         self.hsic_value = rh
@@ -219,7 +248,7 @@ class RHSIC(object):
         if self.hsic_fit is None:
             raise ValueError("Function isn't fit. Need to fit function to some data.")
             
-        factor =  1 / (self.n_samples - 1)**2
+        factor =  2 / (self.n_samples - 1)**2
         
         mapX = np.zeros((self.X_train_.shape))
         Jx = np.zeros((1, self.dx_dimensions))
@@ -227,23 +256,23 @@ class RHSIC(object):
         Jy = np.zeros((1, self.dy_dimensions))
         
         np.testing.assert_array_almost_equal(
-            self.Zyc @ (self.Zyc.T @ self.Zx),
-            (self.Zyc @ self.Zyc.T) @ self.Zx
+            self.Zyc @ (np.matrix.getH(self.Zyc) @ self.Zx),
+            (self.Zyc @ np.matrix.getH(self.Zyc)) @ self.Zx
         )
         
             
-        BBx = self.Zyc @ (self.Zyc.T @ self.Zx)
-        BBy = self.Zxc @ (self.Zxc.T @ self.Zy)
+        BBx = self.Zyc @ (np.matrix.getH(self.Zyc) @ self.Zx)
+        BBy = self.Zxc @ (np.matrix.getH(self.Zxc) @ self.Zy)
 
         # X Term
 
         for idim in range(self.dx_dimensions):
             for isample in range(self.n_samples):
-                Jx[:, idim]            = 1
+                Jx[:, idim]         = 1
                 aux                 = 1j * Jx @ self.Wx
-                Jx[:, idim]            = 0
+                Jx[:, idim]         = 0
                 derX                = self.Zx[isample, :] * aux
-                mapX[isample, idim] = np.real(BBx[isample, :][None, :] @ derX.T).squeeze()
+                mapX[isample, idim] = np.real(BBx[isample, :][None, :] @ np.matrix.getH(derX)).squeeze()
 
         mapX = factor * mapX
 
@@ -251,11 +280,11 @@ class RHSIC(object):
 
         for idim in range(self.dy_dimensions):
             for isample in range(self.n_samples):
-                Jy[:, idim]            = 1
+                Jy[:, idim]         = 1
                 aux                 = 1j * Jy @ self.Wy
-                Jy[:, idim]            = 0
+                Jy[:, idim]         = 0
                 derY                = self.Zy[isample, :] * aux
-                mapY[isample, idim] = np.real(BBy[isample, :][None, :] @ derY.T).squeeze()
+                mapY[isample, idim] = np.real(BBy[isample, :][None, :] @ np.matrix.getH(derY)).squeeze()
 
         mapY = factor * mapY
         
