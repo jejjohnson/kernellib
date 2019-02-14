@@ -5,7 +5,7 @@ from numba import prange
 from kernellib.kernels import ard_kernel
 from kernellib.kernels import rbf_kernel
 from sklearn.metrics import pairwise_kernels
-from kernellib.krr import KernelRidge
+# from kernellib.krr import KernelRidge
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import _check_length_scale
@@ -16,6 +16,111 @@ from scipy.linalg import cholesky, cho_solve
 # TODO: Implement 2nd Derivative for all
 # TODO: Do Derivative for other kernel methods (ARD, Polynomial)
 
+
+
+def hsic_lin_derivative(X, Y, H, Kx, Ky):
+
+    # ===============
+    # X
+    # ===============
+    n_samples, d_dimensions = X.shape
+    factor = 1 / (n_samples - 1)**2
+    # initialize params
+    derX = np.zeros((n_samples, d_dimensions))
+    HKyH = H @ Ky @ H
+
+    return None
+
+
+def hsic_rbf_derivative(X, Y, H, Kx, Ky, sigma_x, sigma_y):
+
+    # ===============
+    # X
+    # ===============
+    n_samples, d_dimensions = X.shape
+    factor = 1 / (n_samples - 1)**2
+    # initialize params
+    derX = np.zeros((n_samples, d_dimensions))
+    HKyH = H @ Ky @ H
+
+    # Loop Through Dimensions & Samples
+    for idx in range(d_dimensions):
+        for isample in range(n_samples):
+            de = ((X[isample, idx] - X[:, idx]) * Kx[:, isample])
+            derX[isample, idx] = np.einsum(
+                'ij, ij->', HKyH[isample, :][:, None], de[:, None])
+
+    derX *= factor * (-1 / sigma_x**2)
+    # ===============
+    # Y
+    # ===============
+    n_samples, d_dimensions = Y.shape
+    derY = np.zeros((n_samples, d_dimensions))
+    HKxH = H @ Kx @ H
+    # Loop Through Dimensions & Samples
+    for idx in range(d_dimensions):
+        for isample in range(n_samples):
+            de = ((Y[isample, idx] - Y[:, idx]) * Ky[:, isample])
+            derY[isample, idx] = np.einsum(
+                'ij, ij->', HKxH[isample, :][:, None], de[:, None])
+
+    derY *= factor * (-1 / sigma_y**2)
+
+    return derX, derY
+
+def rhsic_rff_derivative(X, Y, H, Wx, Wy, Zx, Zy, sigma_x, sigma_y):
+
+    derX, derY = np.zeros(X.shape), np.zeros(Y.shape)
+    Jx = np.zeros((1, derX.shape[1]))
+
+    Zxc = Zx - Zx.mean(axis=1)
+    Zyc = Zy - Zy.mean(axis=1)
+
+    BBx = Zyc @ np.matrix.getH(Zyc) @ Zx
+    BBy = Zxc @ np.matrix.getH(Zxc) @ Zy
+
+    for idim in range(derX.shape[1]):
+        for isample in range(derX.shape[0]):
+            Jx[:, idim] = 1
+            aux = 1j * Jx @ Wx
+            Jx[:, idim] = 0
+            derX = self.Zx[isample, :] * aux
+            mapX[isample, idim] = np.real(
+                BBx[isample, :][None, :] @ np.matrix.getH(derX)).squeeze()
+            
+    derX *= factor
+
+    for idim in range(derX=Y.shape[1]):
+        for isample in range(derY.shape[0]):
+            Jy[:, idim] = 1
+            aux = 1j * Jy @ Wx
+            Jx[:, idim] = 0
+            derX = Zx[isample, :] * aux
+            mapX[isample, idim] = np.real(
+                BBx[isample, :][None, :] @ np.matrix.getH(derX)).squeeze()
+
+    derX *= factor
+
+    return derX, derY
+
+@numba.jit
+def numba_hsic_rbf_derivative(X, H, Kx, Ky, sigma):
+
+    # Initialize Parameters
+    n_samples, d_dimensions = np.shape(X)
+    der = np.zeros((n_samples, d_dimensions))
+    HKyH = np.dot(H, np.dot(Ky, H))
+    factor = 1 / (n_samples - 1)**2
+
+    for idx in range(d_dimensions):
+        for isample in range(n_samples):
+            de = ((X[isample, idx] - X[:, idx]) * Kx[:, isample])
+            der[isample, idx] = np.trace(np.dot(np.expand_dims(
+                HKyH[isample, :], axis=0), np.expand_dims(de, axis=1)))
+
+    der = der * factor * (-1 / sigma**2)
+
+    return der
 
 class RBFDerivative(object):
     def __init__(self, krr_model):

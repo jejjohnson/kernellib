@@ -6,6 +6,60 @@ from sklearn.utils.extmath import randomized_svd
 from sklearn.metrics import pairwise_kernels
 from scipy.stats import chi
 from numba import jit
+from ..kernels import estimate_length_scale
+
+
+class RFF(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        n_components=100, 
+        length_scale=None,
+        method='mean', 
+        center=None,
+        random_state=None):
+        self.n_components = n_components 
+        self.length_scale = length_scale 
+        self.method = method
+        self.center = center 
+        self.rng = check_random_state(random_state)
+
+    def fit(self, X, y=None):
+        X = check_array(X, ensure_2d=True)
+
+        n_features = X.shape[1]
+
+        if self.length_scale is None:
+            self.length_scale = estimate_length_scale(
+                X, method=self.method, random_state=self.rng)
+
+        # Generate n_components iid samples
+        self.W = ( 1 / self.length_scale) * self.rng.randn(n_features, self.n_components)
+
+
+        return self
+
+    def transform(self, X, return_real=False):
+
+        # Explicitly Project features
+        Z = (1 / np.sqrt(self.n_components)) * np.exp(1j * X @ self.W)
+
+        if self.center:
+            Z -= np.mean(Z, axis=0)
+
+        if return_real:
+            return np.real(Z)
+        else:
+            return Z
+
+    def compute_kernel(self, X, return_real=False):
+        Z = self.transform(X, return_real=False)
+
+        K = np.dot(Z, np.matrix.getH(Z))
+
+        if return_real:
+            return np.real(K)
+        else:
+            return K
 
 class RandomFourierFeatures(BaseEstimator, TransformerMixin):
     """Random Fourier Features Kernel Matrix Approximation
@@ -17,27 +71,27 @@ class RandomFourierFeatures(BaseEstimator, TransformerMixin):
     Date  : 3rd - August, 2018
     """
 
-    def __init__(self, n_components=50, gamma=1.0,
+    def __init__(self, n_components=50, length_scale=None,
                  random_state=None):
-        self.gamma = gamma
+        self.length_scale = length_scale
         # Dimensionality D (number of MonteCarlo samples)
         self.n_components = n_components
-        self.random_state = random_state
+        self.rng = check_random_state(random_state)
         self.fitted = False
 
     def fit(self, X, y=None):
         """ Generates MonteCarlo random samples """
-        X = check_array(X, accept_sparse='csr')
+        X = check_array(X, ensure_2d=True, accept_sparse='csr')
 
         n_features = X.shape[1]
 
         rng = np.random.RandomState(self.random_state)
         # Generate D iid samples from p(w)
-        self.w = np.sqrt(2 * self.gamma) * \
+        self.w = 1 / np.sqrt(self.length_scale) * \
                  np.random.normal(size=(n_features, self.n_components))
 
         # Generate D iid samples from Uniform(0,2*pi)
-        self.u = 2 * np.pi * np.random.rand(self.n_components)
+        self.u = 2 * np.pi * rng.rand(self.n_components)
         self.fitted = True
         return self
 
