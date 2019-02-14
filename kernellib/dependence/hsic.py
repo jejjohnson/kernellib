@@ -128,7 +128,7 @@ class HSIC(object):
         
         # Compute HSIC value
         if self.kernel is 'rbf':
-            self.hsic_value = (1 / (self.n_samples - 1)**2) * \
+            self.hsic_value = (1 / (self.n_samples - 1)**2) * d\
                 np.einsum('ji,ij->', self.K_xc, self.K_yc)
         elif self.kernel is 'lin':
             # if self.dx_dimensions < self.n_samples:
@@ -153,10 +153,19 @@ class HSIC(object):
         # check if HSIC function is fit
         if self.hsic_fit is None:
             raise ValueError("Function isn't fit. Need to fit function to some data.")
-        self.derX, self.derY = hsic_rbf_derivative(
-            self.X_train_, self.Y_train_, self.H, 
-            self.K_x, self.K_y, self.sigma_x, self.sigma_y
-        )
+        
+        if self.kernel is 'rbf':
+            self.derX, self.derY = hsic_rbf_derivative(
+                self.X_train_, self.Y_train_, self.H, 
+                self.K_x, self.K_y, self.sigma_x, self.sigma_y
+            )
+        elif self.kernel is 'lin':
+            self.derX, self.derY = hsic_rbf_derivative(
+                self.X_train_, self.Y_train_, self.H,
+                self.K_x, self.K_y, 1.0, 1.0
+                )
+        else:
+            raise ValueError('No kernel.')
         
         return self.derX, self.derY
     
