@@ -4,34 +4,44 @@ from sklearn.utils.validation import check_array
 from scipy.spatial.distance import pdist
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.utils import check_random_state
+from ..kernels import rbf_kernel, estimate_length_scale, kernel_centerer
 
 # TODO: Use Package Estimate Sigma
 
 class HSIC(object):
-    """Kernel Independence Test Function
+    """Hilbert-Schmidt Independence Criterion (HSIC). This is
+    a method for measuring independence between two variables.
     
     Parameters
     ----------
     kernel: str, 
     
     """
-    def __init__(self, kernel='rbf', random_state=1234, sigma_x=None, sigma_y=None):
+    def __init__(self, 
+                 kernel='rbf', 
+                 sigma_x=None, 
+                 sigma_y=None, 
+                 sub_sample=1000,
+                 X_stat='median', 
+                 Y_stat='median',
+                 random_state=1234):
         self.kernel = kernel
         self.sigma_x = sigma_x
         self.sigma_y = sigma_y
+        self.sub_sample = sub_sample
+        self.random_state = random_state
         self.rng = check_random_state(random_state)
-        
+        self.X_stat = X_stat 
+        self.Y_stat = Y_stat
         self.hsic_fit = None
     
     def fit(self, X, Y):
 
-        # Random State
-        
-        
         # Check sizes of X, Y
         X = check_array(X, ensure_2d=True)
         Y = check_array(Y, ensure_2d=True)
         
+        # Check samples are the same
         assert(X.shape[0] == Y.shape[0])
         
         self.n_samples = X.shape[0]
@@ -40,48 +50,41 @@ class HSIC(object):
         
         self.X_train_ = X
         self.Y_train_ = Y
-            
-        # Estimate sigma parameter (RBF) kernel only
-        if self.sigma_x is None:
-            self.sigma_x = self._estimate_length_scale(X)
-            
-        if self.sigma_y is None:
-            self.sigma_y = self._estimate_length_scale(Y)
         
         # Calculate Kernel Matrices for X, Y
         if self.kernel is 'rbf':
-            self.K_x = RBF(self.sigma_x)(X)
-            self.K_y = RBF(self.sigma_y)(Y)
+            # Estimate sigma parameter (RBF) kernel only
+            if self.sigma_x is None:
+                self.sigma_x = estimate_length_scale(
+                    X, sub_sample=self.sub_sample, method=self.X_stat, random_state=self.rng)
+
+            if self.sigma_y is None:
+                self.sigma_y = estimate_length_scale(
+                    Y, sub_sample=self.sub_sample, method=self.Y_stat, random_state=self.rng)
+
+            # Calculate Kernel Matrices
+            self.K_x = rbf_kernel(X, length_scale=self.sigma_x)
+            self.K_y = rbf_kernel(Y, length_scale=self.sigma_y)
 
         elif self.kernel is 'lin':
-            self.K_x = X * X.T
-            self.K_y = Y * Y.T
+            self.K_x = X @ X.T
+            self.K_y = Y @ Y.T
         else:
             raise ValueError('No kernel.')
 
         # Center Kernel
-        self.H = np.eye(self.n_samples) - ( 1 / self.n_samples ) * np.ones(self.n_samples)
+        self.H = kernel_centerer(self.n_samples)
         self.K_xc = self.K_x @ self.H
         self.K_yc = self.K_y @ self.H
         
         # TODO: check kernelcentering (sklearn)
         
         # Compute HSIC value
-        self.hsic_value = (1 / (self.n_samples - 1)**2) * (self.K_xc.T * self.K_yc).sum().sum()#np.einsum('ij,ij->', self.K_xc, self.K_yc)
+        self.hsic_value = (1 / (self.n_samples - 1)**2) * \
+            np.einsum('ji,ij->', self.K_xc, self.K_yc)
         
         self.hsic_fit = True
         return self
-    
-    def _estimate_length_scale(self, data):
-        
-        # Subsample data
-        if data.shape[0] > 5e2:
-            # Random Permutation
-            n_sub_samples = self.rng.permutation(data.shape[0])
-            
-            data = data[n_sub_samples, :]
-            
-        return np.sqrt(.5 * np.median(pdist(data)**2))
     
     def derivative(self):
         
@@ -306,6 +309,40 @@ class RHSIC(object):
         
         return sens
 
+def get_sample_data(dataset='hh', num_points=1000, seed=1234, noise=0.1):
+    """Generates sample datasets to go along with a demo for paper.
+    
+    Parameters
+    ----------
+    dataset = str, optional (default='hh')
+        The dataset generated from the function.
+        {'hh', 'hl', 'll'}
+        hh : High Correlation, High Dependence
+        hl : High Correlation, Low Depedence
+        ll : Low Correlation, Low Dependence
+        
+    num_points : int, optional (default=1000)
+        Number points per variable generated.
+        
+    """
+    rng = check_random_state(seed)    
+    rng2 = check_random_state(seed+1)
+    
+    # Dataset I: High Correlation, High Depedence
+    if dataset.lower() == 'hh':
+        X = rng.rand(num_points, 1)
+        Y = X + noise * rng.randn(num_points, 1)
+    elif dataset.lower() == 'hl':
+        t = 2 * np.pi * rng.rand(num_points, 1)
+        X = np.cos(t) + noise * rng.randn(num_points, 1)
+        Y = np.sin(t) + noise * rng.randn(num_points, 1)
+    elif dataset.lower() == 'll':
+        X = rng.rand(num_points, 1)
+        Y = check_random_state(seed+1).rand(num_points, 1)
+    else:
+        raise ValueError(f'Unrecognized dataset: {dataset}')
+    
+    return X, Y
 
 def main():
     pass

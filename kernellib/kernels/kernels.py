@@ -4,6 +4,8 @@ from numba import prange
 from scipy.spatial.distance import pdist, cdist, squareform
 from sklearn.metrics.pairwise import check_pairwise_arrays, euclidean_distances
 from sklearn.gaussian_process.kernels import (_check_length_scale)
+from sklearn.utils import check_array, check_random_state
+import scipy as scio
 import numexpr as ne
 
 
@@ -24,6 +26,10 @@ def rbf_kernel(X, Y=None, length_scale=1.0, signal_variance=1.0):
     Returns
     -------
     K : array, (n_samples x d_dimensions)
+
+    Resources
+    ---------
+    StackOverFlow: https://goo.gl/FXbgkj
     """
     X_norm = np.einsum('ij,ij->i', X, X)
     if Y is not None:
@@ -386,4 +392,80 @@ def calculate_q(x_train, x_test, K, det_term, exp_scale):
             
     return Q
 
+
+def kernel_centerer(n_samples):
+
+    H = np.eye(n_samples) - (1 / n_samples) * np.ones(n_samples)
+    return H
+
+def estimate_length_scale(X, sub_sample=None, method='mean', random_state=None):
+    """A function to provide a reasonable estimate of the length_scale values
+    for the RBF kernel using different methods.
+
+    Parameters
+    ----------
+    X : array, (n_samples, d_dimensions)
+        The data matrix to be estimated.
+
+    Y : array, (n_samples, 1)
+        The labels for the supervised approaches.
+
+    sub_sample : int, optional (default=None)
+        Number of points to subsample and Estimation mena
+
+    method : str, optional, default: 'mean'
+        {'mean', 'median', 'silverman'}
+
+    random_state : int, optional (default=None)
+        The seed to use for the permutation.
+
+    Returns
+    -------
+    length_scale : float
+        The estimated length_scale value
+
+    Resources
+    ---------
+    - Original MATLAB function: https://goo.gl/xYoJce
+
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+           : juan.johnson@uv.es
+    Date   : 6 - July - 2018
+    """
+    X = check_array(X, ensure_2d=True)
+
+    # Random State
+    rng = check_random_state(random_state)
+
+    # subsampling
+    [n_samples, d_dimensions] = X.shape
+    
+    if sub_sample:
+        X = rng.permutation(X)[:n_samples, :]
+    if method == 'mean':
+        length_scale = np.sqrt(.5 * np.mean(pdist(X)**2))
+
+    elif method == 'median':
+        length_scale = np.sqrt(.5 * np.median(pdist(X)**2))
+
+    elif method == 'mode':
+        # length_scale = np.sqrt(.5 * scio.stats.mode(pdist(X)**2))
+        raise NotImplementedError(f"Method '{method}' is not implemented yet.")
+
+    elif method == 'silverman':
+        length_scale = np.median(((4/(d_dimensions + 2))**(1 / (d_dimensions + 4)))
+                          * n_samples**(-1 / (d_dimensions + 4)) * np.std(X, axis=0))
+        
+    elif method == 'scott':
+        # length_scale = np.median(
+        #     np.diag(n_samples**(- 1 / (d_dimensions + 4)) * np.cov(X)**(1/2)))
+        raise NotImplementedError(f"Method '{method}' is not implemented yet.")
+        
+    else:
+        raise ValueError('Unrecognized mode "{}".'.format(method))
+
+    return length_scale
 
