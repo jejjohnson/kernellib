@@ -10,6 +10,7 @@ from ..kernels.derivatives import hsic_rbf_derivative
 from ..kernels.kernel_approximation import RFF
 
 # TODO: Allow Other Kernel Approximations for RHSIC
+# TODO: Merge Two Classes (option for kernel matrix approximation)
 
 class HSIC(object):
     """Hilbert-Schmidt Independence Criterion (HSIC). This is
@@ -188,24 +189,51 @@ class HSIC(object):
 
 
 class RHSIC(object):
-    """Randomized Kernel Independence Test Function
+    """Randomized Hilbert-Schmidt Independence Criterion (RHSIC). 
+    This is a method for measuring independence between two variables.
+    It uses kernel matrix approximation
     
     Parameters
     ----------
-    kernel: str, default='rbf'
-        {'lin', 'rbf'}
-        
-    n_features : int, default=10
-    
-    sigma_x : float/bool, optional, default=None
-    
-    sigma_y : float/bool, optional, default=None
-    
-    random_state : int, default=None
-    
-    
-    """
+    kernel: str, optional (default='rff')
+        Kernel function to use for X and Y
 
+    sigma_x : float, optional (default=None)
+        The length scale for the RBF/RFF kernel function for the X
+        variable
+
+    sigma_y : float, optional (default=None)
+        The length scale for the RBF/RFF kernel function for the Y
+        variable.
+
+    sub_sample : int, optional (default=1000)
+
+    X_stat : str, optional (default='median')
+        {'mean', 'median', 'silverman'}
+
+    Y_stat : str, optional (default='median')
+        {'mean', 'median', 'silverman'}
+    
+    random_state : int, optional (default=1234)
+
+    Attributes
+    ----------
+    hsic_value : float
+
+    Information
+    -----------
+    Author : J. Emmanuel Johnson
+    Email  : jemanjohnson34@gmail.com
+    Date   : 14-Feb-2019
+
+    Resources
+    ---------
+    Original MATLAB Implementation : 
+        http:// isp.uv.es/code/shsic.zip
+    Paper :
+        Sensitivity maps of the Hilbert–Schmidt independence criterion
+        Perez-Suay et al., 2018
+    """
     def __init__(self,
                  kernel_approx='rff',
                  n_features=100,
@@ -379,6 +407,7 @@ class RHSIC(object):
             sens = StandardScaler(with_mean=True, with_std=False).fit_transform(sens)
         
         return sens
+
 
 def get_sample_data(dataset='hh', num_points=1000, seed=1234, noise=0.1):
     """Generates sample datasets to go along with a demo for paper.
