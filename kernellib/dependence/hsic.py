@@ -6,7 +6,7 @@ from scipy.spatial.distance import pdist
 from sklearn.gaussian_process.kernels import RBF
 from sklearn.utils import check_random_state
 from ..kernels import rbf_kernel, estimate_length_scale, kernel_centerer
-from ..kernels.derivatives import hsic_rbf_derivative
+from ..kernels.derivatives import hsic_rbf_derivative, hsic_lin_derivative
 from ..kernels.kernel_approximation import RFF
 
 # TODO: Allow Other Kernel Approximations for RHSIC
@@ -112,13 +112,20 @@ class HSIC(object):
 
 
         elif self.kernel is 'lin':
-            print('Here')
-            self.K_x = X
-            self.K_y = Y
+            self.K_x = X @ X.T
+            self.K_y = Y @ Y.T
+            # Center Data
+            X -= X.mean(axis=0)
+            Y -= Y.mean(axis=0)
+            self.H = kernel_centerer(self.n_samples)
+            self.K_xc = self.K_x @ self.H
+            self.K_yc = self.K_y @ self.H
+            # self.K_x = X
+            # self.K_y = Y
 
-            # Centered Kernels
-            self.K_xc = (X-X.mean(axis=0))
-            self.K_yc = (Y-Y.mean(axis=0))
+            # # Centered Kernels
+            # self.K_xc = (X-X.mean(axis=0))
+            # self.K_yc = (Y-Y.mean(axis=0))
 
         else:
             raise ValueError('No kernel.')
@@ -129,15 +136,17 @@ class HSIC(object):
         
         # Compute HSIC value
         if self.kernel is 'rbf':
-            self.hsic_value = (1 / (self.n_samples - 1)**2) * d\
+            self.hsic_value = (1 / (self.n_samples - 1)**2) * \
                 np.einsum('ji,ij->', self.K_xc, self.K_yc)
         elif self.kernel is 'lin':
-            # if self.dx_dimensions < self.n_samples:
-            Rxy = (X-X.mean(axis=0)).T @ (Y-Y.mean(axis=0))
+            self.hsic_value = (1 / (self.n_samples - 1)**2) * \
+                np.einsum('ji,ij->', self.K_xc, self.K_yc)
+            # # if self.dx_dimensions < self.n_samples:
+            # Rxy = (X-X.mean(axis=0)).T @ (Y-Y.mean(axis=0))
 
-            self.Rxy = Rxy
-            self.hsic_value = factor * \
-                np.real(np.einsum('ij,ji->', Rxy, Rxy.T))
+            # self.Rxy = Rxy
+            # self.hsic_value = factor * \
+            #     np.real(np.einsum('ij,ji->', Rxy, Rxy.T))
 
             # else:
             #     Zxx = self.K_xc @ X.T
@@ -161,10 +170,8 @@ class HSIC(object):
                 self.K_x, self.K_y, self.sigma_x, self.sigma_y
             )
         elif self.kernel is 'lin':
-            self.derX, self.derY = hsic_rbf_derivative(
-                self.X_train_, self.Y_train_, self.H,
-                self.K_x, self.K_y, 1.0, 1.0
-                )
+            self.derX, self.derY = hsic_lin_derivative(
+                self.X_train_, self.Y_train_, self.K_x, self.K_y)
         else:
             raise ValueError('No kernel.')
         

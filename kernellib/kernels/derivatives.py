@@ -2,7 +2,7 @@ import numpy as np
 import numba
 from numba import float64
 from numba import prange
-from kernellib.kernels import ard_kernel
+from kernellib.kernels import ard_kernel, kernel_centerer
 from kernellib.kernels import rbf_kernel
 from sklearn.metrics import pairwise_kernels
 # from kernellib.krr import KernelRidge
@@ -18,18 +18,21 @@ from scipy.linalg import cholesky, cho_solve
 
 
 
-def hsic_lin_derivative(X, Y, H, Kx, Ky):
+def hsic_lin_derivative(X, Y, Kx, Ky):
 
     # ===============
     # X
     # ===============
     n_samples, d_dimensions = X.shape
-    factor = 1 / (n_samples - 1)**2
+    factor = 2 / (n_samples - 1)**2
+    H = kernel_centerer(n_samples)
     # initialize params
-    derX = np.zeros((n_samples, d_dimensions))
-    HKyH = H @ Ky @ H
+    Kxc = Kx @ H
+    Kyc = Kx @ H
 
-    return None
+    derX = factor * Kxc @ X 
+    derY = factor * Kyc @ Y
+    return derX, derY
 
 
 def hsic_rbf_derivative(X, Y, H, Kx, Ky, sigma_x, sigma_y):
