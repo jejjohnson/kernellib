@@ -272,7 +272,7 @@ else is gaussx:
 
 ```python
 K = kl.to_operator(kernel, X, noise=1e-2, implicit=True)
-alpha = gaussx.solve(K, y, solver=gaussx.PreconditionedCGSolver(gaussx.NystromPreconditioner.from_operator(K, rank=100)))
+alpha = gaussx.solve(K, y, solver=gaussx.PreconditionedCGSolver(preconditioner_rank=100))
 ```
 
 ---
@@ -347,7 +347,7 @@ and a dataset.
 |---|---|
 | `falkon_preconditioner`, `falkon_solve` (one preconditioned CG), `falkon_predict`, `FalkonPreconditioner` | `falkon_fit(kernel, X, y, *, n_inducing, regularization, key, ...) -> FalkonModel`; `FalkonModel.predict`. Selects landmarks, builds `ImplicitCrossKernelOperator` from the kernel, calls the three gaussx functions |
 | `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` | `eigenpro_fit(kernel, X, y, *, epochs, batch_size, ...)`: the `lax.scan` mini-batch loop, the model, predict |
-| `hsic(K_f, K_q)`, `mmd_squared(K_xx, K_yy, K_xy)`, `center_kernel`, `centering_operator` | `hsic(kernel_x, kernel_y, X, Y, *, estimator, normalize, approx=None)`; builds dense or low-rank operators and delegates the trace step to gaussx |
+| `hsic(K_f, K_q)`, `mmd_squared(K_xx, K_yy, K_xy)`, `center_kernel`, `centering_operator` | `hsic(kernel_x, kernel_y, X, Y, *, estimator, normalize, approx=None)`; the dense path delegates to `gaussx.hsic`, the randomized path works on feature matrices (see the pysim table) |
 | `nystrom_operator`, `rff_operator` (return `LowRankUpdate`) | `NystromFeatures`, `RandomFourierFeatures` modules that *produce* `K_XZ`, `omega`, `b` from a kernel and hand them to those two functions |
 | `NystromPreconditioner`, `PartialCholeskyPreconditioner` | used, not wrapped |
 | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator` | `to_operator` / `to_cross_operator` |
@@ -405,7 +405,7 @@ the same semantics, and pysim may later import from kernellib if wanted:
 | pysim | kernellib |
 |---|---|
 | `HSIC(center, bias, kernel, gamma)` with `score(normalize)`: HSIC (centred, unnormalised), KA (uncentred, normalised), CKA (centred, normalised) | `hsic(kx, ky, X, Y, *, center=True, estimator="biased" \| "unbiased")`, `cka(...)`, `kernel_alignment(...)` |
-| `RandomizedHSIC` (Nyström) and `RFFHSIC` | `hsic(..., approx=NystromFeatures(...) \| RandomFourierFeatures(...))`: builds `LowRankUpdate` operators and uses `gaussx.trace_product`, which is `O(n m²)` on low-rank operators |
+| `RandomizedHSIC` (Nyström) and `RFFHSIC` | `hsic(..., approx=NystromFeatures(...) \| RandomFourierFeatures(...))`: forms the feature matrices `Φx`, `Φy` and evaluates `‖Φxᵀ H Φy‖²_F / n²` directly, `O(n m²)`. It does not go through `gaussx.trace_product`, which has no low-rank fast path today (dense fallback); adding one to gaussx is a possible later contribution |
 | `estimate_sigma` / `estimate_gamma` (mean, median, Silverman, Scott; subsample; k-th percentile neighbour), `sigma_to_gamma`, `get_sigma_grid` | `estimate_lengthscale(X, *, method, subsample, percent, key)`, `lengthscale_to_gamma`, `lengthscale_grid` |
 | `RandomFourierFeatures` (sklearn transformer) | `RandomFourierFeatures(kernel, n_features, key)` eqx.Module with `__call__(X) -> Φ` |
 | `information/*` (entropy, MI, KDE, kNN) | out of scope |
