@@ -12,6 +12,12 @@ The submodules are an implementation detail you are welcome to reach into,
 but never have to. Modules appear here as each phase of the
 [architecture](../architecture/) lands.
 
+## Modules
+
+| Module | Contents |
+|---|---|
+| [Functional](functional.md) | `rbf_kernel`, `matern_kernel`, `rational_quadratic_kernel`, `periodic_kernel`, `cosine_kernel`, `linear_kernel`, `polynomial_kernel`, `white_kernel`, `constant_kernel`, `kernel_add`, `kernel_mul` |
+
 ## Package overview
 
 ::: kernellib
