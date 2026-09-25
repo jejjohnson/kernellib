@@ -1,0 +1,138 @@
+[project]
+name = "kernellib"
+version = "0.0.1"
+description = "Kernels and scalable kernel methods for JAX, built on gaussx."
+authors = [
+    {name="J. Emmanuel Johnson", email="jemanjohnson34@gmail.com"},
+]
+license = { file = "LICENSE" }
+readme = "README.md"
+keywords = ["jax", "kernels", "kernel-methods", "equinox", "lineax", "gaussx"]
+requires-python = ">=3.12"
+classifiers = [
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Natural Language :: English",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Development Status :: 2 - Pre-Alpha",
+]
+dependencies = [
+    "jax>=0.10",
+    "jaxlib>=0.10",
+    "equinox>=0.13.8",
+    "jaxtyping>=0.3",
+    "einx>=0.4.3",
+    "lineax>=0.1.1",
+    "gaussx>=0.1.0",
+    # geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
+    "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.5",
+]
+
+[project.urls]
+Repository = "https://github.com/jejjohnson/kernellib"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pre-commit>=4.6.0",
+]
+lint = [
+    "ruff>=0.15.22",
+]
+typecheck = [
+    "ty>=0.0.73",
+]
+docs = [
+    # The prose half of the site is built by mystmd, a Node CLI installed with
+    # `npm install -g mystmd` rather than through uv. See docs/README.md.
+    # MkDocs here builds only the API reference, whose `objects.inv` is what
+    # lets the MyST prose cross-reference into it.
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
+    "jupytext>=1.19.3",
+    "ipykernel>=7.3.0",
+    "nbconvert>=7.16.6",
+    "matplotlib>=3.11.1",
+    "watermark>=2.6.0",
+    # pygments 2.20.0 dropped the None -> '' coercion for HtmlFormatter(filename=...),
+    # but pymdownx.highlight 10.21.x still passes the untitled-code-block title
+    # through as None. Pin until a fixed pymdown-extensions release ships.
+    "pygments>=2.20.0,<2.21",
+]
+
+[tool.uv.sources]
+# gaussx is not yet on PyPI; resolve the release tag from GitHub. The
+# `>=` floor in `dependencies` is what a PyPI release will satisfy later.
+gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.1.0" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kernellib"]
+
+[tool.hatch.metadata]
+# geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
+allow-direct-references = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# F722: jaxtyping shape annotations such as ``Float[Array, "N D"]`` are
+# strings that ruff would otherwise parse as forward references.
+ignore = ["E402", "E721", "E731", "E741", "F722"]
+allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+lines-after-imports = 2
+
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately construct invalid inputs and assert on the failure.
+"tests/**" = ["B011"]
+
+[tool.ruff.format]
+# Format the code inside ``Examples:`` doctest blocks like real source.
+docstring-code-format = true
+docstring-code-line-length = 72
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.pytest.ini_options]
+# `src/kernellib` is a testpath so that --doctest-modules collects the
+# ``Examples:`` blocks in every Google-style docstring. They are executable
+# documentation: if an example in the docs goes stale, CI fails.
+testpaths = ["tests", "src/kernellib"]
+addopts = """\
+    --doctest-modules \
+    --cov=src/kernellib \
+    --cov-report=term-missing \
+    --cov-report=xml:coverage.xml\
+"""
+markers = [
+    "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
+    "integration: end-to-end workflows across gaussx / geonnax / pyrox-gp",
+]
+
+[tool.coverage.run]
+source = ["src/kernellib"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
