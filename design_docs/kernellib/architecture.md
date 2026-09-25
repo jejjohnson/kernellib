@@ -178,20 +178,24 @@ class AbstractKernel(eqx.Module):
     """Anything that produces a Gram matrix. Same surface as today's pyrox_gp.Kernel."""
 
     @abstractmethod
-    def __call__(self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]) -> Float[Array, "N1 N2"]: ...
+    def __call__(
+        self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]
+    ) -> Float[Array, "N1 N2"]: ...
 
     def gram(self, X: Float[Array, "N D"]) -> Float[Array, "N N"]:
         return self(X, X)
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return jnp.diag(self(X, X))            # overridden by every concrete kernel
+        return jnp.diag(self(X, X))  # overridden by every concrete kernel
 
 
 class AbstractPointwiseKernel(AbstractKernel):
     """A kernel defined by k(x, x'). Gains the implicit-operator path."""
 
     @abstractmethod
-    def pairwise(self, x: Float[Array, " D"], y: Float[Array, " D"]) -> Float[Array, ""]: ...
+    def pairwise(
+        self, x: Float[Array, " D"], y: Float[Array, " D"]
+    ) -> Float[Array, ""]: ...
 
     def __call__(self, X1, X2):
         return jax.vmap(lambda x: jax.vmap(lambda y: self.pairwise(x, y))(X2))(X1)
@@ -207,11 +211,12 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
     def shape(self, r2: Float[Array, ""]) -> Float[Array, ""]: ...
     @abstractmethod
     def spectral_density(self, omega: Float[Array, " D"]) -> Float[Array, ""]: ...
-    def sample_frequencies(self, key, n: int) -> Float[Array, "n D"]: ...   # for RFF
+    def sample_frequencies(self, key, n: int) -> Float[Array, "n D"]: ...  # for RFF
 
-    def pairwise(self, x, y): ...                 # variance * shape(scaled r²)
-    def __call__(self, X1, X2): ...               # closed-form Gram via stable squared distances
-    def diag(self, X): return self.variance * jnp.ones(X.shape[0])
+    def pairwise(self, x, y): ...  # variance * shape(scaled r²)
+    def __call__(self, X1, X2): ...  # closed-form Gram via stable squared distances
+    def diag(self, X):
+        return self.variance * jnp.ones(X.shape[0])
 ```
 
 Rules:
@@ -235,11 +240,27 @@ Composition happens at the kernel level, not on evaluated matrices as
 `kernel_add` / `kernel_mul` do today:
 
 ```python
-class Sum(AbstractPointwiseKernel):      kernels: tuple[AbstractKernel, ...]
-class Product(AbstractPointwiseKernel):  kernels: tuple[AbstractKernel, ...]
-class Scaled(AbstractPointwiseKernel):   kernel: AbstractKernel; scale: Float[Array, ""]
-class ActiveDims(AbstractPointwiseKernel): kernel: AbstractKernel; dims: tuple[int, ...]   # static
-class Warped(AbstractPointwiseKernel):   kernel: AbstractKernel; warp: Callable           # input transform
+class Sum(AbstractPointwiseKernel):
+    kernels: tuple[AbstractKernel, ...]
+
+
+class Product(AbstractPointwiseKernel):
+    kernels: tuple[AbstractKernel, ...]
+
+
+class Scaled(AbstractPointwiseKernel):
+    kernel: AbstractKernel
+    scale: Float[Array, ""]
+
+
+class ActiveDims(AbstractPointwiseKernel):
+    kernel: AbstractKernel
+    dims: tuple[int, ...]  # static
+
+
+class Warped(AbstractPointwiseKernel):
+    kernel: AbstractKernel
+    warp: Callable  # input transform
 ```
 
 `Sum` / `Product` of pointwise kernels are pointwise (so they still get the
@@ -259,6 +280,7 @@ def to_operator(
     implicit: bool = False,
 ) -> lx.AbstractLinearOperator:
     """K(X, X) (+ noise I) as a gaussx operator, PSD/symmetric tagged."""
+
 
 def to_cross_operator(
     kernel: AbstractKernel,
@@ -292,7 +314,9 @@ so after the bridge everything else is gaussx:
 
 ```python
 K = kl.to_operator(kernel, X, noise=1e-2, implicit=True)
-alpha = gaussx.solve(K, y, solver=gaussx.PreconditionedCGSolver(preconditioner_rank=100))
+alpha = gaussx.solve(
+    K, y, solver=gaussx.PreconditionedCGSolver(preconditioner_rank=100)
+)
 ```
 
 ---
@@ -307,7 +331,7 @@ src/kernellib/
 ├── functional/            # arrays in, arrays out — no kernel objects, no keys
 │   ├── _stationary.py     #   rbf, matern, rational_quadratic, periodic, cosine, white, constant; stable_rbf_kernel (moved)
 │   ├── _nonstationary.py  #   linear, polynomial
-│   ├── _distances.py      #   lengthscale-scaled distances, thin over gaussx.stable_squared_distances
+│   ├── _distances.py      #   lengthscale-scaled distances (ported expansion; see decisions log)
 │   ├── _compose.py        #   kernel_add, kernel_mul on matrices (kept for matrix callers)
 │   └── _statistics.py     #   center_kernel, centering_operator, hsic (biased / unbiased), cka, mmd_squared (moved from gaussx, extended)
 ├── _kernels/
@@ -409,8 +433,9 @@ localization in gaussx's ensemble Kalman code is another, and gaussx cannot
 import kernellib. The alternatives were a private copy of 48 lines of subtle
 numerics inside gaussx (two implementations that drift) or moving the
 localization code, which is ensemble-filtering territory that gaussx's vision
-already assigns to filterax. kernellib's `functional/_distances.py` wraps it
-and adds the lengthscale scaling.
+already assigns to filterax. kernellib's `functional/_distances.py` keeps its
+own lengthscale-aware expansion ported from pyrox-gp (see decisions log); a
+future opt-in mixed-precision Gram path would call the gaussx function.
 
 **Private helpers.** The three operator files use `vmap_over_batch_dims` and
 `_to_frozenset` from gaussx's private `_operators/` internals. kernellib copies
@@ -511,9 +536,9 @@ import jax.numpy as jnp
 import kernellib as kl
 
 k = kl.RBF(lengthscale=jnp.array([1.0, 0.5]), variance=1.0) + kl.White(1e-3)
-K = k(X1, X2)                    # Gram, closed-form path
+K = k(X1, X2)  # Gram, closed-form path
 kd = k.diag(X)
-s = k.spectral_density(omega)    # stationary kernels only
+s = k.spectral_density(omega)  # stationary kernels only
 ell = kl.estimate_lengthscale(X, method="median", subsample=2000, key=key)
 
 # operator level (moved from gaussx): callable + points in, lineax operator out
@@ -532,22 +557,22 @@ function; only what it is handed differs.
 
 ```python
 # matrix level: matrices or operators in, scalar out
-h = kl.functional.hsic(K, L)                              # biased (moved from gaussx)
+h = kl.functional.hsic(K, L)  # biased (moved from gaussx)
 h = kl.functional.hsic(K, L, estimator="unbiased")
 c = kl.functional.cka(K, L)
 m = kl.functional.mmd_squared(K_xx, K_yy, K_xy)
-Kc = kl.functional.center_kernel(K)                       # LowRankUpdate in, LowRankUpdate out
+Kc = kl.functional.center_kernel(K)  # LowRankUpdate in, LowRankUpdate out
 
 # kernel level: kernels and data in
 kx = kl.RBF(lengthscale=kl.estimate_lengthscale(X))
 ky = kl.RBF(lengthscale=kl.estimate_lengthscale(Y))
-h = kl.hsic(kx, ky, X, Y)                                  # -> functional.hsic(kx.gram(X), ky.gram(Y))
+h = kl.hsic(kx, ky, X, Y)  # -> functional.hsic(kx.gram(X), ky.gram(Y))
 h = kl.hsic(kx, ky, X, Y, estimator="unbiased")
 c = kl.cka(kx, ky, X, Y)
-a = kl.kernel_alignment(kx, ky, X, Y)                      # uncentred, normalised
-m = kl.mmd(kx, X, Y)                                       # one kernel, two samples
+a = kl.kernel_alignment(kx, ky, X, Y)  # uncentred, normalised
+m = kl.mmd(kx, X, Y)  # one kernel, two samples
 p = kl.permutation_test(kl.hsic, kx, ky, X, Y, n_perms=500, key=key)
-g = kl.hsic_input_gradient(kx, ky, X, Y)                   # jax.grad through pairwise
+g = kl.hsic_input_gradient(kx, ky, X, Y)  # jax.grad through pairwise
 
 # randomized: the feature map owns the randomness
 h = kl.hsic(kx, ky, X, Y, approx=kl.NystromFeatures(n_components=300, key=key))
@@ -565,27 +590,35 @@ logdets through Woodbury.
 
 ```python
 # operator level: arrays in, LowRankUpdate out
-K_low = kl.nystrom_operator(K_XZ, K_ZZ_op)          # moved from gaussx
-K_low = kl.rff_operator(X, omega, b)                # moved from gaussx
-K_low = kl.fastfood_operator(X, B, Pi, G, S)        # new; matvec via kl.FastFoodOperator
+K_low = kl.nystrom_operator(K_XZ, K_ZZ_op)  # moved from gaussx
+K_low = kl.rff_operator(X, omega, b)  # moved from gaussx
+K_low = kl.fastfood_operator(X, B, Pi, G, S)  # new; matvec via kl.FastFoodOperator
 
 # kernel level
 k = kl.Matern(nu=1.5, lengthscale=0.7)
 
 nys = kl.NystromFeatures(n_components=500, key=key, selection="uniform").fit(k, X)
-phi = nys(X_test)                     # (N, 500) features  K_xz L_zz^{-T}
-K_low = nys.operator(X)               # kl.nystrom_operator under the hood
-nys.landmarks                         # the Z that was chosen
+phi = nys(X_test)  # (N, 500) features  K_xz L_zz^{-T}
+K_low = nys.operator(X)  # kl.nystrom_operator under the hood
+nys.landmarks  # the Z that was chosen
 
-rff = kl.RandomFourierFeatures(n_features=2048, key=key).fit(k)    # omega ~ k.sample_frequencies
-orf = kl.OrthogonalRandomFeatures(n_features=2048, key=key).fit(k) # geonnax.randfeat.orthogonal_blocks
-ff  = kl.FastFoodFeatures(n_features=2048, key=key).fit(k)         # B, Pi, G drawn; S from k's radial density
-lap = kl.LaplaceEigenfunctionFeatures(bounds=(-L, L), n_per_dim=32).fit(k)   # geonnax.basis.fourier_basis
+rff = kl.RandomFourierFeatures(n_features=2048, key=key).fit(
+    k
+)  # omega ~ k.sample_frequencies
+orf = kl.OrthogonalRandomFeatures(n_features=2048, key=key).fit(
+    k
+)  # geonnax.randfeat.orthogonal_blocks
+ff = kl.FastFoodFeatures(n_features=2048, key=key).fit(
+    k
+)  # B, Pi, G drawn; S from k's radial density
+lap = kl.LaplaceEigenfunctionFeatures(bounds=(-L, L), n_per_dim=32).fit(
+    k
+)  # geonnax.basis.fourier_basis
 phi = rff(X)
 K_low = ff.operator(X)
 
 # any of them plugs into gaussx directly
-alpha = gx.solve(K_low + 1e-2 * gx.identity(N), y)   # Woodbury, O(N m^2)
+alpha = gx.solve(K_low + 1e-2 * gx.identity(N), y)  # Woodbury, O(N m^2)
 ```
 
 ### Regression
@@ -602,12 +635,16 @@ y_hat = kl.falkon_predict(kernel_fn, Z, alpha, X_test)
 
 # estimator level
 model = kl.KRR(k, regularization=1e-2, solver=gx.AutoSolver()).fit(X, y)
-model = kl.Falkon(k, n_inducing=2000, regularization=1e-3, max_iter=20).fit(X, y, key=key)
-model = kl.EigenPro(k, epochs=10, batch_size=512, subsample_size=4000, n_components=100).fit(X, y, key=key)
+model = kl.Falkon(k, n_inducing=2000, regularization=1e-3, max_iter=20).fit(
+    X, y, key=key
+)
+model = kl.EigenPro(
+    k, epochs=10, batch_size=512, subsample_size=4000, n_components=100
+).fit(X, y, key=key)
 
 y_hat = model.predict(X_test)
-dy = kl.predictor_gradient(model, X_test)          # ∂f̂/∂x via pairwise
-model.alpha, model.landmarks                        # fitted state is plain fields
+dy = kl.predictor_gradient(model, X_test)  # ∂f̂/∂x via pairwise
+model.alpha, model.landmarks  # fitted state is plain fields
 
 # the fitted model is a PyTree, so hyperparameter gradients just work
 loss = jax.grad(lambda ell: kl.KRR(kl.RBF(ell), 1e-2).fit(X, y).loss(X_val, y_val))(1.0)
@@ -616,8 +653,8 @@ loss = jax.grad(lambda ell: kl.KRR(kl.RBF(ell), 1e-2).fit(X, y).loss(X_val, y_va
 ### Derivatives and decomposition
 
 ```python
-J = kl.kernel_jacobian(k, x, y)                 # ∂k(x, y)/∂x
-dK = kl.derivative_gram(k, X1, X2)              # (N1, N2, D)
+J = kl.kernel_jacobian(k, x, y)  # ∂k(x, y)/∂x
+dK = kl.derivative_gram(k, X1, X2)  # (N1, N2, D)
 emb = kl.kernel_pca(k, X, n_components=10, solver=gx.DenseSolver())
 Kg = kl.diffusion_kernel(adjacency, beta=0.5)
 ```
@@ -628,8 +665,8 @@ Unchanged shape: it freezes its parameterized kernel once inside the
 context and hands a plain kernellib kernel down.
 
 ```python
-k_frozen = gp_kernel.frozen()                              # inside _kernel_context
-rff = kl.RandomFourierFeatures(1024, key).fit(k_frozen)    # pathwise prior draws
+k_frozen = gp_kernel.frozen()  # inside _kernel_context
+rff = kl.RandomFourierFeatures(1024, key).fit(k_frozen)  # pathwise prior draws
 ```
 
 ---
@@ -660,8 +697,8 @@ nowhere.
 
 ### Phase 1: kernels, operators and the bridge (**kernellib**)
 
-- `functional/`: copy `pyrox_gp._src.kernels` and its tests verbatim, then
-  route distances through `gaussx.stable_squared_distances`; add
+- `functional/`: copy `pyrox_gp._src.kernels` and its tests verbatim
+  (distances stay on the ported expansion, see decisions log); add
   `stable_rbf_kernel` (moved) and `_statistics.py` (`center_kernel`,
   `centering_operator`, `hsic`, `mmd_squared` moved from gaussx, plus the
   unbiased estimator and `cka`).
@@ -847,3 +884,4 @@ equals the dense value.
 | 2026-09-25 | `stable_squared_distances` stays in gaussx (option 1); kernellib wraps it |
 | 2026-09-25 | Matrix-level functions live in `kernellib.functional`; the same names at the top level take kernels and data |
 | 2026-09-25 | Phase order: kernellib 0.1.0 (with the moved code) → pyrox-gp consumes → gaussx 0.2.0 removal → spectral → algorithms |
+| 2026-09-25 | `functional/` distances stay on the expansion ported from pyrox-gp rather than routing through `gaussx.stable_squared_distances`. That function casts to `float32` by default, and called with the input dtype it performs the same expansion, so routing would either change pyrox-gp's kernel values (breaking goal 5) or add nothing. Revisit if a mixed-precision Gram path is wanted; it would be opt-in |

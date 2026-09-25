@@ -90,7 +90,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # F722: jaxtyping shape annotations such as ``Float[Array, "N D"]`` are
 # strings that ruff would otherwise parse as forward references.
 ignore = ["E402", "E721", "E731", "E741", "F722"]
-allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺"]
+allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺", "′"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

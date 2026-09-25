@@ -17,9 +17,12 @@ package.
 
 from __future__ import annotations
 
+from kernellib import functional
+
 
 __version__ = "0.0.1"
 
 __all__ = [
     "__version__",
+    "functional",
 ]
