@@ -1,0 +1,77 @@
+# PR auto-labeling rules.
+#
+# Applied by .github/workflows/label-pr.yml using actions/labeler.
+# Labels referenced here must exist — run `make gh-labels` to create them.
+# The `dependencies` label is also created by the bootstrap script so this
+# file works on a fresh repo with no manual label setup.
+#
+# Scopes below map file paths to the standard taxonomy:
+#   area:*   — which part of the project the change touches
+#   layer:*  — which implementation layer (if the project has a layer stack)
+#   type:*   — left to issue templates (NOT auto-applied on PRs)
+#
+# Adjust paths under layer:* to match your project's internal module layout.
+
+"area:engineering":
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/**"
+      - "pyproject.toml"
+      - "Makefile"
+      - ".pre-commit-config.yaml"
+      - "uv.lock"
+
+"area:docs":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "notebooks/**"
+      - "*.md"
+      - "design_docs/**"
+
+"area:testing":
+  - changed-files:
+    - any-glob-to-any-file: "tests/**"
+
+# Catch-all for source changes that don't match a specific layer scope.
+# Ensures every `src/**` PR receives at least one area label.
+"area:code":
+  - changed-files:
+    - any-glob-to-any-file: "src/**"
+
+# --- Layer scopes — mirror the one-way dependency chain in CLAUDE.md -------
+#
+#   layer:0-primitives  kernel math, abstractions, composition — depend on gaussx only
+#   layer:1-components  the bridge, spectral side, heuristics — depend on layer 0
+#   layer:2-models      estimators, dependence, embeddings, derivatives — depend on 0 and 1
+
+"layer:0-primitives":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/kernellib/functional/**"
+      - "src/kernellib/_kernels/**"
+
+"layer:1-components":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/kernellib/_operators/**"
+      - "src/kernellib/_spectral/**"
+      - "src/kernellib/_heuristics.py"
+
+"layer:2-models":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "src/kernellib/_regression/**"
+      - "src/kernellib/_dependence/**"
+      - "src/kernellib/_decomposition/**"
+      - "src/kernellib/_derivatives.py"
+
+# --- Default / legacy labels retained for Dependabot compatibility ---------
+
+"dependencies":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "pyproject.toml"
+      - ".pre-commit-config.yaml"
+      - "uv.lock"

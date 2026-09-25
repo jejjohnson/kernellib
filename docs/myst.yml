@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------------------
+# mystmd builds the prose half of the documentation: home page, guides, and
+# executed example notebooks. The API reference is built separately by MkDocs
+# + mkdocstrings and mounted at `/reference/`. See `docs/README.md`.
+#
+# `references.api` points at a LOCAL server because mystmd only loads
+# intersphinx inventories over http(s) — a filesystem path is rejected and a
+# `file://` URL is silently ignored. `scripts/build_docs.py` serves the freshly
+# built MkDocs `site/` on this exact port, then rewrites the resulting
+# localhost URLs to the deployed `/reference/` path. Keep the port in sync
+# with API_PORT in that script.
+# ---------------------------------------------------------------------------
+version: 1
+
+project:
+  id: kernellib-docs
+  title: kernellib
+  description: >-
+    Kernels and scalable kernel methods for JAX, built on gaussx.
+  github: https://github.com/jejjohnson/kernellib
+  authors:
+    - name: J. Emmanuel Johnson
+  references:
+    api: http://127.0.0.1:8910/
+  toc:
+    - file: index.md
+    - title: Guide
+      children:
+        - file: guide/architecture.md
+    - title: Project
+      children:
+        - file: contributing.md
+        - file: changelog.md
+
+site:
+  title: kernellib
+  template: book-theme
+  options:
+    logo_text: kernellib
+  # mystmd requires a full URL here (both `/reference/` and `reference/` are
+  # rejected), so the deployed location is hard-coded the way `repo_url` is in
+  # mkdocs.yml.
+  #
+  # Do NOT rewrite this to a root-relative path at build time. The theme
+  # re-renders the nav from this config on hydration and prepends BASE_URL to
+  # any URL starting with `/`, so a rewritten value becomes
+  # `/kernellib/kernellib/reference/` and 404s. An absolute URL is treated as
+  # external and left alone. The cost is that a local preview's nav button
+  # points at the deployed site.
+  nav:
+    - title: API reference
+      url: https://jejjohnson.github.io/kernellib/reference/
