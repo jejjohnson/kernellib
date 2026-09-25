@@ -441,7 +441,7 @@ for `NystromPreconditioner`) use inline lambdas as they do now.
 |---|---|
 | `pyrox_gp._src.kernels.rbf_kernel` etc. | Module body becomes `from kernellib.functional import *` re-exports for one deprecation cycle, then the module is removed |
 | `pyrox_gp._protocols.Kernel` | `Kernel = kernellib.AbstractKernel` (alias). Same abstract method, same `gram` / `diag` defaults, so every existing subclass is unaffected |
-| `pyrox_gp._kernels.RBF.__call__` calls `_k.rbf_kernel(X1, X2, self.get_param(...), ...)` | Unchanged in phase 2. In phase 3 gains `frozen() -> kernellib.RBF`, which resolves the params once inside the current context and returns a plain kernellib kernel |
+| `pyrox_gp._kernels.RBF.__call__` calls `_k.rbf_kernel(X1, X2, self.get_param(...), ...)` | Unchanged in phase 2. In phase 4 gains `frozen() -> kernellib.RBF`, which resolves the params once inside the current context and returns a plain kernellib kernel |
 | `pyrox_gp._basis._spectral_density.spectral_density(kernel, omega)` with `isinstance(kernel, RBF | Matern)` | `kernel.frozen().spectral_density(omega)` for pyrox kernels; kernellib kernels pass through. Same public signature, so pyrox-nn is unaffected |
 | `pyrox_gp._basis._rff.draw_rff_cosine_basis` | Thin wrapper over `kernellib.spectral.draw_rff_cosine_basis(kernel.frozen(), ...)`; numpyro sampling of the frequencies stays here if it is a sample site, otherwise it moves entirely |
 | `pyrox_gp._context._kernel_context` | Unchanged. `frozen()` is called inside it |
