@@ -62,7 +62,7 @@ docs = [
     # pygments 2.20.0 dropped the None -> '' coercion for HtmlFormatter(filename=...),
     # but pymdownx.highlight 10.21.x still passes the untitled-code-block title
     # through as None. Pin until a fixed pymdown-extensions release ships.
-    "pygments>=2.20.0,<2.21",
+    "pygments>=2.20.0,<2.22",
 ]
 
 [tool.uv.sources]
