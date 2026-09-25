@@ -18,6 +18,25 @@ package.
 from __future__ import annotations
 
 from kernellib import functional
+from kernellib._kernels import (
+    RBF,
+    AbstractKernel,
+    AbstractPointwiseKernel,
+    AbstractStationaryKernel,
+    ActiveDims,
+    Constant,
+    Cosine,
+    Linear,
+    Matern,
+    Periodic,
+    Polynomial,
+    Product,
+    RationalQuadratic,
+    Scaled,
+    Sum,
+    Warped,
+    White,
+)
 from kernellib._operators import (
     ImplicitCrossKernelOperator,
     ImplicitKernelOperator,
@@ -27,15 +46,34 @@ from kernellib._operators import (
     implicit_cross_kernel,
     nystrom_operator,
     rff_operator,
+    to_cross_operator,
+    to_operator,
 )
 
 
 __version__ = "0.0.1"
 
 __all__ = [
+    "RBF",
+    "AbstractKernel",
+    "AbstractPointwiseKernel",
+    "AbstractStationaryKernel",
+    "ActiveDims",
+    "Constant",
+    "Cosine",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KernelOperator",
+    "Linear",
+    "Matern",
+    "Periodic",
+    "Polynomial",
+    "Product",
+    "RationalQuadratic",
+    "Scaled",
+    "Sum",
+    "Warped",
+    "White",
     "__version__",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
@@ -43,4 +81,6 @@ __all__ = [
     "implicit_cross_kernel",
     "nystrom_operator",
     "rff_operator",
+    "to_cross_operator",
+    "to_operator",
 ]

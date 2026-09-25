@@ -22,6 +22,21 @@ import kernellib
 SUBMODULES: list[str] = ["_einx", "_testing"]
 
 
+def _isort_order(names: list[str]) -> list[str]:
+    """The order ruff's RUF022 fixer gives ``__all__``: CONSTANTS, then
+    CamelCase, then everything else, each alphabetical. Matching it keeps the
+    test and ``ruff check --fix`` from fighting over names like ``RBF``."""
+
+    def key(name: str) -> tuple[int, str]:
+        if name.isupper():
+            return (0, name)
+        if name[:1].isupper():
+            return (1, name)
+        return (2, name)
+
+    return sorted(names, key=key)
+
+
 def test_version_is_a_dotted_string() -> None:
     assert isinstance(kernellib.__version__, str)
     major, minor, patch = kernellib.__version__.split(".")[:3]
@@ -29,7 +44,7 @@ def test_version_is_a_dotted_string() -> None:
 
 
 def test_all_is_sorted_and_unique() -> None:
-    assert kernellib.__all__ == sorted(kernellib.__all__)
+    assert kernellib.__all__ == _isort_order(kernellib.__all__)
     assert len(kernellib.__all__) == len(set(kernellib.__all__))
 
 
@@ -49,11 +64,11 @@ def test_submodules_import_cleanly_and_declare_all() -> None:
     for module in SUBMODULES:
         imported = importlib.import_module(f"kernellib.{module}")
         assert hasattr(imported, "__all__"), f"kernellib.{module} is missing __all__"
-        assert imported.__all__ == sorted(imported.__all__)
+        assert imported.__all__ == _isort_order(imported.__all__)
 
 
 def test_functional_all_is_sorted_and_importable() -> None:
-    assert kernellib.functional.__all__ == sorted(kernellib.functional.__all__)
+    assert kernellib.functional.__all__ == _isort_order(kernellib.functional.__all__)
     for name in kernellib.functional.__all__:
         assert hasattr(kernellib.functional, name), name
 
