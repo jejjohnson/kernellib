@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.2](https://github.com/jejjohnson/kernellib/compare/v0.0.1...v0.0.2) (2026-09-25)
+
+
+### Features
+
+* **functional:** move kernel statistics from gaussx; add unbiased HSIC and CKA ([#12](https://github.com/jejjohnson/kernellib/issues/12)) ([99123b2](https://github.com/jejjohnson/kernellib/commit/99123b2fbe3ddcc36a58f55af3a3ae02f6306bf6))
+* **functional:** port pure kernel functions from pyrox-gp ([#9](https://github.com/jejjohnson/kernellib/issues/9)) ([095c905](https://github.com/jejjohnson/kernellib/commit/095c905bdbd25f4940d68f21b8085002e3135ce2))
+* **kernels:** kernel classes, composition, and the to_operator bridge ([#14](https://github.com/jejjohnson/kernellib/issues/14)) ([ba00616](https://github.com/jejjohnson/kernellib/commit/ba00616e17ad247bc5d81240db447da4c219b4b9))
+* **operators:** move kernel operators from gaussx ([#11](https://github.com/jejjohnson/kernellib/issues/11)) ([1231826](https://github.com/jejjohnson/kernellib/commit/12318260c7dec6e9aac0278f12588097d4487c20))
+
+## Changelog
+
 ## Changelog
 
 All notable changes to this project will be documented in this file.
