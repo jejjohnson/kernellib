@@ -18,11 +18,29 @@ package.
 from __future__ import annotations
 
 from kernellib import functional
+from kernellib._operators import (
+    ImplicitCrossKernelOperator,
+    ImplicitKernelOperator,
+    KernelOperator,
+    batched_kernel_matvec,
+    batched_kernel_rmatvec,
+    implicit_cross_kernel,
+    nystrom_operator,
+    rff_operator,
+)
 
 
 __version__ = "0.0.1"
 
 __all__ = [
+    "ImplicitCrossKernelOperator",
+    "ImplicitKernelOperator",
+    "KernelOperator",
     "__version__",
+    "batched_kernel_matvec",
+    "batched_kernel_rmatvec",
     "functional",
+    "implicit_cross_kernel",
+    "nystrom_operator",
+    "rff_operator",
 ]

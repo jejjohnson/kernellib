@@ -70,6 +70,7 @@ plugins:
 nav:
   - Overview: index.md
   - Functional: functional.md
+  - Operators: operators.md
 
 markdown_extensions:
   - admonition
