@@ -70,7 +70,7 @@ class TestParseInventory:
         if not real.is_file():
             pytest.skip("run `mkdocs build` first")
         entries = build_docs.parse_inventory(real.read_bytes())
-        assert "kernellib.summarize" in entries
+        assert "kernellib.RBF" in entries
         assert all("$" not in uri for uri in entries.values())
 
 
