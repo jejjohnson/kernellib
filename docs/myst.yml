@@ -27,6 +27,10 @@ project:
     - title: Guide
       children:
         - file: guide/architecture.md
+    - title: Examples
+      children:
+        - file: notebooks/kernel_approximations.ipynb
+        - file: notebooks/matrix_free_gp.ipynb
     - title: Project
       children:
         - file: contributing.md

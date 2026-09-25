@@ -71,3 +71,49 @@ def test_gaussx_solve_on_implicit_operator_matches_dense():
     op = ImplicitKernelOperator(_rbf, X, NOISE, params=PARAMS, tags=tags)
     x = gx.solve(op, y, solver=lx.CG(rtol=1e-10, atol=1e-10, max_steps=500))
     assert jnp.allclose(x, _dense_solution(X, y), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# lineax.diagonal, needed by gaussx's partial-Cholesky preconditioner
+# ---------------------------------------------------------------------------
+
+
+def _rbf_plain(x, y):
+    return jnp.exp(-0.5 * jnp.sum((x - y) ** 2) / 0.7**2)
+
+
+def _diag_cases():
+    from kernellib import ImplicitCrossKernelOperator
+
+    kx, kz, kb = jr.split(jr.key(3), 3)
+    X = jr.normal(kx, (12, 2))
+    Z = jr.normal(kz, (5, 2))
+    Xb = jr.normal(kb, (3, 7, 2))
+    cross = ImplicitCrossKernelOperator(_rbf, X, Z, 4, params=PARAMS)
+    return [
+        ("implicit-params", ImplicitKernelOperator(_rbf, X, NOISE, params=PARAMS)),
+        ("implicit-plain", ImplicitKernelOperator(_rbf_plain, X, NOISE)),
+        ("implicit-batched", ImplicitKernelOperator(_rbf_plain, Xb, NOISE)),
+        ("kernel-square", KernelOperator(_rbf, X, X, PARAMS)),
+        ("kernel-rect", KernelOperator(_rbf, X, Z, PARAMS)),
+        ("cross", cross),
+        ("cross-plain", ImplicitCrossKernelOperator(_rbf_plain, X, Z, 4)),
+        ("cross-transposed", cross.transpose()),
+    ]
+
+
+def test_diagonal_matches_dense_for_every_kernel_operator():
+    for name, op in _diag_cases():
+        expected = jnp.diagonal(op.as_matrix(), axis1=-2, axis2=-1)
+        assert jnp.allclose(lx.diagonal(op), expected, atol=1e-12), name
+
+
+def test_preconditioned_cg_on_implicit_operator_matches_dense():
+    """Regression: gaussx's partial-Cholesky preconditioner calls lx.diagonal."""
+    X, y = _problem()
+    tags = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    op = ImplicitKernelOperator(_rbf, X, NOISE, params=PARAMS, tags=tags)
+    solver = gx.PreconditionedCGSolver(
+        preconditioner_rank=10, shift=NOISE, rtol=1e-10, atol=1e-10
+    )
+    assert jnp.allclose(solver.solve(op, y), _dense_solution(X, y), atol=1e-6)

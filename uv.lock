@@ -1022,7 +1022,7 @@ wheels = [
 
 [[package]]
 name = "kernellib"
-version = "0.0.2"
+version = "0.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "einx" },
@@ -1085,7 +1085,7 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.7.7" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.6" },
     { name = "nbconvert", specifier = ">=7.16.6" },
-    { name = "pygments", specifier = ">=2.20.0,<2.21" },
+    { name = "pygments", specifier = ">=2.20.0,<2.22" },
     { name = "watermark", specifier = ">=2.6.0" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.15.22" }]
