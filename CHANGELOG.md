@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/jejjohnson/kernellib/compare/v0.0.4...v0.0.5) (2026-09-25)
+
+
+### Features
+
+* **spectral:** spectral densities, frequency samplers and RFF prior draws ([#22](https://github.com/jejjohnson/kernellib/issues/22)) ([d318219](https://github.com/jejjohnson/kernellib/commit/d3182199427cf216ab8af95ca60517ff5aa42468))
+
 ## [0.0.4](https://github.com/jejjohnson/kernellib/compare/v0.0.3...v0.0.4) (2026-09-25)
 
 
