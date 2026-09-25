@@ -69,6 +69,7 @@ plugins:
 
 nav:
   - Overview: index.md
+  - Kernels: kernels.md
   - Functional: functional.md
   - Operators: operators.md
 
