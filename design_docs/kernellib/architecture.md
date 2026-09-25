@@ -1,7 +1,7 @@
 ---
 status: draft
 version: 0.1.0
-date: 2026-09-24
+date: 2026-09-25
 ---
 
 # kernellib: A Scalable Kernel Library Between gaussx and pyrox-gp
@@ -18,6 +18,12 @@ solvers, operators) and
 priors and guides), and it inherits scale from gaussx rather than
 reimplementing it: every kernel can be turned into a gaussx linear operator,
 and every algorithm in kernellib solves through gaussx's solver strategies.
+
+gaussx's own kernel layer moves here too: the kernel operators, the Nyström /
+RFF operators, the matrix-level HSIC / MMD statistics, and the Falkon and
+EigenPro primitives. After the move gaussx is kernel-agnostic linear
+algebra, which is what its vision document already claims, and **everything
+with a kernel in it lives in kernellib**.
 
 The existing kernellib code (2018, numpy / scikit-learn / numba) is retired.
 Its *scope* survives; its code does not.
@@ -49,7 +55,9 @@ The survey below is of `gaussx@0.1.0`, `pyrox-gp@0.1.5`, the current
 
 **gaussx already contains the scalable half of a kernel library.** It is all
 kernel-agnostic: each entry point takes a callable `k(x, x') -> scalar` (or
-`k(params, x, x')`) and never a concrete kernel.
+`k(params, x, x')`) and never a concrete kernel. Every row below except the
+grid helpers, the two preconditioners and `stable_squared_distances` moves to
+kernellib (see *Boundaries*). Nothing else in gaussx depends on them.
 
 | gaussx symbol | What it is |
 |---|---|
@@ -112,6 +120,8 @@ eigenmaps, LPP.
    feature maps) in one place, shared by pyrox-gp pathwise sampling and
    pyrox-nn spectral layers.
 5. Zero behaviour change for pyrox-gp and pyrox-nn users across the migration.
+6. gaussx ends up kernel-agnostic: no module, symbol or docs page in gaussx
+   has a kernel in it.
 
 ### Non-goals
 
@@ -130,19 +140,27 @@ eigenmaps, LPP.
 
 ## Ownership map
 
+The rule in one sentence: **anything with a kernel in it lives in kernellib,
+from the operators up; gaussx is kernel-agnostic linear algebra; geonnax is
+kernel-agnostic feature-map arithmetic.**
+
 | Responsibility | Owner | Notes |
 |---|---|---|
 | Pointwise kernel math, Gram assembly, composition | **kernellib** | Moved from `pyrox_gp._src.kernels` |
 | Kernel abstraction (`AbstractKernel`, `AbstractPointwiseKernel`, `AbstractStationaryKernel`) | **kernellib** | `pyrox_gp.Kernel` becomes an alias |
-| Kernel → gaussx operator bridge | **kernellib** | `to_operator`, `to_cross_operator` |
+| Kernel *operators* (`KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`) and the `to_operator` bridge | **kernellib** | Moved from gaussx; lineax operators with custom JVPs, so they plug into every gaussx solver unchanged |
+| Low-rank kernel operators (`nystrom_operator`, `rff_operator`, `fastfood_operator`, `FastFoodOperator`) | **kernellib** | Nyström / RFF moved from gaussx; FastFood new |
+| Matrix-level kernel statistics (`hsic`, `cka`, `mmd_squared`, `center_kernel`, `centering_operator`) | **kernellib** | Moved from gaussx into `kernellib.functional`; unbiased HSIC and CKA new |
+| Falkon and EigenPro primitives (preconditioners, one CG solve, step size, correction) | **kernellib** | Moved from gaussx, next to the estimators that use them |
+| `stable_rbf_kernel`, `batched_kernel_matvec`, `batched_kernel_rmatvec` | **kernellib** | Moved from gaussx |
 | Spectral densities, frequency sampling | **kernellib** | Method on stationary kernels; replaces isinstance dispatch in `pyrox_gp._basis` |
-| Feature maps (`NystromFeatures`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures`, `LaplaceEigenfunctionFeatures`) | **kernellib** | Draw landmarks / frequencies / scalings from the kernel; hand arrays to gaussx's operator constructors; use `geonnax.randfeat` and `geonnax.basis` for the arithmetic |
+| Feature maps (`NystromFeatures`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures`, `LaplaceEigenfunctionFeatures`) | **kernellib** | Draw landmarks / frequencies / scalings from the kernel; use `geonnax.randfeat` and `geonnax.basis` for the arithmetic |
 | Bandwidth heuristics (median / mean / Silverman / Scott, subsampled, k-th neighbour) | **kernellib** | Ported from pysim |
-| `KRR`, `Falkon`, `EigenPro` estimators (fit / predict, landmark selection, training loops) | **kernellib** | Workflows; the linear-algebra pieces stay in gaussx |
-| HSIC / CKA / kernel alignment / MMD over *kernels and data*, randomized variants, permutation tests, input gradients | **kernellib** | Ported from pysim; every path delegates the matrix step to gaussx |
+| `KRR`, `Falkon`, `EigenPro` estimators (fit / predict, landmark selection, training loops) | **kernellib** | |
+| HSIC / CKA / kernel alignment / MMD over *kernels and data*, randomized variants, permutation tests, input gradients | **kernellib** | Ported from pysim; every path ends in the matrix-level functions above |
 | Kernel PCA, kernel embeddings, graph kernels from adjacency | **kernellib** | Over `gaussx.eig`, `root_decomposition`, `LowRankUpdate` |
 | Kernel derivatives (∂k/∂x, Gram blocks of derivatives, derivative of a KRR predictor) | **kernellib** | Autodiff of `pairwise` |
-| Kernel *operators*, low-rank operators (Nyström, RFF, FastFood), preconditioners, Falkon / EigenPro primitives, matrix-level HSIC / CKA / MMD, grids | **gaussx** | Existing surface unchanged; four small additions listed under *Boundaries* |
+| Structured operators (`LowRankUpdate`, `Kronecker`, ...), solvers and strategies, preconditioners (`NystromPreconditioner`, `PartialCholeskyPreconditioner`), `trace_product`, `stable_squared_distances`, grids for interpolated operators, Gaussians, GP recipes, SSMs | **gaussx** | Kernel-agnostic. `stable_squared_distances` stays because gaussx's ensemble localization uses it and gaussx cannot import kernellib |
 | `Parameterized` kernel wrappers, priors, context scoping | **pyrox-gp** | Delegates the math to kernellib |
 | Basis functions on boxes, spheres, graphs; RFF forward helpers | **geonnax** | kernellib depends on it |
 
@@ -258,17 +276,19 @@ Mapping:
 | `implicit` | Kernel type | Returns |
 |---|---|---|
 | `False` | any | `lx.MatrixLinearOperator(kernel(X, X) [+ noise I], tags={symmetric, psd})` |
-| `True`  | pointwise | `gaussx.ImplicitKernelOperator(kernel_fn, X, noise_var, params=params)` |
+| `True`  | pointwise | `kernellib.ImplicitKernelOperator(kernel_fn, X, noise_var, params=params)` |
 | `True`  | Gram-only | `TypeError` naming the kernel; no silent densification |
-| cross, `True` | pointwise | `gaussx.ImplicitCrossKernelOperator(kernel_fn, X1, X2, batch_size, params=params)` |
+| cross, `True` | pointwise | `kernellib.ImplicitCrossKernelOperator(kernel_fn, X1, X2, batch_size, params=params)` |
 
 `kernel_fn` and `params` come from `eqx.partition(kernel, eqx.is_array)`:
-the array leaves are `params` (so gaussx's custom JVP differentiates through
-hyperparameters), the static remainder is closed over in
+the array leaves are `params` (so the operator's custom JVP differentiates
+through hyperparameters), the static remainder is closed over in
 `kernel_fn = lambda p, x, y: eqx.combine(p, static).pairwise(x, y)`.
 
-This is the whole "inherit scale" mechanism. After the bridge, everything
-else is gaussx:
+This is the whole "inherit scale" mechanism. The operators are lineax
+`AbstractLinearOperator`s carrying `symmetric` / `positive_semidefinite` tags,
+and gaussx's strategies dispatch on those tags rather than on operator type,
+so after the bridge everything else is gaussx:
 
 ```python
 K = kl.to_operator(kernel, X, noise=1e-2, implicit=True)
@@ -284,32 +304,40 @@ src/kernellib/
 ├── __init__.py            # public API, flat, re-exports only
 ├── _einx.py               # einx wrappers (copied pattern from gaussx; D9 rule: no raw reshape/einsum)
 ├── _testing.py            # PSD checks, pointwise-vs-gram, finite-difference derivative asserts
-├── functional/            # pure functions on arrays — the moved pyrox_gp._src.kernels
-│   ├── _stationary.py     #   rbf, matern, rational_quadratic, periodic, cosine, white, constant
+├── functional/            # arrays in, arrays out — no kernel objects, no keys
+│   ├── _stationary.py     #   rbf, matern, rational_quadratic, periodic, cosine, white, constant; stable_rbf_kernel (moved)
 │   ├── _nonstationary.py  #   linear, polynomial
-│   ├── _distances.py      #   scaled squared / euclidean distances (thin over gaussx stable paths)
-│   └── _compose.py        #   kernel_add, kernel_mul on matrices (kept for matrix callers)
+│   ├── _distances.py      #   lengthscale-scaled distances, thin over gaussx.stable_squared_distances
+│   ├── _compose.py        #   kernel_add, kernel_mul on matrices (kept for matrix callers)
+│   └── _statistics.py     #   center_kernel, centering_operator, hsic (biased / unbiased), cka, mmd_squared (moved from gaussx, extended)
 ├── _kernels/
 │   ├── _base.py           # AbstractKernel, AbstractPointwiseKernel, AbstractStationaryKernel
 │   ├── _stationary.py     # RBF, Matern(nu static ∈ {0.5,1.5,2.5}), RationalQuadratic, Periodic, Cosine, White, Constant
 │   ├── _nonstationary.py  # Linear, Polynomial(degree static)
 │   └── _compose.py        # Sum, Product, Scaled, ActiveDims, Warped + operator sugar
-├── _operators.py          # to_operator, to_cross_operator (the gaussx bridge)
+├── _operators/
+│   ├── _kernel.py         # KernelOperator (moved from gaussx)
+│   ├── _implicit.py       # ImplicitKernelOperator (moved)
+│   ├── _implicit_cross.py # ImplicitCrossKernelOperator (moved)
+│   ├── _batched.py        # batched_kernel_matvec / rmatvec (moved)
+│   ├── _low_rank.py       # nystrom_operator, rff_operator (moved); fastfood_operator, FastFoodOperator (new, Walsh–Hadamard matvec)
+│   ├── _utils.py          # vmap_over_batch_dims, _to_frozenset (copied from gaussx private helpers)
+│   └── _bridge.py         # to_operator, to_cross_operator
 ├── _spectral/
 │   ├── _density.py        # spectral densities per stationary kernel (moved from pyrox_gp._basis)
-│   ├── _base.py           # AbstractFeatureMap: fit(kernel[, X]) -> fitted map; __call__(X) -> Φ; operator(X) -> gaussx LowRankUpdate
+│   ├── _base.py           # AbstractFeatureMap: fit(kernel[, X]) -> fitted map; __call__(X) -> Φ; operator(X) -> LowRankUpdate
 │   ├── _rff.py            # draw_rff_cosine_basis, evaluate_rff_cosine_paths (moved); RandomFourierFeatures, OrthogonalRandomFeatures over geonnax.randfeat
-│   ├── _fastfood.py       # FastFoodFeatures: draws B, Pi, G and the kernel-dependent S; operator(X) -> gaussx.fastfood_operator
-│   ├── _nystrom.py        # NystromFeatures: landmark selection (uniform; leverage-score later), Φ = K_xz L_zz^{-T}; operator(X) -> gaussx.nystrom_operator
+│   ├── _fastfood.py       # FastFoodFeatures: draws B, Pi, G and the kernel-dependent S; operator(X) -> fastfood_operator
+│   ├── _nystrom.py        # NystromFeatures: landmark selection (uniform; leverage-score later), Φ = K_xz L_zz^{-T}; operator(X) -> nystrom_operator
 │   └── _laplace.py        # HSGP-style Laplace-eigenfunction approximation over geonnax.basis.fourier_basis / fourier_eigenvalues
 ├── _heuristics.py         # estimate_lengthscale(X, method=median|mean|silverman|scott, subsample, kth), sigma<->gamma, grids (pysim port)
 ├── _regression/
 │   ├── _base.py           # AbstractEstimator: config in the constructor, fit(X, y[, key]) -> fitted module, predict(X)
 │   ├── _krr.py            # KRR: any gaussx solver strategy, dense or implicit operator
-│   ├── _falkon.py         # Falkon: pick Z, build ImplicitCrossKernelOperator, gaussx.falkon_preconditioner + falkon_solve + falkon_predict
-│   └── _eigenpro.py       # EigenPro: the lax.scan mini-batch loop over gaussx.eigenpro_* primitives
+│   ├── _falkon.py         # falkon_preconditioner, falkon_solve, falkon_predict, FalkonPreconditioner (moved) + Falkon estimator
+│   └── _eigenpro.py       # eigenpro_preconditioner, eigenpro_step_size, eigenpro_correction (moved) + EigenPro estimator (the lax.scan loop)
 ├── _dependence/
-│   ├── _hsic.py           # hsic / cka / kernel_alignment (biased, unbiased); approx= for Nyström / RFF / FastFood; hsic_input_gradient
+│   ├── _hsic.py           # hsic / cka / kernel_alignment on kernels + data; approx= for Nyström / RFF / FastFood; hsic_input_gradient
 │   ├── _mmd.py            # mmd over one kernel + two samples; linear-time estimator
 │   └── _permutation.py    # permutation_test(statistic, ...) for any of the above
 ├── _decomposition/
@@ -317,6 +345,10 @@ src/kernellib/
 │   └── _graph.py          # graph kernels from adjacency: diffusion, regularized Laplacian, random-walk, cosine (old kernellib.decomposition.graph, JAX)
 └── _derivatives.py        # kernel_jacobian, derivative Gram blocks, predictor_gradient for KRR
 ```
+
+`functional/` is the array-level namespace: pure kernel functions and the
+matrix-level statistics that used to be `gaussx.hsic` and friends. The same
+names at the top level (`kernellib.hsic`) are the kernel-and-data versions.
 
 Manifold learning from the old `decomposition/` (Laplacian eigenmaps,
 Schrödinger eigenmaps, LPP, neighbour graphs) is **not** in the first
@@ -330,7 +362,7 @@ Dependencies:
 dependencies = [
   "jax>=0.10", "jaxlib>=0.10", "equinox>=0.13.8", "jaxtyping>=0.3",
   "einx>=0.4.3", "lineax>=0.1.1",
-  "gaussx>=0.1.0",
+  "gaussx>=0.1.0",          # >=0.2.0 once the kernel layer is removed there
   "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.5",   # until it ships to PyPI
 ]
 ```
@@ -341,47 +373,67 @@ No numpyro. No scikit-learn. No numpy beyond what JAX brings.
 
 ## Boundaries in detail
 
-### gaussx: operations stay, algorithms move
+### gaussx: the kernel layer moves out
 
-The placement test, applied to every family below: **if it needs a kernel
-object or a random key, it is kernellib; if it takes matrices, operators or
-a callable and returns matrices, operators or a scalar, it is gaussx.**
-geonnax keeps only kernel-agnostic feature-map arithmetic. Under that test
-kernellib's version of each algorithm is a thin layer that draws the random
-pieces from the kernel and hands gaussx the arrays.
+The rule: **anything with a kernel in it lives in kernellib, from the
+operators up. gaussx is kernel-agnostic linear algebra.** An earlier draft
+split by "matrices in, matrices out → gaussx", which left a `_kernels/`
+package and a kernels docs page in gaussx next to a library called kernellib.
+That was a boundary drawn for tidiness of *signatures*, not of *concepts*,
+and it is gone.
 
-| Family | gaussx (operations) | kernellib (algorithms) |
-|---|---|---|
-| HSIC / CKA / MMD | `hsic(K, L)`, `mmd_squared(K_xx, K_yy, K_xy)`, `center_kernel`, `centering_operator`. **Add:** `estimator="unbiased"` on `hsic`, matrix-level `cka(K, L)`, a `LowRankUpdate × LowRankUpdate` fast path in `trace_product` (`tr(UUᵀVVᵀ) = ‖UᵀV‖²_F`) and a low-rank-preserving `center_kernel` | `hsic(kx, ky, X, Y, *, estimator, approx=None)`, `cka`, `kernel_alignment`, `mmd(k, X, Y)`, `permutation_test`, `hsic_input_gradient`. Dense path calls `gaussx.hsic` on Gram matrices; randomized path calls the *same* `gaussx.hsic` on the `LowRankUpdate` operators produced by a feature map |
-| Nyström / RFF / ORF | `nystrom_operator(K_XZ, K_ZZ)`, `rff_operator(X, omega, b)` | `NystromFeatures`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`: draw landmarks or frequencies from the kernel, expose `__call__(X) -> Φ` and `operator(X) -> LowRankUpdate` |
-| FastFood | **Add:** `FastFoodOperator` (Walsh–Hadamard matvec, `O(d log d)`, a sibling of `Circulant`) and `fastfood_operator(X, B, Pi, G, S) -> LowRankUpdate`, mirroring `rff_operator` | `FastFoodFeatures(n_features, key).fit(kernel)`: draws `B` (±1), `Pi` (permutation), `G` (Gaussian) and the kernel-dependent scaling `S` from the radial spectral density; `operator(X)` calls `gaussx.fastfood_operator` |
-| Falkon | `falkon_preconditioner`, `falkon_solve` (one preconditioned CG), `falkon_predict`, `FalkonPreconditioner` | `Falkon(kernel, n_inducing, regularization, max_iter).fit(X, y, key)`: landmark selection, `ImplicitCrossKernelOperator` from the kernel, the three gaussx calls, `predict` |
-| EigenPro | `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` | `EigenPro(kernel, epochs, batch_size, ...).fit(X, y, key)`: the `lax.scan` mini-batch loop, epochs, `predict` |
-| KRR | `solve` with any strategy, `NystromPreconditioner`, `PartialCholeskyPreconditioner` | `KRR(kernel, regularization, solver).fit(X, y)` |
-| Operators | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, `stable_rbf_kernel`, `stable_squared_distances` | `to_operator`, `to_cross_operator`, `functional._distances` |
+The move is clean. Nothing inside gaussx depends on its kernel pieces: no
+module outside `_kernels/` and the three kernel-operator files imports them,
+and the solver strategies dispatch on lineax tags rather than on operator
+type, so a kernel operator defined in kernellib plugs into `gaussx.solve`
+exactly as one defined in gaussx does. pyrox-gp uses none of these symbols
+in source. The one internal consumer is `stable_squared_distances`, used by
+`euclidean_distance` in the ensemble-localization code.
 
-The FastFood matvec is the one item that could be argued into either
-kernellib or `geonnax.randfeat`. It goes to gaussx because its entire value
-is a structured `O(d log d)` product, which is what gaussx's operator layer
-exists for; the fallback home, if gaussx is ever restricted to
-covariance-shaped structure, is `geonnax.randfeat` next to `rff_forward`.
+| Moves to kernellib (~2000 lines + tests) | Stays in gaussx |
+|---|---|
+| `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator` (+ `implicit_cross_kernel`) | `LowRankUpdate`, `Kronecker`, `BlockDiag`, `Toeplitz`, `Circulant`, ... every kernel-agnostic operator |
+| `nystrom_operator`, `rff_operator` | `NystromPreconditioner`, `PartialCholeskyPreconditioner` (probe *any* operator) |
+| `center_kernel`, `centering_operator`, `hsic`, `mmd_squared` | `trace_product`, `solve`, `logdet`, `eig`, `root_decomposition`, all primitives and strategies |
+| `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner` | `create_grid`, `grid_data`, `cubic_interpolation_weights` (belong to `InterpolatedOperator` / KISS-GP) |
+| `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` | `stable_squared_distances` |
+| `stable_rbf_kernel`, `batched_kernel_matvec`, `batched_kernel_rmatvec` | `_gp/` recipes, `_ssm/`, `_quadrature/`, `_inference/`, distributions |
+| `tests/kernels/*`, `tests/operators/test_kernel*.py`, `tests/operators/test_implicit*.py`, `tests/linalg/test_batched_matvec.py`, the `stable_rbf_kernel` tests | everything else |
+| `docs/api/kernels.md` and the kernel rows of `docs/api/operators.md` | |
 
-gaussx code changes in this refactor are **four small, self-contained
-additions**, none of which takes a kernel or a key:
+**Why `stable_squared_distances` stays (option 1).** It is a distance
+primitive, not a kernel: the `‖x‖² + ‖z‖² − 2x·z` expansion with float64
+accumulation and a clamp at zero, in `_linalg/_mixed_precision.py` next to
+the other mixed-precision helpers. Kernels are one consumer; Gaspari–Cohn
+localization in gaussx's ensemble Kalman code is another, and gaussx cannot
+import kernellib. The alternatives were a private copy of 48 lines of subtle
+numerics inside gaussx (two implementations that drift) or moving the
+localization code, which is ensemble-filtering territory that gaussx's vision
+already assigns to filterax. kernellib's `functional/_distances.py` wraps it
+and adds the lengthscale scaling.
 
-1. `hsic(K, L, estimator="biased" | "unbiased")` and matrix-level `cka(K, L)`.
-2. `trace_product` fast path for two `LowRankUpdate` operands.
-3. `center_kernel` returning a `LowRankUpdate` when given one (centre the
-   columns of `U`, keep `d`).
-4. `FastFoodOperator` and `fastfood_operator`.
+**Private helpers.** The three operator files use `vmap_over_batch_dims` and
+`_to_frozenset` from gaussx's private `_operators/` internals. kernellib copies
+both (a few lines each) into `_operators/_utils.py` rather than importing
+private names.
 
-Documentation changes: the ecosystem diagrams in `docs/vision.md` and
-`docs/architecture.md` gain a kernellib node between gaussx and pyrox-gp,
-and `docs/api/kernels.md` gets a one-paragraph pointer that the
-estimator-level API lives in kernellib.
+**gaussx changes:**
 
-gaussx must never import kernellib. gaussx tests that need a kernel keep
-using inline lambdas as they do now.
+1. Remove the kernel layer in **gaussx 0.2.0**: the files, their tests, the
+   `__init__` exports, `docs/api/kernels.md`, and the `_kernels/` row in
+   `docs/architecture.md`. No deprecation shims: gaussx cannot re-export from
+   kernellib without creating the cycle, and there are no external users to
+   protect. The CHANGELOG entry names the new home of every symbol.
+2. Add a `LowRankUpdate × LowRankUpdate` fast path to `trace_product`
+   (`tr(UUᵀVVᵀ) = ‖UᵀV‖²_F`). This is generic linear algebra and stays a
+   gaussx contribution; it is what makes randomized HSIC `O(n m²)`.
+3. Documentation: the ecosystem diagrams in `docs/vision.md` and
+   `docs/architecture.md` gain a kernellib node between gaussx and pyrox-gp,
+   and the "not this, go here" table gains a row for kernels and kernel
+   methods.
+
+gaussx must never import kernellib. gaussx tests that need a kernel (e.g.
+for `NystromPreconditioner`) use inline lambdas as they do now.
 
 ### pyrox-gp: wrappers stay, math moves
 
@@ -427,7 +479,7 @@ the same semantics, and pysim may later import from kernellib if wanted:
 | pysim | kernellib |
 |---|---|
 | `HSIC(center, bias, kernel, gamma)` with `score(normalize)`: HSIC (centred, unnormalised), KA (uncentred, normalised), CKA (centred, normalised) | `hsic(kx, ky, X, Y, *, center=True, estimator="biased" \| "unbiased")`, `cka(...)`, `kernel_alignment(...)` |
-| `RandomizedHSIC` (Nyström) and `RFFHSIC` | `hsic(..., approx=NystromFeatures(...) \| RandomFourierFeatures(...) \| FastFoodFeatures(...))`: the feature map yields `LowRankUpdate` operators for `X` and `Y`, and `gaussx.hsic` evaluates `‖Φ̃xᵀ Φ̃y‖²_F / n²` in `O(n m²)` through its low-rank `trace_product` path (gaussx addition 2 and 3) |
+| `RandomizedHSIC` (Nyström) and `RFFHSIC` | `hsic(..., approx=NystromFeatures(...) \| RandomFourierFeatures(...) \| FastFoodFeatures(...))`: the feature map yields `LowRankUpdate` operators for `X` and `Y`, and `kernellib.functional.hsic` evaluates `‖Φ̃xᵀ Φ̃y‖²_F / n²` in `O(n m²)` through gaussx's low-rank `trace_product` fast path |
 | `estimate_sigma` / `estimate_gamma` (mean, median, Silverman, Scott; subsample; k-th percentile neighbour), `sigma_to_gamma`, `get_sigma_grid` | `estimate_lengthscale(X, *, method, subsample, percent, key)`, `lengthscale_to_gamma`, `lengthscale_grid` |
 | `RandomFourierFeatures` (sklearn transformer) | `RandomFourierFeatures(n_features, key).fit(kernel)` eqx.Module with `__call__(X) -> Φ` and `operator(X)` |
 | `information/*` (entropy, MI, KDE, kNN) | out of scope |
@@ -446,6 +498,10 @@ modules: the constructor holds configuration, `fit` returns a *new* fitted
 module, `predict` / `__call__` act on the fitted one, and everything is
 `jit` / `grad` / `vmap` compatible because fitted state is plain fields.
 
+Two namespaces. `kernellib.functional` is arrays in, arrays out: pure kernel
+functions and the matrix-level statistics. The top level is kernels and data
+in.
+
 ### Kernels and the bridge
 
 ```python
@@ -460,26 +516,32 @@ kd = k.diag(X)
 s = k.spectral_density(omega)    # stationary kernels only
 ell = kl.estimate_lengthscale(X, method="median", subsample=2000, key=key)
 
+# operator level (moved from gaussx): callable + points in, lineax operator out
+K_op = kl.ImplicitKernelOperator(kernel_fn, X, noise_var=0.1, params=params)
+K_nm = kl.ImplicitCrossKernelOperator(kernel_fn, X, Z, batch_size=1024)
+
+# the bridge builds those from a kernel object
 K_op = kl.to_operator(k, X, noise=0.1, implicit=True)
 alpha = gx.solve(K_op, y, solver=gx.PreconditionedCGSolver(preconditioner_rank=100))
 ```
 
 ### Dependence
 
-The dense path delegates straight to gaussx; the randomized path builds
-low-rank operators and delegates to the *same* function.
+The dense path and the randomized path end in the same matrix-level
+function; only what it is handed differs.
 
 ```python
-# gaussx level: matrices or operators in, scalar out
-h = gx.hsic(K, L)                              # biased, exists today
-h = gx.hsic(K, L, estimator="unbiased")        # gaussx addition 1
-c = gx.cka(K, L)                               # gaussx addition 1
-m = gx.mmd_squared(K_xx, K_yy, K_xy)
+# matrix level: matrices or operators in, scalar out
+h = kl.functional.hsic(K, L)                              # biased (moved from gaussx)
+h = kl.functional.hsic(K, L, estimator="unbiased")
+c = kl.functional.cka(K, L)
+m = kl.functional.mmd_squared(K_xx, K_yy, K_xy)
+Kc = kl.functional.center_kernel(K)                       # LowRankUpdate in, LowRankUpdate out
 
-# kernellib level: kernels and data in
+# kernel level: kernels and data in
 kx = kl.RBF(lengthscale=kl.estimate_lengthscale(X))
 ky = kl.RBF(lengthscale=kl.estimate_lengthscale(Y))
-h = kl.hsic(kx, ky, X, Y)                                  # -> gx.hsic(kx.gram(X), ky.gram(Y))
+h = kl.hsic(kx, ky, X, Y)                                  # -> functional.hsic(kx.gram(X), ky.gram(Y))
 h = kl.hsic(kx, ky, X, Y, estimator="unbiased")
 c = kl.cka(kx, ky, X, Y)
 a = kl.kernel_alignment(kx, ky, X, Y)                      # uncentred, normalised
@@ -487,32 +549,32 @@ m = kl.mmd(kx, X, Y)                                       # one kernel, two sam
 p = kl.permutation_test(kl.hsic, kx, ky, X, Y, n_perms=500, key=key)
 g = kl.hsic_input_gradient(kx, ky, X, Y)                   # jax.grad through pairwise
 
-# randomized: the feature map owns the randomness, gaussx owns the trace
+# randomized: the feature map owns the randomness
 h = kl.hsic(kx, ky, X, Y, approx=kl.NystromFeatures(n_components=300, key=key))
 h = kl.hsic(kx, ky, X, Y, approx=kl.RandomFourierFeatures(n_features=1024, key=key))
 h = kl.hsic(kx, ky, X, Y, approx=kl.FastFoodFeatures(n_features=1024, key=key))
-# internally: gx.hsic(approx.fit(kx, X).operator(X), approx.fit(ky, Y).operator(Y))
-# both operands are LowRankUpdate; trace_product uses ||U^T V||_F^2
+# internally: functional.hsic(approx.fit(kx, X).operator(X), approx.fit(ky, Y).operator(Y))
+# both operands are LowRankUpdate; gaussx.trace_product uses ||U^T V||_F^2
 ```
 
 ### Approximation
 
 A feature map is built from a kernel and a key. It can give you the
-feature matrix, or a gaussx low-rank operator that already solves and takes
+feature matrix, or a gaussx `LowRankUpdate` that already solves and takes
 logdets through Woodbury.
 
 ```python
-# gaussx level: arrays in, LowRankUpdate out
-K_low = gx.nystrom_operator(K_XZ, K_ZZ_op)          # exists today
-K_low = gx.rff_operator(X, omega, b)                # exists today
-K_low = gx.fastfood_operator(X, B, Pi, G, S)        # gaussx addition 4; matvec via FastFoodOperator
+# operator level: arrays in, LowRankUpdate out
+K_low = kl.nystrom_operator(K_XZ, K_ZZ_op)          # moved from gaussx
+K_low = kl.rff_operator(X, omega, b)                # moved from gaussx
+K_low = kl.fastfood_operator(X, B, Pi, G, S)        # new; matvec via kl.FastFoodOperator
 
-# kernellib level
+# kernel level
 k = kl.Matern(nu=1.5, lengthscale=0.7)
 
 nys = kl.NystromFeatures(n_components=500, key=key, selection="uniform").fit(k, X)
 phi = nys(X_test)                     # (N, 500) features  K_xz L_zz^{-T}
-K_low = nys.operator(X)               # gx.nystrom_operator under the hood
+K_low = nys.operator(X)               # kl.nystrom_operator under the hood
 nys.landmarks                         # the Z that was chosen
 
 rff = kl.RandomFourierFeatures(n_features=2048, key=key).fit(k)    # omega ~ k.sample_frequencies
@@ -528,17 +590,17 @@ alpha = gx.solve(K_low + 1e-2 * gx.identity(N), y)   # Woodbury, O(N m^2)
 
 ### Regression
 
-gaussx already has every linear-algebra step; kernellib adds landmark
-selection, operator construction from the kernel, the training loop and
-`predict`.
+The primitives and the estimators live side by side; the estimator adds
+landmark selection, operator construction from the kernel, the training loop
+and `predict`.
 
 ```python
-# gaussx level (exists today)
-P = gx.falkon_preconditioner(K_mm, regularization=lam)
-alpha = gx.falkon_solve(K_nm_op, y, P, regularization=lam, max_iter=20)
-y_hat = gx.falkon_predict(kernel_fn, Z, alpha, X_test)
+# primitive level (moved from gaussx)
+P = kl.falkon_preconditioner(K_mm, regularization=lam)
+alpha = kl.falkon_solve(K_nm_op, y, P, regularization=lam, max_iter=20)
+y_hat = kl.falkon_predict(kernel_fn, Z, alpha, X_test)
 
-# kernellib level
+# estimator level
 model = kl.KRR(k, regularization=1e-2, solver=gx.AutoSolver()).fit(X, y)
 model = kl.Falkon(k, n_inducing=2000, regularization=1e-3, max_iter=20).fit(X, y, key=key)
 model = kl.EigenPro(k, epochs=10, batch_size=512, subsample_size=4000, n_components=100).fit(X, y, key=key)
@@ -575,7 +637,9 @@ rff = kl.RandomFourierFeatures(1024, key).fit(k_frozen)    # pathwise prior draw
 ## Migration plan
 
 Each phase is one or more PRs, independently shippable, with no user-facing
-breakage. Repo names in bold.
+breakage. Repo names in bold. The gaussx removal comes *after* kernellib's
+first release so there is never a window in which the kernel operators exist
+nowhere.
 
 ### Phase 0: scaffold (**kernellib**)
 
@@ -583,24 +647,29 @@ breakage. Repo names in bold.
    branch. The old code is not carried forward.
 2. Rename the default branch to `main` to match gaussx and pyrox
    (decision for the owner; the rest of the plan assumes `main`).
-3. Fresh tree scaffolded from gaussx: `src/` layout with hatchling, `uv`
-   groups (`dev`, `lint`, `typecheck`, `docs`), ruff config copied verbatim,
-   `ty`, pytest markers `slow` / `integration`, pre-commit, release-please
-   with manifest, CI workflows (`ci.yml`, `lint.yml`, `typecheck.yml`,
-   `tests-extended.yml`, `pages.yml`, `conventional-commits.yml`), mkdocs
-   with mkdocstrings, `CLAUDE.md` and `AGENTS.md` in the gaussx style,
-   `Makefile`.
-4. Version `0.0.1`. Confirm the `kernellib` name is available on PyPI before
-   the first release (not verified in this document).
+3. Fresh tree scaffolded from `pypackage_template`: `src/` layout with
+   hatchling, `uv` groups (`dev`, `lint`, `typecheck`, `docs`), ruff, `ty`,
+   pytest with doctests and the coverage gate plus `slow` / `integration`
+   markers, pre-commit, release-please with manifest, the template's CI
+   workflows, the two-tool docs pipeline, `CLAUDE.md` / `AGENTS.md` /
+   `CODE_REVIEW.md`, `Makefile`.
+4. Version `0.0.1`. The `kernellib` name is free on PyPI (checked
+   2026-09-25).
 5. Import-guard test: `import kernellib` must not put `numpyro` or `sklearn`
    in `sys.modules`.
 
-### Phase 1: kernels and the bridge (**kernellib**)
+### Phase 1: kernels, operators and the bridge (**kernellib**)
 
 - `functional/`: copy `pyrox_gp._src.kernels` and its tests verbatim, then
-  route distances through gaussx's stable paths.
+  route distances through `gaussx.stable_squared_distances`; add
+  `stable_rbf_kernel` (moved) and `_statistics.py` (`center_kernel`,
+  `centering_operator`, `hsic`, `mmd_squared` moved from gaussx, plus the
+  unbiased estimator and `cka`).
+- `_operators/`: copy `KernelOperator`, `ImplicitKernelOperator`,
+  `ImplicitCrossKernelOperator`, `batched_kernel_matvec`, `nystrom_operator`,
+  `rff_operator` from gaussx with their tests; copy the two private helpers.
 - `_kernels/`: the three abstract classes, the concrete kernels, composition.
-- `_operators.py`: `to_operator`, `to_cross_operator`.
+- `_operators/_bridge.py`: `to_operator`, `to_cross_operator`.
 - Tests: see the testing section. Includes one integration test that solves
   a kernel system through `gaussx.CGSolver` via the implicit bridge and
   matches the dense solve.
@@ -612,33 +681,35 @@ breakage. Repo names in bold.
 - `pyrox_gp._src.kernels` becomes re-exports with a `DeprecationWarning` on
   import; its tests move to kernellib (done in phase 1) and are deleted here.
 - `pyrox_gp._protocols.Kernel = kernellib.AbstractKernel`.
+- Replace the two docstring references to `gaussx.ImplicitKernelOperator`
+  and `gaussx.stable_rbf_kernel` with their kernellib names.
 - Full pyrox test suite green with no other change. This is the proof the
   alias is safe.
 
-### Phase 3: spectral side (**kernellib**, then **pyrox**)
+### Phase 3: remove the kernel layer from gaussx (**gaussx**)
+
+- Delete `_kernels/` except `_grid.py`, the three kernel-operator files,
+  `batched_kernel_matvec`, `stable_rbf_kernel`, their tests, their
+  `__init__` exports, and `docs/api/kernels.md`. Keep
+  `stable_squared_distances`, the grid helpers and the preconditioners.
+- Add the `LowRankUpdate × LowRankUpdate` fast path to `trace_product` with
+  a test against the dense value.
+- Update `docs/vision.md` and `docs/architecture.md` (kernellib node, "go
+  here instead" row, `_kernels/` row removed).
+- Release **gaussx 0.2.0**; CHANGELOG names the new home of every removed
+  symbol. kernellib raises its pin to `gaussx>=0.2.0` in phase 4.
+
+### Phase 4: spectral side (**kernellib**, then **pyrox**)
 
 - kernellib: `spectral_density` and `sample_frequencies` on every stationary
   kernel; `_spectral/_rff.py` with the moved draw / evaluate helpers;
   `AbstractFeatureMap` with `fit` / `__call__` / `operator`;
   `RandomFourierFeatures`, `OrthogonalRandomFeatures` wrappers over geonnax;
-  `NystromFeatures`; `LaplaceEigenfunctionFeatures`. `FastFoodFeatures`
-  waits for gaussx addition 4 and lands in phase 5.
+  `NystromFeatures`; `LaplaceEigenfunctionFeatures`; `FastFoodOperator`,
+  `fastfood_operator` and `FastFoodFeatures`.
 - pyrox: `frozen()` on `_ParameterizedKernel`; `_basis._spectral_density`
   and `_basis._rff` delegate. pyrox-nn tests green with no change.
 - Release `kernellib 0.2.0`, `pyrox-gp` patch.
-
-### Phase 4: gaussx additions (**gaussx**)
-
-Four independent PRs, each with its own tests, none touching existing
-signatures:
-
-1. `hsic(..., estimator="unbiased")` and matrix-level `cka(K, L)`.
-2. `trace_product` fast path for two `LowRankUpdate` operands.
-3. `center_kernel` returning a `LowRankUpdate` for a `LowRankUpdate` input.
-4. `FastFoodOperator` (Walsh–Hadamard matvec) and `fastfood_operator`.
-
-Release a gaussx minor. kernellib bumps its pin to it in phase 5 items
-3 and 4 only; items 1 and 2 of phase 5 need nothing new from gaussx.
 
 ### Phase 5: algorithms (**kernellib**)
 
@@ -647,22 +718,19 @@ In order of value, each its own PR:
 1. `_heuristics.py` (pysim port) — small, needed by everything below.
 2. `_regression/_krr.py` and the `AbstractEstimator` base.
 3. `_dependence/_hsic.py`, `_mmd.py`, `_permutation.py` (pysim port, plus
-   gradients); the randomized path lands together with `_spectral/_base.py`'s
-   `operator()` and `_spectral/_fastfood.py`.
-4. `_regression/_falkon.py`, `_eigenpro.py` over the gaussx primitives.
+   gradients); the randomized path over the phase 4 feature maps.
+4. `_regression/_falkon.py`, `_eigenpro.py`: the moved primitives plus the
+   `Falkon` and `EigenPro` estimators.
 5. `_derivatives.py`.
 6. `_decomposition/_kpca.py`, `_graph.py`.
 
 Release `kernellib 0.3.0`.
 
-### Phase 6: documentation (**gaussx**, **pyrox**)
+### Phase 6: documentation (**pyrox**)
 
-- gaussx `docs/vision.md`, `docs/architecture.md`: add kernellib to the
-  family diagrams and the "not this, go here" table (kernel methods that are
-  not GPs → kernellib).
 - pyrox `design_docs/pyrox/boundaries.md`: ownership rows for kernels move
   from `pyrox.gp` to kernellib.
-- No code changes in either repo.
+- No code changes.
 
 ---
 
@@ -696,7 +764,7 @@ Algorithms:
 - KRR matches the closed-form solution for small `n`, for every gaussx
   solver strategy.
 - Falkon and EigenPro converge to KRR on small problems (`slow`).
-- `hsic` on dense kernels equals `gaussx.hsic` on the same matrices;
+- `hsic` on dense kernels equals `functional.hsic` on the same matrices;
   randomized HSIC converges to dense as `m → n`; CKA of a matrix with itself
   is one; unbiased HSIC of independent draws has mean zero within its
   sampling bound.
@@ -706,16 +774,21 @@ Algorithms:
   reference implementation written inline in the test (not against pysim,
   which is not a dependency).
 
-gaussx additions (in gaussx's own suite):
+Moved code:
 
+- gaussx's kernel tests move verbatim with the code (`tests/kernels/*`,
+  the kernel-operator and batched-matvec tests, the `stable_rbf_kernel`
+  tests) and keep passing before anything else is touched.
 - Unbiased HSIC matches the Song et al. formula written out densely; `cka`
   of a matrix with itself is one and is scale invariant.
-- `trace_product` on two `LowRankUpdate` operands equals the dense value.
 - `center_kernel` of a `LowRankUpdate` stays a `LowRankUpdate` and its
   `as_matrix()` equals `H K H`.
 - `FastFoodOperator` matvec equals the dense `S H G Pi H B` product;
   `fastfood_operator` Gram agrees with `rff_operator` Gram in expectation
   for the RBF kernel (`slow`, sampling bound stated in the test).
+
+gaussx (its own suite): `trace_product` on two `LowRankUpdate` operands
+equals the dense value.
 
 ---
 
@@ -723,8 +796,9 @@ gaussx additions (in gaussx's own suite):
 
 - kernellib: semver `0.x` via release-please, conventional commits, same as
   gaussx. Public API is only what `kernellib/__init__.py` exports.
-- Pins: kernellib `gaussx>=0.1.0`; pyrox-gp `kernellib>=0.1.0` (then
-  `>=0.2.0` after phase 3). Never upper-bound within `0.x` unless a break is
+- Pins: kernellib `gaussx>=0.1.0`, raised to `>=0.2.0` once the kernel
+  layer is removed there; pyrox-gp `kernellib>=0.1.0` (then `>=0.2.0` after
+  phase 4). Never upper-bound within `0.x` unless a break is
   known.
 - The pin cascade (gaussx → kernellib → pyrox-gp → pyrox-nn) is the main
   ongoing cost of a separate package. Mitigations: keep kernellib's public
@@ -747,8 +821,9 @@ gaussx additions (in gaussx's own suite):
 | 7 | `to_operator(implicit=...)` default | Explicit `False`. No size heuristic; the caller knows their `N` |
 | 8 | pyrox-gp `frozen()` inside NumPyro tracing | Params are resolved through the existing per-call context, so a `frozen()` call inside `_kernel_context` sees one draw. Needs a regression test in pyrox-gp under `handlers.trace` and `handlers.seed` |
 | 9 | Manifold learning (eigenmaps, LPP, Schrödinger) from old kernellib | Deferred; not in scope for 0.1–0.3 |
-| 10 | Should gaussx's `_kernels/` eventually shrink? | No. It is operator-level and kernel-agnostic; it stays and gains the four additions in phase 4. kernellib is additive |
+| 10 | gaussx 0.2.0 removes public symbols with no shims | Accepted: no external users, pyrox-gp does not use them, and a shim would need the forbidden gaussx → kernellib import. The CHANGELOG maps every symbol to its new name |
 | 11 | FastFood scaling `S` for non-RBF kernels | RBF: `s_i ~ χ(d)` scaled by `‖G‖_F⁻¹`. Other stationary kernels: draw `s_i` from the kernel's radial spectral distribution via `sample_frequencies` norms. Documented per kernel; tested by RFF-vs-FastFood Gram agreement |
+| 12 | Should `stable_squared_distances` follow the kernels? | No (option 1): it is a distance primitive with a non-kernel consumer inside gaussx; a private copy or moving localization were both worse |
 
 ---
 
@@ -758,12 +833,17 @@ gaussx additions (in gaussx's own suite):
 |---|---|
 | 2026-09-24 | kernellib is a standalone repo and package, not a fourth workspace member in pyrox, so non-Bayesian users get it without NumPyro |
 | 2026-09-24 | Old kernellib code is retired to a `legacy` branch; nothing is ported line by line |
-| 2026-09-24 | gaussx keeps all Falkon / EigenPro / HSIC / MMD / Nyström / RFF *operations*; kernellib owns the *algorithms* (fit / predict / estimator workflows) |
-| 2026-09-24 | Placement test: needs a kernel object or a random key → kernellib; matrices / operators / callables in, matrices / operators / scalars out → gaussx; kernel-agnostic feature-map arithmetic → geonnax |
-| 2026-09-24 | gaussx gains four additions: unbiased HSIC and matrix-level CKA, low-rank `trace_product` fast path, low-rank-preserving `center_kernel`, `FastFoodOperator` + `fastfood_operator`. The FastFood matvec lives in gaussx, not geonnax |
+| 2026-09-24 | ~~gaussx keeps all Falkon / EigenPro / HSIC / MMD / Nyström / RFF *operations*; kernellib owns the *algorithms*~~ Superseded 2026-09-25 |
+| 2026-09-24 | ~~Placement test: needs a kernel object or a random key → kernellib; matrices / operators in, matrices / operators out → gaussx~~ Superseded 2026-09-25 |
+| 2026-09-24 | ~~gaussx gains four additions (unbiased HSIC, CKA, low-rank centering, FastFood)~~ Superseded 2026-09-25: all four are kernellib work except the `trace_product` fast path |
 | 2026-09-24 | kernellib API conventions: dependence measures are plain functions; estimators and feature maps are immutable eqx modules with config in the constructor, `fit` returning a new module, and `operator(X)` returning a gaussx `LowRankUpdate` |
-| 2026-09-24 | Randomized HSIC / CKA / MMD reuse `gaussx.hsic` on `LowRankUpdate` operands rather than a separate feature-matrix code path |
+| 2026-09-24 | Randomized HSIC / CKA / MMD reuse the matrix-level `hsic` on `LowRankUpdate` operands rather than a separate feature-matrix code path |
 | 2026-09-24 | pysim's HSIC family and bandwidth heuristics are reimplemented in kernellib; pysim itself is not changed |
 | 2026-09-24 | geonnax is a dependency for basis functions and random-feature primitives; kernellib does not duplicate them |
 | 2026-09-24 | Kernel contract: `AbstractKernel` (Gram-only, abstract `__call__`) ⊃ `AbstractPointwiseKernel` (abstract `pairwise`) ⊃ `AbstractStationaryKernel` (shape + spectral density). `pyrox_gp.Kernel` becomes an alias of the first |
 | 2026-09-24 | kernellib never imports numpyro; gaussx never imports kernellib |
+| 2026-09-25 | The whole kernel layer of gaussx moves to kernellib: kernel operators, Nyström / RFF operators, matrix-level HSIC / MMD / centering, Falkon and EigenPro primitives, `stable_rbf_kernel`, batched kernel matvecs. Rule: anything with a kernel in it lives in kernellib, from the operators up |
+| 2026-09-25 | gaussx 0.2.0 removes those symbols outright, no deprecation shims. The only gaussx additions are the low-rank `trace_product` fast path and docs |
+| 2026-09-25 | `stable_squared_distances` stays in gaussx (option 1); kernellib wraps it |
+| 2026-09-25 | Matrix-level functions live in `kernellib.functional`; the same names at the top level take kernels and data |
+| 2026-09-25 | Phase order: kernellib 0.1.0 (with the moved code) → pyrox-gp consumes → gaussx 0.2.0 removal → spectral → algorithms |
