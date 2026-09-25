@@ -158,6 +158,9 @@ mystmd derives a page's URL from its **basename**, so `guide/architecture.md`
 is served at `/architecture/`, not `/guide/architecture/`. Keep basenames
 unique across `docs/guide/` and `docs/notebooks/`. Frontmatter `slug:` is
 ignored.
+Underscores become hyphens: `notebooks/matrix_free_gp.ipynb` is served at
+`/matrix-free-gp/`, which matters when an API page links into the prose
+half with a relative URL such as `../../matrix-free-gp/`.
 
 ## Documentation Examples
 

@@ -9,6 +9,10 @@ repos:
         # --unsafe checks syntax without constructing Python objects.
         args: [--unsafe]
       - id: check-added-large-files
+        # Executed notebooks embed their figures (see CLAUDE.md), which puts a
+        # typical example notebook at 0.3-0.8 MB. 1 MB still catches runaway
+        # outputs and accidental data files.
+        args: [--maxkb=1024]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:

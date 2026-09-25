@@ -63,5 +63,7 @@ kernellib never imports NumPyro.
 | I want to… | Start here |
 |---|---|
 | Understand what goes where | [Architecture](guide/architecture.md) |
+| Approximate a kernel, or test independence | [Kernel approximations](notebooks/kernel_approximations.ipynb) |
+| Run a GP without forming the kernel matrix | [Matrix-free GP](notebooks/matrix_free_gp.ipynb) |
 | Read the API | [API reference](xref:api#kernellib) |
 | Contribute | [Contributing](contributing.md) |
