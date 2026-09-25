@@ -8,9 +8,13 @@ Gram matrices agree with the matching `kernellib.functional` functions;
 
 from __future__ import annotations
 
+import math
+
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jax.typing import DTypeLike
+from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._kernels._base import AbstractPointwiseKernel, AbstractStationaryKernel
 from kernellib.functional import _stationary as _f
@@ -25,6 +29,11 @@ __all__ = [
     "RationalQuadratic",
     "White",
 ]
+
+
+def _float_dtype(dtype: DTypeLike | None) -> DTypeLike:
+    # jax.random needs a concrete float dtype; None means JAX's default.
+    return jnp.result_type(float) if dtype is None else dtype
 
 
 def _sqrt_safe(r2: Float[Array, ...]) -> Float[Array, ...]:
@@ -59,6 +68,21 @@ class RBF(AbstractStationaryKernel):
 
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
         return jnp.exp(-0.5 * r2)
+
+    def unit_spectral_density(
+        self, omega_sq: Float[Array, ...], d: int
+    ) -> Float[Array, ...]:
+        r"""$s(\omega) = (2\pi)^{d/2} \exp(-\|\omega\|^2 / 2)$."""
+        return (2.0 * math.pi) ** (d / 2.0) * jnp.exp(-0.5 * omega_sq)
+
+    def sample_unit_frequencies(
+        self,
+        key: PRNGKeyArray,
+        shape: tuple[int, ...],
+        dtype: DTypeLike | None = None,
+    ) -> Float[Array, ...]:
+        """Standard normal frequencies."""
+        return jax.random.normal(key, shape, dtype=_float_dtype(dtype))
 
 
 class Matern(AbstractStationaryKernel):
@@ -105,6 +129,45 @@ class Matern(AbstractStationaryKernel):
         a = jnp.sqrt(5.0) * r
         return (1.0 + a + (a * a) / 3.0) * jnp.exp(-a)
 
+    def unit_spectral_density(
+        self, omega_sq: Float[Array, ...], d: int
+    ) -> Float[Array, ...]:
+        r"""Matern density in ``d`` dimensions.
+
+        $$
+        s(\omega) = \frac{2^d \pi^{d/2}\, \Gamma(\nu + d/2)\, (2\nu)^\nu}
+        {\Gamma(\nu)}\, (2\nu + \|\omega\|^2)^{-(\nu + d/2)}
+        $$
+        """
+        nu = self.nu
+        log_c = (
+            d * math.log(2.0)
+            + (d / 2.0) * math.log(math.pi)
+            + math.lgamma(nu + d / 2.0)
+            - math.lgamma(nu)
+            + nu * math.log(2.0 * nu)
+        )
+        return math.exp(log_c) * (2.0 * nu + omega_sq) ** (-(nu + d / 2.0))
+
+    def sample_unit_frequencies(
+        self,
+        key: PRNGKeyArray,
+        shape: tuple[int, ...],
+        dtype: DTypeLike | None = None,
+    ) -> Float[Array, ...]:
+        """Multivariate Student-t frequencies with ``2 nu`` degrees of freedom.
+
+        Drawn jointly as ``g * sqrt(nu / u)``, ``g ~ N(0, I)``,
+        ``u ~ Gamma(nu)`` shared across the last axis. A coordinate-wise
+        Student-t draw would give a product of 1-D densities, which is the
+        Matern spectrum only for ``d = 1``.
+        """
+        dtype = _float_dtype(dtype)
+        key_g, key_u = jax.random.split(key)
+        g = jax.random.normal(key_g, shape, dtype=dtype)
+        u = jax.random.gamma(key_u, self.nu, (*shape[:-1], 1), dtype=dtype)
+        return g * jnp.sqrt(self.nu / u)
+
 
 class RationalQuadratic(AbstractStationaryKernel):
     r"""Rational quadratic kernel, a scale mixture of RBFs.
@@ -127,6 +190,26 @@ class RationalQuadratic(AbstractStationaryKernel):
 
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
         return (1.0 + r2 / (2.0 * self.alpha)) ** (-self.alpha)
+
+    def sample_unit_frequencies(
+        self,
+        key: PRNGKeyArray,
+        shape: tuple[int, ...],
+        dtype: DTypeLike | None = None,
+    ) -> Float[Array, ...]:
+        """Frequencies of the Gamma scale mixture of RBFs.
+
+        ``k`` is ``E[exp(-tau r^2 / 2)]`` with ``tau ~ Gamma(alpha, rate=alpha)``,
+        so a frequency is ``g * sqrt(tau)`` with ``g ~ N(0, I)``. The density
+        itself needs a modified Bessel function of the second kind, which JAX
+        does not provide, so `spectral_density` is not available.
+        """
+        dtype = _float_dtype(dtype)
+        key_g, key_tau = jax.random.split(key)
+        g = jax.random.normal(key_g, shape, dtype=dtype)
+        alpha = jnp.asarray(self.alpha, dtype=dtype)
+        tau = jax.random.gamma(key_tau, alpha, (*shape[:-1], 1), dtype=dtype) / alpha
+        return g * jnp.sqrt(tau)
 
 
 class Periodic(AbstractPointwiseKernel):

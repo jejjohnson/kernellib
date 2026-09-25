@@ -711,8 +711,8 @@ wheels = [
 
 [[package]]
 name = "gaussx"
-version = "0.1.0"
-source = { git = "https://github.com/jejjohnson/gaussx.git?tag=v0.1.0#d9a796ab6a8c30609547fdca243f23d64bc019dc" }
+version = "0.2.0"
+source = { git = "https://github.com/jejjohnson/gaussx.git?tag=v0.2.0#a1f6decb4e58b208254cb412ef9ff4dcf76d5fd1" }
 dependencies = [
     { name = "einx" },
     { name = "equinox" },
@@ -1022,7 +1022,7 @@ wheels = [
 
 [[package]]
 name = "kernellib"
-version = "0.0.3"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "einx" },
@@ -1063,7 +1063,7 @@ typecheck = [
 requires-dist = [
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
-    { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.1.0" },
+    { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.2.0" },
     { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.5" },
     { name = "jax", specifier = ">=0.10" },
     { name = "jaxlib", specifier = ">=0.10" },
