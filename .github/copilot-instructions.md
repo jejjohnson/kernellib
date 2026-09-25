@@ -59,7 +59,8 @@ uv run --group typecheck ty check src/kernellib scripts
 ## Boundaries
 
 - kernellib never imports `numpyro` or scikit-learn (`tests/test_imports.py`).
-- Operations on matrices / operators / callables belong in gaussx; anything needing a kernel object or a random key belongs here.
+- Anything with a kernel in it lives here, from the kernel operators up; gaussx is kernel-agnostic linear algebra (structured operators, solvers, preconditioners, `trace_product`, `stable_squared_distances`).
+- `kernellib.functional` is arrays in, arrays out; the top level takes kernels and data.
 - Basis functions and random-feature arithmetic come from geonnax.
 
 ## Behavioral Guidelines

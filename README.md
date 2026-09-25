@@ -112,16 +112,21 @@ both install without any extra configuration.
 
 ## 🧭 Where things go
 
-| Family | gaussx (operations) | kernellib (algorithms) |
-|---|---|---|
-| Kernels | `KernelOperator`, `ImplicitKernelOperator` | `RBF`, `Matern`, ..., composition, `to_operator` |
-| Approximation | `nystrom_operator`, `rff_operator`, `fastfood_operator` | `NystromFeatures`, `RandomFourierFeatures`, `FastFoodFeatures` |
-| Dependence | `hsic`, `cka`, `mmd_squared` on matrices | `hsic`, `cka`, `mmd` on kernels and data, randomized variants |
-| Regression | `solve`, Falkon and EigenPro primitives | `KRR`, `Falkon`, `EigenPro` estimators |
+The rule in one sentence: **anything with a kernel in it lives in kernellib,
+from the operators up; gaussx is kernel-agnostic linear algebra; geonnax is
+kernel-agnostic feature-map arithmetic.**
 
-The placement test: **needs a kernel object or a random key → kernellib;
-matrices, operators or callables in, matrices, operators or scalars out →
-gaussx.**
+| Family | `kernellib.functional` / operators (arrays in) | `kernellib` top level (kernels in) |
+|---|---|---|
+| Kernels | `rbf_kernel`, ..., `KernelOperator`, `ImplicitKernelOperator` | `RBF`, `Matern`, ..., composition, `to_operator` |
+| Approximation | `nystrom_operator`, `rff_operator`, `fastfood_operator` | `NystromFeatures`, `RandomFourierFeatures`, `FastFoodFeatures` |
+| Dependence | `functional.hsic`, `functional.cka`, `functional.mmd_squared` | `hsic`, `cka`, `mmd` on kernels and data, randomized variants |
+| Regression | Falkon and EigenPro primitives | `KRR`, `Falkon`, `EigenPro` estimators |
+
+gaussx keeps the kernel-agnostic pieces these build on: structured operators
+such as `LowRankUpdate`, the solver strategies, preconditioners,
+`trace_product`, and `stable_squared_distances`. gaussx's current kernel
+layer moves here in gaussx 0.2.0.
 
 ---
 

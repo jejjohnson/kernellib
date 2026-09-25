@@ -19,7 +19,8 @@ what belongs in gaussx versus here.
 ### Boundaries
 
 - **kernellib never imports `numpyro`** (or scikit-learn). `tests/test_imports.py` enforces it.
-- **gaussx never imports kernellib.** Anything that takes matrices, operators or callables and returns matrices, operators or scalars belongs in gaussx. Anything that needs a kernel object or a random key belongs here.
+- **gaussx never imports kernellib.** Anything with a kernel in it lives here, from the kernel operators up; gaussx is kernel-agnostic linear algebra (structured operators, solvers, preconditioners, `trace_product`, `stable_squared_distances`). gaussx's current kernel layer moves here in gaussx 0.2.0.
+- **`kernellib.functional`** is arrays in, arrays out (pure kernel functions, matrix-level HSIC / CKA / MMD / centering). The same names at the top level take kernels and data.
 - **geonnax** supplies basis functions and random-feature arithmetic; do not duplicate them.
 
 ## Common Commands
@@ -73,12 +74,12 @@ The planned layout (from the design doc; directories appear as their phase lands
 
 | Path | Contents | Layer |
 |---|---|---|
-| `functional/` | Pure kernel functions on arrays | 0 |
+| `functional/` | Pure kernel functions on arrays; matrix-level `hsic`, `cka`, `mmd_squared`, `center_kernel` | 0 |
 | `_kernels/` | `AbstractKernel` ⊃ `AbstractPointwiseKernel` ⊃ `AbstractStationaryKernel`, concrete kernels, composition | 0 |
-| `_operators.py` | `to_operator` / `to_cross_operator`, the bridge to gaussx operators | 1 |
+| `_operators/` | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, Nyström / RFF / FastFood low-rank operators (moved from gaussx); `to_operator` / `to_cross_operator` bridge | 1 |
 | `_spectral/` | Spectral densities, feature maps (RFF, ORF, Nyström, FastFood, Laplace eigenfunctions) | 1 |
 | `_heuristics.py` | Bandwidth heuristics | 1 |
-| `_regression/` | `KRR`, `Falkon`, `EigenPro` estimators | 2 |
+| `_regression/` | `KRR`, `Falkon`, `EigenPro` estimators, with the Falkon / EigenPro primitives moved from gaussx | 2 |
 | `_dependence/` | HSIC, CKA, MMD, permutation tests | 2 |
 | `_decomposition/` | Kernel PCA, graph kernels | 2 |
 | `_derivatives.py` | Kernel derivatives | 2 |

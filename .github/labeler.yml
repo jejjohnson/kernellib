@@ -55,7 +55,7 @@
 "layer:1-components":
   - changed-files:
     - any-glob-to-any-file:
-      - "src/kernellib/_operators.py"
+      - "src/kernellib/_operators/**"
       - "src/kernellib/_spectral/**"
       - "src/kernellib/_heuristics.py"
 
