@@ -49,6 +49,16 @@ from kernellib._operators import (
     to_cross_operator,
     to_operator,
 )
+from kernellib._regression import (
+    EigenProPreconditioner,
+    FalkonPreconditioner,
+    eigenpro_correction,
+    eigenpro_preconditioner,
+    eigenpro_step_size,
+    falkon_preconditioner,
+    falkon_predict,
+    falkon_solve,
+)
 
 
 __version__ = "0.0.2"
@@ -61,6 +71,8 @@ __all__ = [
     "ActiveDims",
     "Constant",
     "Cosine",
+    "EigenProPreconditioner",
+    "FalkonPreconditioner",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KernelOperator",
@@ -77,6 +89,12 @@ __all__ = [
     "__version__",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
+    "eigenpro_correction",
+    "eigenpro_preconditioner",
+    "eigenpro_step_size",
+    "falkon_preconditioner",
+    "falkon_predict",
+    "falkon_solve",
     "functional",
     "implicit_cross_kernel",
     "nystrom_operator",

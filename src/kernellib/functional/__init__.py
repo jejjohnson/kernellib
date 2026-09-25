@@ -16,6 +16,7 @@ Examples:
 from __future__ import annotations
 
 from kernellib.functional._compose import kernel_add, kernel_mul
+from kernellib.functional._mixed_precision import stable_rbf_kernel
 from kernellib.functional._nonstationary import linear_kernel, polynomial_kernel
 from kernellib.functional._stationary import (
     constant_kernel,
@@ -51,5 +52,6 @@ __all__ = [
     "polynomial_kernel",
     "rational_quadratic_kernel",
     "rbf_kernel",
+    "stable_rbf_kernel",
     "white_kernel",
 ]
