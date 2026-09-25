@@ -149,7 +149,7 @@ kernel-agnostic feature-map arithmetic.**
 | Pointwise kernel math, Gram assembly, composition | **kernellib** | Moved from `pyrox_gp._src.kernels` |
 | Kernel abstraction (`AbstractKernel`, `AbstractPointwiseKernel`, `AbstractStationaryKernel`) | **kernellib** | `pyrox_gp.Kernel` becomes an alias |
 | Kernel *operators* (`KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`) and the `to_operator` bridge | **kernellib** | Moved from gaussx; lineax operators with custom JVPs, so they plug into every gaussx solver unchanged |
-| Low-rank kernel operators (`nystrom_operator`, `rff_operator`, `fastfood_operator`, `FastFoodOperator`) | **kernellib** | Nyström / RFF moved from gaussx; FastFood new |
+| Low-rank kernel operators (`nystrom_operator`, `rff_operator`, `fastfood_operator`) | **kernellib** | Nyström / RFF moved from gaussx; FastFood new |
 | Matrix-level kernel statistics (`hsic`, `cka`, `mmd_squared`, `center_kernel`, `centering_operator`) | **kernellib** | Moved from gaussx into `kernellib.functional`; unbiased HSIC and CKA new |
 | Falkon and EigenPro primitives (preconditioners, one CG solve, step size, correction) | **kernellib** | Moved from gaussx, next to the estimators that use them |
 | `stable_rbf_kernel`, `batched_kernel_matvec`, `batched_kernel_rmatvec` | **kernellib** | Moved from gaussx |
@@ -344,7 +344,8 @@ src/kernellib/
 │   ├── _implicit.py       # ImplicitKernelOperator (moved)
 │   ├── _implicit_cross.py # ImplicitCrossKernelOperator (moved)
 │   ├── _batched.py        # batched_kernel_matvec / rmatvec (moved)
-│   ├── _low_rank.py       # nystrom_operator, rff_operator (moved); fastfood_operator, FastFoodOperator (new, Walsh–Hadamard matvec)
+│   ├── _low_rank.py       # nystrom_operator, rff_operator (moved)
+│   ├── _fastfood.py       # hadamard_transform, FastFoodParams, fastfood_params / _features / _operator / _frequencies (gaussx#62)
 │   ├── _utils.py          # vmap_over_batch_dims, _to_frozenset (copied from gaussx private helpers)
 │   └── _bridge.py         # to_operator, to_cross_operator
 ├── _spectral/
@@ -592,7 +593,9 @@ logdets through Woodbury.
 # operator level: arrays in, LowRankUpdate out
 K_low = kl.nystrom_operator(K_XZ, K_ZZ_op)  # moved from gaussx
 K_low = kl.rff_operator(X, omega, b)  # moved from gaussx
-K_low = kl.fastfood_operator(X, B, Pi, G, S)  # new; matvec via kl.FastFoodOperator
+K_low = kl.fastfood_operator(
+    X, kl.fastfood_params(d, D, lengthscale, key)
+)  # LowRankUpdate
 
 # kernel level
 k = kl.Matern(nu=1.5, lengthscale=0.7)
@@ -742,8 +745,8 @@ nowhere.
   kernel; `_spectral/_rff.py` with the moved draw / evaluate helpers;
   `AbstractFeatureMap` with `fit` / `__call__` / `operator`;
   `RandomFourierFeatures`, `OrthogonalRandomFeatures` wrappers over geonnax;
-  `NystromFeatures`; `LaplaceEigenfunctionFeatures`; `FastFoodOperator`,
-  `fastfood_operator` and `FastFoodFeatures`.
+  `NystromFeatures`; `LaplaceEigenfunctionFeatures`; `FastFoodFeatures` over
+  the operator-level FastFood functions (already landed, see decisions log).
 - pyrox: `frozen()` on `_ParameterizedKernel`; `_basis._spectral_density`
   and `_basis._rff` delegate. pyrox-nn tests green with no change.
 - Release `kernellib 0.2.0`, `pyrox-gp` patch.
@@ -820,9 +823,9 @@ Moved code:
   of a matrix with itself is one and is scale invariant.
 - `center_kernel` of a `LowRankUpdate` stays a `LowRankUpdate` and its
   `as_matrix()` equals `H K H`.
-- `FastFoodOperator` matvec equals the dense `S H G Pi H B` product;
-  `fastfood_operator` Gram agrees with `rff_operator` Gram in expectation
-  for the RBF kernel (`slow`, sampling bound stated in the test).
+- FastFood frequencies equal the dense `S H G Pi H B` product;
+  `fastfood_operator` Gram is unbiased within a sampling bound and its
+  error is comparable to `rff_operator` for the RBF kernel (`slow`).
 
 gaussx (its own suite): `trace_product` on two `LowRankUpdate` operands
 equals the dense value.
@@ -890,3 +893,4 @@ equals the dense value.
 | 2026-09-25 | `Periodic` and `Cosine` subclass `AbstractPointwiseKernel`, not `AbstractStationaryKernel`: the lengthscale acts after the sine, not on the distance. Both are PSD for 1-D inputs only, as documented |
 | 2026-09-25 | `to_operator(implicit=True)` needs a concrete `noise`: the moved `ImplicitKernelOperator` stores `noise_var` as a static float. Traced or differentiated noise uses `implicit=False`. Making the noise a leaf is a possible later change to the operator |
 | 2026-09-25 | Gap found before phase 3: phase 1 never copied the Falkon / EigenPro primitives or `stable_rbf_kernel`, which phase 3 deletes from gaussx. They are copied into kernellib (`_regression/`, `functional/`) before the gaussx removal, so no symbol exists nowhere. The phase 5 estimators build on the moved primitives |
+| 2026-09-25 | FastFood implemented at the operator level following gaussx#62: `fastfood_params` draws the diagonals and permutations (lengthscale scalar or ARD), `fastfood_features` applies them with `hadamard_transform`, and `fastfood_operator` returns a `LowRankUpdate` over the features, like `rff_operator`. The separate `FastFoodOperator` class planned earlier is dropped: the structured product only speeds up feature generation, and the covariance operator is the same low-rank form. `hadamard_transform` is kernel-agnostic arithmetic that could live in gaussx or geonnax; it stays here until something else needs it. The kernel-level `FastFoodFeatures` waits for the spectral phase's feature-map base class |
