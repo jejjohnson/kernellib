@@ -65,6 +65,7 @@ from kernellib._regression import (
     falkon_predict,
     falkon_solve,
 )
+from kernellib._spectral import draw_rff_cosine_basis, evaluate_rff_cosine_paths
 
 
 __version__ = "0.0.4"
@@ -96,9 +97,11 @@ __all__ = [
     "__version__",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
+    "draw_rff_cosine_basis",
     "eigenpro_correction",
     "eigenpro_preconditioner",
     "eigenpro_step_size",
+    "evaluate_rff_cosine_paths",
     "falkon_preconditioner",
     "falkon_predict",
     "falkon_solve",
