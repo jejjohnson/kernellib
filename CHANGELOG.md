@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.3](https://github.com/jejjohnson/kernellib/compare/v0.0.2...v0.0.3) (2026-09-25)
+
+
+### Features
+
+* **regression:** move Falkon, EigenPro and stable_rbf_kernel from gaussx ([#16](https://github.com/jejjohnson/kernellib/issues/16)) ([2864cac](https://github.com/jejjohnson/kernellib/commit/2864cac15211a04267ccab8a7fb252e0056d483b))
+
 ## [0.0.2](https://github.com/jejjohnson/kernellib/compare/v0.0.1...v0.0.2) (2026-09-25)
 
 
