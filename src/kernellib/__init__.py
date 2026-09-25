@@ -68,7 +68,7 @@ from kernellib._regression import (
 from kernellib._spectral import draw_rff_cosine_basis, evaluate_rff_cosine_paths
 
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 __all__ = [
     "RBF",
