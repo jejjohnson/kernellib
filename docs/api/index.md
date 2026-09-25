@@ -16,7 +16,7 @@ but never have to. Modules appear here as each phase of the
 
 | Module | Contents |
 |---|---|
-| [Functional](functional.md) | `rbf_kernel`, `matern_kernel`, `rational_quadratic_kernel`, `periodic_kernel`, `cosine_kernel`, `linear_kernel`, `polynomial_kernel`, `white_kernel`, `constant_kernel`, `kernel_add`, `kernel_mul` |
+| [Functional](functional.md) | `rbf_kernel`, `matern_kernel`, `rational_quadratic_kernel`, `periodic_kernel`, `cosine_kernel`, `linear_kernel`, `polynomial_kernel`, `white_kernel`, `constant_kernel`, `kernel_add`, `kernel_mul`; `centering_operator`, `center_kernel`, `hsic`, `cka`, `mmd_squared` |
 | [Operators](operators.md) | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, `implicit_cross_kernel`, `batched_kernel_matvec`, `batched_kernel_rmatvec`, `nystrom_operator`, `rff_operator` |
 
 ## Package overview

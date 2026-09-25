@@ -1,7 +1,7 @@
-"""Arrays in, arrays out: pure kernel functions on input matrices.
+"""Arrays in, arrays out: pure kernel functions and matrix-level statistics.
 
-Every function here takes plain JAX arrays (inputs and hyperparameters) and
-returns a plain JAX array. Nothing here takes a kernel object or a random
+Every function here takes plain JAX arrays or lineax operators and returns an
+array, a scalar, or an operator. Nothing here takes a kernel object or a random
 key; those APIs live at the top level of `kernellib`.
 
 Examples:
@@ -26,15 +26,27 @@ from kernellib.functional._stationary import (
     rbf_kernel,
     white_kernel,
 )
+from kernellib.functional._statistics import (
+    center_kernel,
+    centering_operator,
+    cka,
+    hsic,
+    mmd_squared,
+)
 
 
 __all__ = [
+    "center_kernel",
+    "centering_operator",
+    "cka",
     "constant_kernel",
     "cosine_kernel",
+    "hsic",
     "kernel_add",
     "kernel_mul",
     "linear_kernel",
     "matern_kernel",
+    "mmd_squared",
     "periodic_kernel",
     "polynomial_kernel",
     "rational_quadratic_kernel",
