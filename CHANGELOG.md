@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.4](https://github.com/jejjohnson/kernellib/compare/v0.0.3...v0.0.4) (2026-09-25)
+
+
+### Features
+
+* **operators:** add FastFood random features ([#19](https://github.com/jejjohnson/kernellib/issues/19)) ([864f536](https://github.com/jejjohnson/kernellib/commit/864f536dbce7ed4480c2831da02d41fbecf8a53c))
+
+
+### Bug Fixes
+
+* **operators:** register lineax.diagonal; port gaussx kernel notebooks and guidance ([#18](https://github.com/jejjohnson/kernellib/issues/18)) ([0dca689](https://github.com/jejjohnson/kernellib/commit/0dca689bdca09fef28b94ed313595505b6493d89))
+
 ## [0.0.3](https://github.com/jejjohnson/kernellib/compare/v0.0.2...v0.0.3) (2026-09-25)
 
 
