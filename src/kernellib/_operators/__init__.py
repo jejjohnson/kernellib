@@ -15,6 +15,14 @@ from kernellib._operators._batched import (
     batched_kernel_rmatvec,
 )
 from kernellib._operators._bridge import to_cross_operator, to_operator
+from kernellib._operators._fastfood import (
+    FastFoodParams,
+    fastfood_features,
+    fastfood_frequencies,
+    fastfood_operator,
+    fastfood_params,
+    hadamard_transform,
+)
 from kernellib._operators._implicit import ImplicitKernelOperator
 from kernellib._operators._implicit_cross import (
     ImplicitCrossKernelOperator,
@@ -137,11 +145,17 @@ def _(operator: _TransposedCrossKernelOperator):
 
 
 __all__ = [
+    "FastFoodParams",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KernelOperator",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
+    "fastfood_features",
+    "fastfood_frequencies",
+    "fastfood_operator",
+    "fastfood_params",
+    "hadamard_transform",
     "implicit_cross_kernel",
     "nystrom_operator",
     "rff_operator",

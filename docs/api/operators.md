@@ -85,11 +85,45 @@ Practical guidance:
 
 ## Low-rank approximations
 
-Nyström ($K \approx K_{nm} K_{mm}^{-1} K_{mn}$) and random-Fourier-feature
-approximations, returned as `gaussx.LowRankUpdate` so solves and
+Nyström ($K \approx K_{nm} K_{mm}^{-1} K_{mn}$), random-Fourier-feature and
+FastFood approximations, returned as `gaussx.LowRankUpdate` so solves and
 log-determinants go through Woodbury automatically. See the
 [kernel approximations example](../../kernel-approximations/).
 
 ::: kernellib.nystrom_operator
 
 ::: kernellib.rff_operator
+
+### FastFood
+
+FastFood (Le, Sarlós & Smola, 2013) produces RBF random features from
+structured frequencies $V = \frac{1}{\ell\sqrt{d}} S H G \Pi H B$, applied with
+a fast Walsh-Hadamard transform: $O(D)$ storage and $O(D \log d)$ time per
+input instead of RFF's $O(Dd)$ for both.
+
+| | RFF | FastFood |
+|---|---|---|
+| Storage | $O(Dd)$ | $O(D)$ |
+| Feature map, per input | $O(Dd)$ | $O(D \log d)$ |
+| Feature columns per frequency | 1 (random phase) | 2 (cosine and sine) |
+| Kernels | any stationary kernel, given its spectral samples | RBF |
+
+```python
+import kernellib as kl
+
+params = kl.fastfood_params(d=X.shape[1], n_components=2048, lengthscale=1.2, key=key)
+Phi = kl.fastfood_features(X, params)  # (N, 4096)
+K_op = kl.fastfood_operator(X, params)  # LowRankUpdate, K ≈ Phi Phi^T
+```
+
+::: kernellib.fastfood_params
+
+::: kernellib.FastFoodParams
+
+::: kernellib.fastfood_features
+
+::: kernellib.fastfood_operator
+
+::: kernellib.fastfood_frequencies
+
+::: kernellib.hadamard_transform
