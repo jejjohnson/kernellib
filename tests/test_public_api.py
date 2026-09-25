@@ -19,7 +19,7 @@ import kernellib
 # Every non-package module directly under ``kernellib``. A new module must be
 # added here (and given an API doc page) for ``test_no_unexpected_submodules``
 # to pass.
-SUBMODULES: list[str] = []
+SUBMODULES: list[str] = ["_einx", "_testing"]
 
 
 def test_version_is_a_dotted_string() -> None:
