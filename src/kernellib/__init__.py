@@ -68,6 +68,7 @@ from kernellib._regression import (
 from kernellib._spectral import (
     AbstractFeatureMap,
     FastFoodFeatures,
+    LaplaceEigenfunctionFeatures,
     NystromFeatures,
     OrthogonalRandomFeatures,
     RandomFourierFeatures,
@@ -94,6 +95,7 @@ __all__ = [
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KernelOperator",
+    "LaplaceEigenfunctionFeatures",
     "Linear",
     "Matern",
     "NystromFeatures",
