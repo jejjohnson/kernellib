@@ -193,3 +193,37 @@ class TestEigenProCorrection:
         )
 
         assert correction.shape == (3, 1)
+
+
+class TestEigenProSpectrum:
+    """Regression tests for the moved primitive's spectral bookkeeping."""
+
+    @staticmethod
+    def _setup(n_components):
+        X = jax.random.uniform(jax.random.key(0), (300, 2), minval=-1.0, maxval=1.0)
+        kernel = kernellib.RBF(lengthscale=0.3)
+        op = kernellib.to_operator(kernel, X, implicit=True)
+        precond = eigenpro_preconditioner(
+            op, subsample_size=150, n_components=n_components, key=jax.random.key(1)
+        )
+        return X, kernel, precond
+
+    def test_weights_use_the_exact_tail_eigenvalue(self):
+        # A 21-step Lanczos run got the 21st eigenvalue of K_mm / m wrong by
+        # an order of magnitude, and with it every weight.
+        X, kernel, precond = self._setup(20)
+        S = precond.subsample_indices
+        lam = jnp.linalg.eigvalsh(kernel(X[S], X[S]) / 150)[::-1]
+        expected = (1.0 - (lam[20] / lam[:20]) ** 0.95) / lam[:20]
+        assert jnp.allclose(precond.D, expected, rtol=1e-6)
+
+    def test_beta_is_the_preconditioned_diagonal(self):
+        X, kernel, precond = self._setup(20)
+        K_xs = kernel(X, X[precond.subsample_indices])
+        diag = 1.0 - jnp.sum(precond.D * (K_xs @ precond.V) ** 2, axis=1) / 150
+        assert jnp.allclose(precond.beta, jnp.max(diag), rtol=1e-8)
+        assert 0.0 < precond.beta < 1.0
+
+    def test_more_components_allow_larger_steps(self):
+        steps = [eigenpro_step_size(self._setup(k)[2], 64) for k in (1, 10, 40)]
+        assert steps[0] < steps[1] < steps[2]

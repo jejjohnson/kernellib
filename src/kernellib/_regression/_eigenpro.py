@@ -96,26 +96,13 @@ def eigenpro_preconditioner(
     m = K_mm.shape[0]
     K_mm_scaled = gx.symmetrize(K_mm) / m
 
-    # Partial eigendecomposition: top (n_components + 1) eigenpairs via
-    # matfree Lanczos. The "+1" gives us the tail eigenvalue needed for
-    # the EigenPro correction weights. Falls back to dense eigh for very
-    # small ``m`` where Lanczos isn't worth the overhead.
-    rank = n_components + 1
-    if rank >= m:
-        eigvals_all, eigvecs = jnp.linalg.eigh(K_mm_scaled)
-        eigvals_all = eigvals_all[::-1]
-        eigvecs = eigvecs[:, ::-1]
-    else:
-        K_mm_op = lx.MatrixLinearOperator(K_mm_scaled, lx.positive_semidefinite_tag)
-        eig_key = key if key is not None else jr.PRNGKey(0)
-        raw_vals, raw_vecs = gx.eig(K_mm_op, rank=rank, key=eig_key)
-        # eig may return complex/unsorted for partial Lanczos; project
-        # back to real and sort descending so we keep the top-k.
-        eigvals_all = jnp.real(raw_vals)
-        eigvecs = jnp.real(raw_vecs)
-        order = jnp.argsort(eigvals_all)[::-1]
-        eigvals_all = eigvals_all[order]
-        eigvecs = eigvecs[:, order]
+    # Dense eigendecomposition of the (already materialised) m x m matrix.
+    # A Lanczos run of only n_components + 1 steps converges the leading
+    # eigenpairs but not the trailing ones, and the tail eigenvalue sets
+    # every correction weight, so an inaccurate one over-damps the spectrum.
+    eigvals_all, eigvecs = jnp.linalg.eigh(K_mm_scaled)
+    eigvals_all = eigvals_all[::-1]
+    eigvecs = eigvecs[:, ::-1]
 
     top_eigvals = eigvals_all[:n_components]
     tail_eigenvalue = eigvals_all[n_components]
@@ -126,7 +113,7 @@ def eigenpro_preconditioner(
     weights = (1.0 - ratio**alpha) / safe_top_eigvals
 
     V = eigvecs[:, :n_components]
-    beta = _residual_kernel_diagonal(kernel_op, subsample_indices, V, safe_top_eigvals)
+    beta = _residual_kernel_diagonal(kernel_op, subsample_indices, V, weights)
 
     return EigenProPreconditioner(
         V=V,
@@ -149,8 +136,11 @@ def eigenpro_step_size(
     ``eqx.error_if`` when it is a JAX array).
 
     Args:
-        precond: The EigenPro preconditioner carrying ``beta`` and the top
-            eigenvalue.
+        precond: The EigenPro preconditioner. The step size is Ma & Belkin's
+            ``b / beta`` below the critical batch size ``beta / lambda_P`` and
+            ``2 b / (beta + (b - 1) lambda_P)`` above it, with ``beta`` the
+            preconditioned kernel diagonal and ``lambda_P`` the top
+            eigenvalue of the preconditioned operator.
         batch_size: Mini-batch size, as a Python int or scalar JAX array.
 
     Returns:
@@ -164,7 +154,12 @@ def eigenpro_step_size(
     batch = jnp.asarray(batch_size, dtype=precond.beta.dtype)
     batch = eqx.error_if(batch, batch < 1.0, "batch_size must be >= 1.")
     beta = precond.beta
-    lambda_1 = precond.max_eigenvalue
+    # The top eigenvalue of the *preconditioned* operator, lambda_1 r_1 with
+    # r_1 = 1 - D_1 lambda_1 (lambda_i r_i decreases in i, so it is the
+    # largest); the unpreconditioned lambda_1 would give plain SGD's step.
+    top = precond.max_eigenvalue
+    eps = jnp.finfo(beta.dtype).eps
+    lambda_1 = top * jnp.clip(1.0 - precond.D[0] * top, eps, 1.0)
     return jnp.where(
         batch < beta / lambda_1,
         batch / beta,
@@ -282,9 +277,15 @@ def _residual_kernel_diagonal(
     kernel_op: lx.AbstractLinearOperator,
     subsample_indices: Int[Array, " m"],
     V: Float[Array, "m k"],
-    eigenvalues: Float[Array, " k"],
+    weights: Float[Array, " k"],
 ) -> Float[Array, ""]:
-    """Estimate ``max_x diag(K)(x) - m Σ_i φ_i(x)^2``.
+    """Estimate ``β = max_x k_P(x, x)``, the preconditioned kernel's diagonal.
+
+    With ``e_i(x) = K_xm V_i / sqrt(m λ_i)`` the RKHS-normalised Nyström
+    eigenfunctions, preconditioning removes a fraction ``1 - r_i`` of each,
+    so ``k_P(x, x) = k(x, x) - Σ_i (1 - r_i) e_i(x)^2
+    = k(x, x) - Σ_i D_i (K_xm V_i)^2 / m`` with ``D_i = (1 - r_i) / λ_i``
+    the correction weights.
 
     Streams the cross-kernel matrix in row-chunks (``_RESIDUAL_CHUNK``
     rows at a time) so we never hold the full ``(N, m)`` ``K_nm`` in
@@ -294,10 +295,7 @@ def _residual_kernel_diagonal(
     m = subsample_indices.shape[0]
     diag = _kernel_diagonal(kernel_op)
     n = diag.shape[0]
-    # K_mm V_i = m λ_i V_i for eigenpairs of K_mm / m, so
-    # φ_i(x) = K_xm V_i / (m λ_i sqrt(m)).
-    scaled_V = V / (eigenvalues[None, :] * m * jnp.sqrt(m))
-    dtype = scaled_V.dtype
+    dtype = V.dtype
 
     def chunk_max(start: int, max_so_far: Float[Array, ""]) -> Float[Array, ""]:
         # ``start`` is a Python int from ``range()``; keep chunk_size as
@@ -307,8 +305,9 @@ def _residual_kernel_diagonal(
         chunk_size = stop - start
         # Build only K_{x_chunk, m} — never the full K_nm.
         K_chunk = _cross_kernel_rows(kernel_op, subsample_indices, start, chunk_size)
-        eigfns = K_chunk @ scaled_V  # (chunk, k)
-        chunk_residual = diag[start:stop] - m * jnp.sum(eigfns**2, axis=1)
+        projections = K_chunk @ V  # (chunk, k)
+        removed = jnp.sum(weights * projections**2, axis=1) / m
+        chunk_residual = diag[start:stop] - removed
         return jnp.maximum(max_so_far, jnp.max(chunk_residual))
 
     init = jnp.asarray(-jnp.inf, dtype=dtype)
