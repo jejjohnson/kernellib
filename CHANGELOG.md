@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.7](https://github.com/jejjohnson/kernellib/compare/v0.0.6...v0.0.7) (2026-09-26)
+
+
+### Features
+
+* phase 5 algorithms — heuristics, KRR, dependence measures, Falkon and EigenPro ([#30](https://github.com/jejjohnson/kernellib/issues/30)) ([9999b4d](https://github.com/jejjohnson/kernellib/commit/9999b4d479ba64ff983de8278e44ad6e785cd6d8))
+* **sklearn:** opt-in scikit-learn adapters for estimators, feature maps, HSIC and MMD ([#31](https://github.com/jejjohnson/kernellib/issues/31)) ([4095ba5](https://github.com/jejjohnson/kernellib/commit/4095ba546d9d41d29410458969c325dac84f98ec))
+
 ## [0.0.6](https://github.com/jejjohnson/kernellib/compare/v0.0.5...v0.0.6) (2026-09-26)
 
 
