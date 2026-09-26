@@ -13,6 +13,7 @@ from kernellib._regression._eigenpro import (
     eigenpro_preconditioner,
     eigenpro_step_size,
 )
+from kernellib._regression._estimators import EigenPro, Falkon
 from kernellib._regression._falkon import (
     FalkonPreconditioner,
     falkon_preconditioner,
@@ -25,7 +26,9 @@ from kernellib._regression._krr import KRR
 __all__ = [
     "KRR",
     "AbstractEstimator",
+    "EigenPro",
     "EigenProPreconditioner",
+    "Falkon",
     "FalkonPreconditioner",
     "eigenpro_correction",
     "eigenpro_preconditioner",

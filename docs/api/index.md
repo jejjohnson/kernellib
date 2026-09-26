@@ -22,7 +22,7 @@ but never have to. Modules appear here as each phase of the
 | [Spectral](spectral.md) | `AbstractStationaryKernel.spectral_density` / `sample_frequencies`, `AbstractFeatureMap`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures`, `NystromFeatures`, `LaplaceEigenfunctionFeatures`, `draw_rff_cosine_basis`, `evaluate_rff_cosine_paths` |
 | [Heuristics](heuristics.md) | `estimate_lengthscale`, `lengthscale_to_gamma`, `gamma_to_lengthscale`, `lengthscale_grid` |
 | [Dependence](dependence.md) | `hsic`, `cka`, `kernel_alignment`, `mmd_squared`, `permutation_test`, `PermutationTestResult` |
-| [Regression](regression.md) | `AbstractEstimator`, `KRR`, `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner`, `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` |
+| [Regression](regression.md) | `AbstractEstimator`, `KRR`, `Falkon`, `EigenPro`, `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner`, `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` |
 
 ## Package overview
 
