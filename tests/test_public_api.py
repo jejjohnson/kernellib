@@ -73,6 +73,13 @@ def test_functional_all_is_sorted_and_importable() -> None:
         assert hasattr(kernellib.functional, name), name
 
 
+def test_sklearn_adapter_all_is_sorted_and_importable() -> None:
+    sk = importlib.import_module("kernellib.sklearn")
+    assert sk.__all__ == _isort_order(sk.__all__)
+    for name in sk.__all__:
+        assert hasattr(sk, name), name
+
+
 def test_package_is_typed() -> None:
     """PEP 561 marker must ship so downstream type checkers see annotations."""
     marker = Path(kernellib.__path__[0]) / "py.typed"

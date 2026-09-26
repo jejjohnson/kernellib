@@ -108,6 +108,12 @@ uv add "kernellib @ git+https://github.com/jejjohnson/kernellib.git"
 git tag (see `[tool.uv.sources]` and `dependencies` in `pyproject.toml`), so
 both install without any extra configuration.
 
+The scikit-learn adapters (`kernellib.sklearn`) are an optional extra:
+
+```bash
+uv add "kernellib[sklearn] @ git+https://github.com/jejjohnson/kernellib.git"
+```
+
 ---
 
 ## 🧭 Where things go

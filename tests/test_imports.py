@@ -14,6 +14,17 @@ import sys
 FORBIDDEN_ON_IMPORT = ("numpyro", "sklearn")
 
 
+def test_sklearn_adapter_is_opt_in() -> None:
+    # The adapter package loads scikit-learn only when imported explicitly.
+    code = (
+        "import sys, kernellib; "
+        "assert 'kernellib.sklearn' not in sys.modules; "
+        "import kernellib.sklearn; "
+        "assert 'sklearn' in sys.modules"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
 def test_import_does_not_load_modelling_dependencies() -> None:
     code = (
         "import sys, kernellib; "
