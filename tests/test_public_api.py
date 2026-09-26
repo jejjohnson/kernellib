@@ -19,7 +19,7 @@ import kernellib
 # Every non-package module directly under ``kernellib``. A new module must be
 # added here (and given an API doc page) for ``test_no_unexpected_submodules``
 # to pass.
-SUBMODULES: list[str] = ["_einx", "_testing"]
+SUBMODULES: list[str] = ["_einx", "_heuristics", "_testing"]
 
 
 def _isort_order(names: list[str]) -> list[str]:

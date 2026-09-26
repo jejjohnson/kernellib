@@ -1,27 +1,34 @@
-"""Kernel regression: the Falkon and EigenPro primitives, moved from gaussx.
+"""Kernel regression: estimators and the Falkon / EigenPro primitives.
 
-The estimator-level workflows (``KRR``, ``Falkon``, ``EigenPro``) will live
-here too; they arrive with the algorithms phase.
+The primitives moved from gaussx; the estimators (`KRR`, and `Falkon` /
+`EigenPro` on top of the primitives) follow the `AbstractEstimator` contract.
 """
 
 from __future__ import annotations
 
+from kernellib._regression._base import AbstractEstimator
 from kernellib._regression._eigenpro import (
     EigenProPreconditioner,
     eigenpro_correction,
     eigenpro_preconditioner,
     eigenpro_step_size,
 )
+from kernellib._regression._estimators import EigenPro, Falkon
 from kernellib._regression._falkon import (
     FalkonPreconditioner,
     falkon_preconditioner,
     falkon_predict,
     falkon_solve,
 )
+from kernellib._regression._krr import KRR
 
 
 __all__ = [
+    "KRR",
+    "AbstractEstimator",
+    "EigenPro",
     "EigenProPreconditioner",
+    "Falkon",
     "FalkonPreconditioner",
     "eigenpro_correction",
     "eigenpro_preconditioner",

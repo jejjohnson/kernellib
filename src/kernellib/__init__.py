@@ -18,6 +18,20 @@ package.
 from __future__ import annotations
 
 from kernellib import functional
+from kernellib._dependence import (
+    PermutationTestResult,
+    cka,
+    hsic,
+    kernel_alignment,
+    mmd_squared,
+    permutation_test,
+)
+from kernellib._heuristics import (
+    estimate_lengthscale,
+    gamma_to_lengthscale,
+    lengthscale_grid,
+    lengthscale_to_gamma,
+)
 from kernellib._kernels import (
     RBF,
     AbstractKernel,
@@ -56,7 +70,11 @@ from kernellib._operators import (
     to_operator,
 )
 from kernellib._regression import (
+    KRR,
+    AbstractEstimator,
+    EigenPro,
     EigenProPreconditioner,
+    Falkon,
     FalkonPreconditioner,
     eigenpro_correction,
     eigenpro_preconditioner,
@@ -80,7 +98,9 @@ from kernellib._spectral import (
 __version__ = "0.0.6"
 
 __all__ = [
+    "KRR",
     "RBF",
+    "AbstractEstimator",
     "AbstractFeatureMap",
     "AbstractKernel",
     "AbstractPointwiseKernel",
@@ -88,7 +108,9 @@ __all__ = [
     "ActiveDims",
     "Constant",
     "Cosine",
+    "EigenPro",
     "EigenProPreconditioner",
+    "Falkon",
     "FalkonPreconditioner",
     "FastFoodFeatures",
     "FastFoodParams",
@@ -101,6 +123,7 @@ __all__ = [
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "Periodic",
+    "PermutationTestResult",
     "Polynomial",
     "Product",
     "RandomFourierFeatures",
@@ -112,10 +135,12 @@ __all__ = [
     "__version__",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
+    "cka",
     "draw_rff_cosine_basis",
     "eigenpro_correction",
     "eigenpro_preconditioner",
     "eigenpro_step_size",
+    "estimate_lengthscale",
     "evaluate_rff_cosine_paths",
     "falkon_preconditioner",
     "falkon_predict",
@@ -125,9 +150,16 @@ __all__ = [
     "fastfood_operator",
     "fastfood_params",
     "functional",
+    "gamma_to_lengthscale",
     "hadamard_transform",
+    "hsic",
     "implicit_cross_kernel",
+    "kernel_alignment",
+    "lengthscale_grid",
+    "lengthscale_to_gamma",
+    "mmd_squared",
     "nystrom_operator",
+    "permutation_test",
     "rff_operator",
     "to_cross_operator",
     "to_operator",
