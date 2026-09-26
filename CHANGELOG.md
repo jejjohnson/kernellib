@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/jejjohnson/kernellib/compare/v0.0.5...v0.0.6) (2026-09-26)
+
+
+### Features
+
+* **spectral:** feature maps (RFF, ORF, FastFood, Nyström) and Laplace-eigenfunction features ([#28](https://github.com/jejjohnson/kernellib/issues/28)) ([d458da1](https://github.com/jejjohnson/kernellib/commit/d458da1e52a6878198f98cea9cd157c686b2c711))
+
 ## [0.0.5](https://github.com/jejjohnson/kernellib/compare/v0.0.4...v0.0.5) (2026-09-25)
 
 
