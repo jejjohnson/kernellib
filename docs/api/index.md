@@ -23,6 +23,7 @@ but never have to. Modules appear here as each phase of the
 | [Heuristics](heuristics.md) | `estimate_lengthscale`, `lengthscale_to_gamma`, `gamma_to_lengthscale`, `lengthscale_grid` |
 | [Dependence](dependence.md) | `hsic`, `cka`, `kernel_alignment`, `mmd_squared`, `permutation_test`, `PermutationTestResult` |
 | [Regression](regression.md) | `AbstractEstimator`, `KRR`, `Falkon`, `EigenPro`, `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner`, `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` |
+| [scikit-learn](sklearn.md) | Optional `kernellib.sklearn`: `KernelRidge`, `FalkonRegressor`, `EigenProRegressor`, feature-map transformers, `HSIC`, `MMD` |
 
 ## Package overview
 

@@ -40,6 +40,9 @@ make install
 :::
 ::::
 
+The scikit-learn adapters in `kernellib.sklearn` need the optional extra,
+`kernellib[sklearn]`; see [scikit-learn workflows](notebooks/sklearn_workflows.ipynb).
+
 ## The stack
 
 ```

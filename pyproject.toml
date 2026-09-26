@@ -31,11 +31,16 @@ dependencies = [
     "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.5",
 ]
 
+[project.optional-dependencies]
+# The opt-in scikit-learn adapter, kernellib.sklearn. The core never imports it.
+sklearn = ["scikit-learn>=1.6"]
+
 [project.urls]
 Repository = "https://github.com/jejjohnson/kernellib"
 
 [dependency-groups]
 dev = [
+    "scikit-learn>=1.6",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.0",
@@ -44,9 +49,11 @@ lint = [
     "ruff>=0.15.22",
 ]
 typecheck = [
+    "scikit-learn>=1.6",
     "ty>=0.0.73",
 ]
 docs = [
+    "scikit-learn>=1.6",
     # The prose half of the site is built by mystmd, a Node CLI installed with
     # `npm install -g mystmd` rather than through uv. See docs/README.md.
     # MkDocs here builds only the API reference, whose `objects.inv` is what
