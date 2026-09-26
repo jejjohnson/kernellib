@@ -11,12 +11,14 @@ from kernellib._spectral._feature_maps import (
     OrthogonalRandomFeatures,
     RandomFourierFeatures,
 )
+from kernellib._spectral._laplace import LaplaceEigenfunctionFeatures
 from kernellib._spectral._rff import draw_rff_cosine_basis, evaluate_rff_cosine_paths
 
 
 __all__ = [
     "AbstractFeatureMap",
     "FastFoodFeatures",
+    "LaplaceEigenfunctionFeatures",
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "RandomFourierFeatures",
