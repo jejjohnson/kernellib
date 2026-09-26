@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.8](https://github.com/jejjohnson/kernellib/compare/v0.0.7...v0.0.8) (2026-09-26)
+
+
+### Features
+
+* **decomposition:** kernel PCA, graph kernels, Laplacian and Schrödinger eigenmaps, LPP ([#43](https://github.com/jejjohnson/kernellib/issues/43)) ([b4078d5](https://github.com/jejjohnson/kernellib/commit/b4078d5b24a079864c3c055d24ed44e80122b2ed))
+
 ## [0.0.7](https://github.com/jejjohnson/kernellib/compare/v0.0.6...v0.0.7) (2026-09-26)
 
 
