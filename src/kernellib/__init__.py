@@ -62,6 +62,8 @@ from kernellib._operators import (
     to_operator,
 )
 from kernellib._regression import (
+    KRR,
+    AbstractEstimator,
     EigenProPreconditioner,
     FalkonPreconditioner,
     eigenpro_correction,
@@ -86,7 +88,9 @@ from kernellib._spectral import (
 __version__ = "0.0.6"
 
 __all__ = [
+    "KRR",
     "RBF",
+    "AbstractEstimator",
     "AbstractFeatureMap",
     "AbstractKernel",
     "AbstractPointwiseKernel",
