@@ -21,6 +21,7 @@ but never have to. Modules appear here as each phase of the
 | [Operators](operators.md) | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, `implicit_cross_kernel`, `batched_kernel_matvec`, `batched_kernel_rmatvec`, `nystrom_operator`, `rff_operator`, `fastfood_params`, `fastfood_features`, `fastfood_operator`, `FastFoodParams`, `fastfood_frequencies`, `hadamard_transform` |
 | [Spectral](spectral.md) | `AbstractStationaryKernel.spectral_density` / `sample_frequencies`, `AbstractFeatureMap`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures`, `NystromFeatures`, `LaplaceEigenfunctionFeatures`, `draw_rff_cosine_basis`, `evaluate_rff_cosine_paths` |
 | [Heuristics](heuristics.md) | `estimate_lengthscale`, `lengthscale_to_gamma`, `gamma_to_lengthscale`, `lengthscale_grid` |
+| [Dependence](dependence.md) | `hsic`, `cka`, `kernel_alignment`, `mmd_squared`, `permutation_test`, `PermutationTestResult` |
 | [Regression](regression.md) | `AbstractEstimator`, `KRR`, `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner`, `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` |
 
 ## Package overview

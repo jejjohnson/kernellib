@@ -18,6 +18,14 @@ package.
 from __future__ import annotations
 
 from kernellib import functional
+from kernellib._dependence import (
+    PermutationTestResult,
+    cka,
+    hsic,
+    kernel_alignment,
+    mmd_squared,
+    permutation_test,
+)
 from kernellib._heuristics import (
     estimate_lengthscale,
     gamma_to_lengthscale,
@@ -111,6 +119,7 @@ __all__ = [
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "Periodic",
+    "PermutationTestResult",
     "Polynomial",
     "Product",
     "RandomFourierFeatures",
@@ -122,6 +131,7 @@ __all__ = [
     "__version__",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
+    "cka",
     "draw_rff_cosine_basis",
     "eigenpro_correction",
     "eigenpro_preconditioner",
@@ -138,10 +148,14 @@ __all__ = [
     "functional",
     "gamma_to_lengthscale",
     "hadamard_transform",
+    "hsic",
     "implicit_cross_kernel",
+    "kernel_alignment",
     "lengthscale_grid",
     "lengthscale_to_gamma",
+    "mmd_squared",
     "nystrom_operator",
+    "permutation_test",
     "rff_operator",
     "to_cross_operator",
     "to_operator",
