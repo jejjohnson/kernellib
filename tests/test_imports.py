@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 
-FORBIDDEN_ON_IMPORT = ("numpyro", "sklearn")
+FORBIDDEN_ON_IMPORT = ("numpyro", "sklearn", "pynndescent", "numba")
 
 
 def test_sklearn_adapter_is_opt_in() -> None:

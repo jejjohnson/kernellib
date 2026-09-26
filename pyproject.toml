@@ -34,6 +34,8 @@ dependencies = [
 [project.optional-dependencies]
 # The opt-in scikit-learn adapter, kernellib.sklearn. The core never imports it.
 sklearn = ["scikit-learn>=1.6"]
+# Approximate nearest neighbours for the neighbour graphs of the eigenmaps.
+neighbors = ["pynndescent>=0.5.13"]
 
 [project.urls]
 Repository = "https://github.com/jejjohnson/kernellib"
@@ -41,6 +43,7 @@ Repository = "https://github.com/jejjohnson/kernellib"
 [dependency-groups]
 dev = [
     "scikit-learn>=1.6",
+    "pynndescent>=0.5.13",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.0",
@@ -50,6 +53,7 @@ lint = [
 ]
 typecheck = [
     "scikit-learn>=1.6",
+    "pynndescent>=0.5.13",
     "ty>=0.0.73",
 ]
 docs = [

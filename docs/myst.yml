@@ -32,6 +32,7 @@ project:
         - file: notebooks/kernel_approximations.ipynb
         - file: notebooks/matrix_free_gp.ipynb
         - file: notebooks/sklearn_workflows.ipynb
+        - file: notebooks/graph_embeddings.ipynb
     - title: Project
       children:
         - file: contributing.md
