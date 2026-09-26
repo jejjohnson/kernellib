@@ -9,6 +9,7 @@ Gram matrices agree with the matching `kernellib.functional` functions;
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import equinox as eqx
 import jax
@@ -39,6 +40,30 @@ def _float_dtype(dtype: DTypeLike | None) -> DTypeLike:
 def _sqrt_safe(r2: Float[Array, ...]) -> Float[Array, ...]:
     # Jitter inside sqrt keeps gradients finite at r = 0, as in functional.
     return jnp.sqrt(jnp.clip(r2, min=1e-30))
+
+
+# Below this squared distance the kernels that are smooth in r² switch to
+# their Taylor expansion in r², so first and second derivatives at (and
+# near) coincident points are exact. The sqrt guard alone clips r² there and
+# zeroes the gradient of r, which made jax.hessian of pairwise vanish at
+# x = y and the derivative Gram matrices indefinite. The expansions are
+# accurate to far below float64 precision at this threshold.
+_R2_SMALL = 1e-10
+
+
+def _smooth_in_r2(
+    r2: Float[Array, ...],
+    exact: Callable[[Float[Array, ...]], Float[Array, ...]],
+    taylor: Callable[[Float[Array, ...]], Float[Array, ...]],
+) -> Float[Array, ...]:
+    """``exact(r)`` away from ``r = 0``, ``taylor(r²)`` near it.
+
+    The inner ``where`` keeps ``sqrt`` away from 0 in the unused branch
+    (the "double where" pattern), so neither branch leaks NaN gradients.
+    """
+    small = r2 < _R2_SMALL
+    r = jnp.sqrt(jnp.where(small, 1.0, r2))
+    return jnp.where(small, taylor(r2), exact(r))
 
 
 class RBF(AbstractStationaryKernel):
@@ -120,14 +145,23 @@ class Matern(AbstractStationaryKernel):
             )
 
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
-        r = _sqrt_safe(r2)
         if self.nu == 0.5:
-            return jnp.exp(-r)
+            # Not differentiable at r = 0; the guard gives the zero subgradient.
+            return jnp.exp(-_sqrt_safe(r2))
         if self.nu == 1.5:
-            a = jnp.sqrt(3.0) * r
-            return (1.0 + a) * jnp.exp(-a)
-        a = jnp.sqrt(5.0) * r
-        return (1.0 + a + (a * a) / 3.0) * jnp.exp(-a)
+            return _smooth_in_r2(
+                r2,
+                lambda r: (1.0 + jnp.sqrt(3.0) * r) * jnp.exp(-jnp.sqrt(3.0) * r),
+                lambda s: 1.0 - 1.5 * s,
+            )
+
+        def exact(r: Float[Array, ...]) -> Float[Array, ...]:
+            a = jnp.sqrt(5.0) * r
+            return (1.0 + a + (a * a) / 3.0) * jnp.exp(-a)
+
+        return _smooth_in_r2(
+            r2, exact, lambda s: 1.0 - 5.0 * s / 6.0 + 25.0 * s * s / 24.0
+        )
 
     def unit_spectral_density(
         self, omega_sq: Float[Array, ...], d: int
@@ -242,8 +276,12 @@ class Periodic(AbstractPointwiseKernel):
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
-        r = _sqrt_safe(jnp.sum((x - y) ** 2))
-        sinsq = jnp.sin(jnp.pi * r / self.period) ** 2
+        w = jnp.pi / self.period
+        sinsq = _smooth_in_r2(
+            jnp.sum((x - y) ** 2),
+            lambda r: jnp.sin(w * r) ** 2,
+            lambda s: w**2 * s * (1.0 - w**2 * s / 3.0),
+        )
         return self.variance * jnp.exp(-2.0 * sinsq / (self.lengthscale**2))
 
     def __call__(
@@ -271,8 +309,13 @@ class Cosine(AbstractPointwiseKernel):
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
-        r = _sqrt_safe(jnp.sum((x - y) ** 2))
-        return self.variance * jnp.cos(2.0 * jnp.pi * r / self.period)
+        w = 2.0 * jnp.pi / self.period
+        cos = _smooth_in_r2(
+            jnp.sum((x - y) ** 2),
+            lambda r: jnp.cos(w * r),
+            lambda s: 1.0 - w**2 * s / 2.0 + w**4 * s * s / 24.0,
+        )
+        return self.variance * cos
 
     def __call__(
         self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]

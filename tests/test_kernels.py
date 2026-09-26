@@ -270,3 +270,70 @@ def test_composites_reject_empty_and_non_kernels():
         kl.Product(kl.RBF(), 3.0)
     with pytest.raises(ValueError, match="at least one dimension"):
         kl.ActiveDims(kl.RBF(), dims=())
+
+
+# -- derivatives at coincident points ----------------------------------------
+# jax.hessian of pairwise at x = y used to be zero for the kernels computed
+# through a sqrt guard (Matern 3/2 and 5/2, Periodic, Cosine), because the
+# guard clips r^2 and zeroes the gradient of r. The closed forms below are
+# d^2 k / dx dy^T at x = y, a multiple of the identity.
+
+_ELL, _VAR, _PERIOD = 0.7, 1.5, 2.0
+
+
+@pytest.mark.parametrize(
+    ("kernel", "dim", "expected"),
+    [
+        (kl.RBF(_ELL, _VAR), 2, _VAR / _ELL**2),
+        (kl.Matern(_ELL, _VAR, nu=1.5), 2, 3.0 * _VAR / _ELL**2),
+        (kl.Matern(_ELL, _VAR, nu=2.5), 2, 5.0 * _VAR / (3.0 * _ELL**2)),
+        (
+            kl.Periodic(_ELL, _VAR, period=_PERIOD),
+            1,
+            4 * jnp.pi**2 * _VAR / (_PERIOD * _ELL) ** 2,
+        ),
+        (kl.Cosine(_VAR, period=_PERIOD), 1, _VAR * (2 * jnp.pi / _PERIOD) ** 2),
+    ],
+    ids=["rbf", "matern15", "matern25", "periodic", "cosine"],
+)
+def test_cross_hessian_at_coincident_points(kernel, dim, expected):
+    x = jnp.linspace(0.1, 0.4, dim)
+    H = jax.jacfwd(jax.grad(kernel.pairwise, argnums=0), argnums=1)(x, x)
+    assert jnp.allclose(H, expected * jnp.eye(dim), rtol=1e-10)
+
+
+@pytest.mark.parametrize("nu", [1.5, 2.5])
+def test_derivative_gram_is_psd(nu):
+    k = kl.Matern(lengthscale=0.8, nu=nu)
+    X = jax.random.normal(jax.random.key(0), (6, 2))
+    d2 = jax.jacfwd(jax.grad(k.pairwise, 0), 1)
+    blocks = jax.vmap(lambda x: jax.vmap(lambda y: d2(x, y))(X))(X)
+    G = blocks.transpose(0, 2, 1, 3).reshape(12, 12)
+    assert jnp.linalg.eigvalsh(G)[0] > -1e-10
+
+
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        kl.Matern(nu=1.5),
+        kl.Matern(nu=2.5),
+        kl.Periodic(period=_PERIOD),
+        kl.Cosine(period=_PERIOD),
+    ],
+    ids=["matern15", "matern25", "periodic", "cosine"],
+)
+def test_taylor_branch_is_continuous(kernel):
+    # Values and gradients agree on both sides of the switch to the expansion.
+    x = jnp.zeros(1)
+    below = jnp.array([jnp.sqrt(1e-10) * (1 - 1e-6)])
+    above = jnp.array([jnp.sqrt(1e-10) * (1 + 1e-6)])
+    assert jnp.allclose(
+        kernel.pairwise(x, below), kernel.pairwise(x, above), rtol=1e-12
+    )
+    g = jax.grad(kernel.pairwise, argnums=1)
+    assert jnp.allclose(g(x, below), g(x, above), rtol=1e-4)
+
+
+def test_matern_half_gradient_is_finite_at_zero():
+    g = jax.grad(kl.Matern(nu=0.5).pairwise, argnums=0)(jnp.zeros(2), jnp.zeros(2))
+    assert jnp.all(jnp.isfinite(g))

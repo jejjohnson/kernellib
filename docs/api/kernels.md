@@ -18,6 +18,11 @@ K = kl.to_operator(k, X, noise=1e-2, implicit=True)
 alpha = gx.solve(K, y, solver=gx.PreconditionedCGSolver(preconditioner_rank=100))
 ```
 
+Kernels are equinox modules and `pairwise` is a scalar JAX function, so
+derivatives, derivative Gram blocks, predictor gradients and hyperparameter
+gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
+[Kernels and JAX](../../kernels-and-jax/) tutorial shows each.
+
 ## Contract
 
 ::: kernellib.AbstractKernel
