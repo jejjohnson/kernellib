@@ -18,6 +18,12 @@ package.
 from __future__ import annotations
 
 from kernellib import functional
+from kernellib._heuristics import (
+    estimate_lengthscale,
+    gamma_to_lengthscale,
+    lengthscale_grid,
+    lengthscale_to_gamma,
+)
 from kernellib._kernels import (
     RBF,
     AbstractKernel,
@@ -116,6 +122,7 @@ __all__ = [
     "eigenpro_correction",
     "eigenpro_preconditioner",
     "eigenpro_step_size",
+    "estimate_lengthscale",
     "evaluate_rff_cosine_paths",
     "falkon_preconditioner",
     "falkon_predict",
@@ -125,8 +132,11 @@ __all__ = [
     "fastfood_operator",
     "fastfood_params",
     "functional",
+    "gamma_to_lengthscale",
     "hadamard_transform",
     "implicit_cross_kernel",
+    "lengthscale_grid",
+    "lengthscale_to_gamma",
     "nystrom_operator",
     "rff_operator",
     "to_cross_operator",

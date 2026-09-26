@@ -73,6 +73,7 @@ nav:
   - Functional: functional.md
   - Operators: operators.md
   - Spectral: spectral.md
+  - Heuristics: heuristics.md
   - Regression: regression.md
 
 markdown_extensions:
