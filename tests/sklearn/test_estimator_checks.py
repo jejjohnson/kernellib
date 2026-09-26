@@ -9,11 +9,15 @@ from kernellib.sklearn import (
     EigenProRegressor,
     FalkonRegressor,
     FastFoodFeatures,
+    KernelPCA,
     KernelRidge,
     LaplaceEigenfunctionFeatures,
+    LaplacianEigenmaps,
+    LocalityPreservingProjections,
     NystromFeatures,
     OrthogonalRandomFeatures,
     RandomFourierFeatures,
+    SchrodingerEigenmaps,
 )
 
 
@@ -36,4 +40,18 @@ ESTIMATORS = [
 @pytest.mark.slow
 @parametrize_with_checks(ESTIMATORS)
 def test_sklearn_compatible(estimator, check):
+    check(estimator)
+
+
+DECOMPOSITION = [
+    KernelPCA(n_components=2),
+    LocalityPreservingProjections(n_components=2, n_neighbors=5),
+    LaplacianEigenmaps(n_components=2, n_neighbors=5),
+    SchrodingerEigenmaps(n_components=2, n_neighbors=5, alpha=5.0),
+]
+
+
+@pytest.mark.slow
+@parametrize_with_checks(DECOMPOSITION)
+def test_decomposition_sklearn_compatible(estimator, check):
     check(estimator)

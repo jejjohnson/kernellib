@@ -252,3 +252,66 @@ class TestMMD:
     def test_feature_mismatch_raises(self):
         with pytest.raises(ValueError, match="same features"):
             MMD().fit(np.zeros((5, 2)), np.zeros((5, 3)))
+
+
+class TestDecomposition:
+    def test_kernel_pca_matches_kernellib_and_takes_nested_params(self):
+        from kernellib.sklearn import KernelPCA as SkKPCA
+
+        X, _ = _data(n=60, d=3)
+        model = SkKPCA(n_components=2, kernel=kl.RBF(lengthscale=1.0)).fit(X)
+        ref = kl.KernelPCA(kl.RBF(lengthscale=1.0), n_components=2).fit(jnp.asarray(X))
+        assert np.allclose(model.transform(X), np.asarray(ref.transform(X)))
+        model.set_params(kernel__lengthscale=0.3)
+        assert float(model.kernel.lengthscale) == pytest.approx(0.3)
+        assert model.get_feature_names_out()[0] == "kernelpca0"
+
+    def test_lpp_in_a_pipeline(self):
+        from kernellib.sklearn import LocalityPreservingProjections as SkLPP
+
+        X, y = _data(n=120, d=4)
+        pipe = make_pipeline(StandardScaler(), SkLPP(n_components=2), Ridge())
+        assert np.isfinite(pipe.fit(X, y).score(X, y))
+
+    def test_eigenmaps_fit_transform_only(self):
+        from kernellib.sklearn import LaplacianEigenmaps as SkLE
+
+        X, _ = _data(n=80, d=3)
+        le = SkLE(n_components=2)
+        Y = le.fit_transform(X)
+        assert Y.shape == (80, 2) and not hasattr(le, "transform")
+        ref = kl.LaplacianEigenmaps(n_components=2).fit(jnp.asarray(X))
+        assert np.allclose(np.abs(Y), np.abs(np.asarray(ref.embedding)), atol=1e-8)
+
+    def test_schrodinger_uses_partial_labels(self):
+        from kernellib.sklearn import SchrodingerEigenmaps as SkSE
+
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(90, 2))
+        y = np.full(90, -1)
+        y[:12] = 0
+
+        def spread(Y):
+            inside = np.linalg.norm(Y[:12] - Y[:12].mean(0), axis=1).mean()
+            return inside / np.linalg.norm(Y - Y.mean(0), axis=1).mean()
+
+        unsupervised = SkSE(alpha=10.0).fit_transform(X)
+        supervised = SkSE(alpha=10.0).fit_transform(X, y)
+        assert spread(supervised) < 0.25 * spread(unsupervised)
+        # Without labels it is Laplacian eigenmaps.
+        from kernellib.sklearn import LaplacianEigenmaps as SkLE
+
+        assert np.allclose(np.abs(unsupervised), np.abs(SkLE().fit_transform(X)))
+
+    def test_schrodinger_barrier_and_errors(self):
+        from kernellib.sklearn import SchrodingerEigenmaps as SkSE
+
+        X, _ = _data(n=60, d=2)
+        y = np.full(60, -1)
+        y[:5] = 1
+        Y = SkSE(alpha=50.0, potential="barrier").fit_transform(X, y)
+        assert np.max(np.abs(Y[:5])) < 0.1 * np.max(np.abs(Y))
+        with pytest.raises(ValueError, match="potential"):
+            SkSE(potential="spatial").fit(X, y)
+        with pytest.raises(ValueError, match="n_samples = 2"):
+            SkSE().fit(X[:2])
