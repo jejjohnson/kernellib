@@ -43,6 +43,68 @@ S = k.spectral_density(omega)  # omega: (M, 2)
 W = k.sample_frequencies(jax.random.key(0), 1024, 2)  # (1024, 2)
 ```
 
+## Feature maps
+
+A feature map approximates a kernel by an explicit map,
+$k(x, x') \approx \phi(x)^\top \phi(x')$. Configure it, `fit(kernel, X)` (which
+returns a new module; `X` fixes the input dimension and, for Nyström, supplies
+the landmarks), then call it for the feature matrix or use `operator(X)` for a
+gaussx `LowRankUpdate` that solves and takes log-determinants through
+Woodbury.
+
+| Map | Kernels | Features | Cost per input |
+|---|---|---|---|
+| `RandomFourierFeatures` | stationary with a sampler | $2F$ | $O(FD)$ |
+| `OrthogonalRandomFeatures` | stationary with a sampler | $2F$ | $O(FD)$, lower variance |
+| `FastFoodFeatures` | stationary with a sampler | $2F$ | $O(F \log D)$, $O(F)$ storage |
+| `NystromFeatures` | any | $M$ | $O(MD + M^2)$ |
+| `LaplaceEigenfunctionFeatures` | stationary with a density | $\prod_d m_d$ | $O(D \prod_d m_d)$, deterministic |
+
+The random maps store their draw at unit lengthscale and unit variance and read
+the kernel's hyperparameters when called, so a fitted map differentiates with
+respect to them (use `eqx.filter_grad`; the PRNG key is a leaf).
+
+```python
+import gaussx as gx
+
+k = kl.Matern(nu=1.5, lengthscale=0.7)
+rff = kl.RandomFourierFeatures(1024, key).fit(k, X)
+Phi = rff(X)  # (N, 2048)
+K_low = rff.operator(X)  # LowRankUpdate, rank 2048
+
+nys = kl.NystromFeatures(300, key).fit(k, X)
+nys.landmarks  # (300, D)
+```
+
+::: kernellib.AbstractFeatureMap
+
+::: kernellib.RandomFourierFeatures
+
+::: kernellib.OrthogonalRandomFeatures
+
+::: kernellib.FastFoodFeatures
+
+::: kernellib.NystromFeatures
+
+## Laplace eigenfunctions (HSGP)
+
+`LaplaceEigenfunctionFeatures` is the Hilbert-space approximation of Solin &
+Särkkä: on a box $[-L_1, L_1] \times \dots \times [-L_D, L_D]$,
+$k(x, x') \approx \sum_j S(\omega_j) \phi_j(x) \phi_j(x')$ with the
+Laplacian's Dirichlet eigenfunctions from `geonnax.basis.fourier_basis` and
+$\omega_j$ their per-axis frequency vectors, so ARD lengthscales are exact. The
+basis does not depend on the kernel; only the weights $S(\omega_j)$ do. The box
+must be wide relative to the lengthscale; see the class docstring.
+
+```python
+lap = kl.LaplaceEigenfunctionFeatures(n_per_dim=(64, 32), boundary_factor=2.5)
+lap = lap.fit(kl.RBF(lengthscale=jnp.array([0.3, 0.8])), X)
+lap.half_widths  # the resolved box
+Phi = lap(X)  # (N, 2048)
+```
+
+::: kernellib.LaplaceEigenfunctionFeatures
+
 ## Random Fourier feature prior draws
 
 `draw_rff_cosine_basis` and `evaluate_rff_cosine_paths`, moved from

@@ -65,13 +65,23 @@ from kernellib._regression import (
     falkon_predict,
     falkon_solve,
 )
-from kernellib._spectral import draw_rff_cosine_basis, evaluate_rff_cosine_paths
+from kernellib._spectral import (
+    AbstractFeatureMap,
+    FastFoodFeatures,
+    LaplaceEigenfunctionFeatures,
+    NystromFeatures,
+    OrthogonalRandomFeatures,
+    RandomFourierFeatures,
+    draw_rff_cosine_basis,
+    evaluate_rff_cosine_paths,
+)
 
 
 __version__ = "0.0.5"
 
 __all__ = [
     "RBF",
+    "AbstractFeatureMap",
     "AbstractKernel",
     "AbstractPointwiseKernel",
     "AbstractStationaryKernel",
@@ -80,15 +90,20 @@ __all__ = [
     "Cosine",
     "EigenProPreconditioner",
     "FalkonPreconditioner",
+    "FastFoodFeatures",
     "FastFoodParams",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KernelOperator",
+    "LaplaceEigenfunctionFeatures",
     "Linear",
     "Matern",
+    "NystromFeatures",
+    "OrthogonalRandomFeatures",
     "Periodic",
     "Polynomial",
     "Product",
+    "RandomFourierFeatures",
     "RationalQuadratic",
     "Scaled",
     "Sum",
