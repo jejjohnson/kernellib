@@ -76,6 +76,7 @@ nav:
   - Heuristics: heuristics.md
   - Dependence: dependence.md
   - Regression: regression.md
+  - Decomposition: decomposition.md
   - scikit-learn: sklearn.md
 
 markdown_extensions:

@@ -39,7 +39,8 @@ Conventions:
 - **Precision.** Arrays are converted to JAX arrays; enable
   `jax_enable_x64` for float64 computation.
 
-The regressors and transformers pass scikit-learn's `check_estimator` suite.
+The regressors, transformers and decomposition adapters pass scikit-learn's
+`check_estimator` suite.
 `HSIC` and `MMD` follow the same conventions but are not predictors.
 
 ## Regressors
@@ -61,6 +62,21 @@ The regressors and transformers pass scikit-learn's `check_estimator` suite.
 ::: kernellib.sklearn.NystromFeatures
 
 ::: kernellib.sklearn.LaplaceEigenfunctionFeatures
+
+## Decomposition
+
+`KernelPCA` and `LocalityPreservingProjections` are transformers.
+`LaplacianEigenmaps` and `SchrodingerEigenmaps` are transductive, like
+``sklearn.manifold.SpectralEmbedding``: ``fit`` / ``fit_transform`` only.
+`SchrodingerEigenmaps.fit(X, y)` takes partial labels, ``-1`` for unlabelled.
+
+::: kernellib.sklearn.KernelPCA
+
+::: kernellib.sklearn.LocalityPreservingProjections
+
+::: kernellib.sklearn.LaplacianEigenmaps
+
+::: kernellib.sklearn.SchrodingerEigenmaps
 
 ## Dependence
 
