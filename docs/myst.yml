@@ -27,6 +27,9 @@ project:
     - title: Guide
       children:
         - file: guide/architecture.md
+    - title: Tutorials
+      children:
+        - file: notebooks/kernels_and_jax.ipynb
     - title: Examples
       children:
         - file: notebooks/kernel_approximations.ipynb
