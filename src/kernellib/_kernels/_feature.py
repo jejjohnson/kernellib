@@ -95,7 +95,7 @@ class Modulated(AbstractKernel):
     amplitude: Callable
 
     def _amplitudes(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return jax.vmap(lambda x: jnp.reshape(self.amplitude(x), ()))(X)
+        return jax.vmap(lambda x: jnp.squeeze(self.amplitude(x)))(X)
 
     def __call__(
         self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]
@@ -109,8 +109,8 @@ class Modulated(AbstractKernel):
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
-        a = jnp.reshape(self.amplitude(x), ())
-        b = jnp.reshape(self.amplitude(y), ())
+        a = jnp.squeeze(self.amplitude(x))
+        b = jnp.squeeze(self.amplitude(y))
         return a * self.kernel.pairwise(x, y) * b
 
     def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
