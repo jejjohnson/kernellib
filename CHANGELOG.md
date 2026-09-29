@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.10](https://github.com/jejjohnson/kernellib/compare/v0.0.9...v0.0.10) (2026-09-29)
+
+
+### Features
+
+* **kernels:** Derivative and DerivativeIndexed, derivative kernels as objects ([#66](https://github.com/jejjohnson/kernellib/issues/66)) ([97ef44f](https://github.com/jejjohnson/kernellib/commit/97ef44f634e140891b2d449ffa42e2934d88d042))
+* **kernels:** kernels from functions of the inputs, FeatureKernel and Modulated ([#63](https://github.com/jejjohnson/kernellib/issues/63)) ([7ecd52f](https://github.com/jejjohnson/kernellib/commit/7ecd52f0984172fc2c79e9fc0c0e40b5cbae7b73))
+* **kernels:** nystrom_kernel and Residual, approximations as kernels ([#64](https://github.com/jejjohnson/kernellib/issues/64)) ([2ebe5c0](https://github.com/jejjohnson/kernellib/commit/2ebe5c04293e6a85d73e2dccaabe97a3881ff4a3))
+* **kernels:** transform methods, elwise and is_stationary ([#65](https://github.com/jejjohnson/kernellib/issues/65)) ([b6c45d1](https://github.com/jejjohnson/kernellib/commit/b6c45d12029d7e00f3710cb6a1eeff18dd6812a1))
+* **operators:** keep diagonal and low-rank Gram structure in to_operator ([#61](https://github.com/jejjohnson/kernellib/issues/61)) ([9b558ad](https://github.com/jejjohnson/kernellib/commit/9b558ad822047807746cf101b6b097557402b187))
+
 ## [0.0.9](https://github.com/jejjohnson/kernellib/compare/v0.0.8...v0.0.9) (2026-09-29)
 
 
