@@ -133,6 +133,9 @@ def distance_kernel(
         3.0
     """
     _check_exponent(exponent)
+    if exponent == 2.0:
+        # Exactly x . x': the anchor terms would cancel catastrophically.
+        return linear_kernel(X1, X2, variance, jnp.zeros((), dtype=X1.dtype))
     n1 = _norm_pow(einx.dot("n1 d, n1 d -> n1", X1, X1), exponent)
     n2 = _norm_pow(einx.dot("n2 d, n2 d -> n2", X2, X2), exponent)
     between = _pairwise_distance_pow(X1, X2, exponent)

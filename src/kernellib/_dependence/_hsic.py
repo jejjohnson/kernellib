@@ -17,7 +17,7 @@ from jaxtyping import Array, Float
 
 from kernellib import functional as F
 from kernellib._dependence._features import _fit_pair
-from kernellib._kernels import AbstractKernel
+from kernellib._kernels import AbstractKernel, Distance
 from kernellib._operators._bridge import to_operator
 from kernellib._spectral import AbstractFeatureMap
 from kernellib.functional._statistics import _frob_sq, _hsic_features
@@ -72,6 +72,7 @@ def hsic(
     """
     _check_paired(X, Y)
     _check_estimator(estimator)
+    X, Y = _anchor(kernel_x, X), _anchor(kernel_y, Y)
     if approx is None:
         return F.hsic(
             to_operator(kernel_x, X), to_operator(kernel_y, Y), estimator=estimator
@@ -103,17 +104,48 @@ def cka(
         >>> round(float(kl.cka(k, k, X, X)), 6)
         1.0
     """
+    xy, xx, yy = _cka_parts(kernel_x, kernel_y, X, Y, estimator, approx)
+    return xy / jnp.sqrt(xx * yy)
+
+
+def _cka_parts(
+    kernel_x: AbstractKernel,
+    kernel_y: AbstractKernel,
+    X: Float[Array, "N Dx"],
+    Y: Float[Array, "N Dy"],
+    estimator: Estimator,
+    approx: AbstractFeatureMap | None,
+) -> tuple[Float[Array, ""], Float[Array, ""], Float[Array, ""]]:
+    """``HSIC(x, y)``, ``HSIC(x, x)``, ``HSIC(y, y)`` from one pair of Grams
+    (or one fit of the features)."""
     _check_paired(X, Y)
     _check_estimator(estimator)
+    X, Y = _anchor(kernel_x, X), _anchor(kernel_y, Y)
     if approx is None:
-        return F.cka(
-            to_operator(kernel_x, X), to_operator(kernel_y, Y), estimator=estimator
+        K_x, K_y = to_operator(kernel_x, X), to_operator(kernel_y, Y)
+        return (
+            F.hsic(K_x, K_y, estimator=estimator),
+            F.hsic(K_x, K_x, estimator=estimator),
+            F.hsic(K_y, K_y, estimator=estimator),
         )
     Phi_x, Phi_y = _fit_pair(approx, kernel_x, X, kernel_y, Y)
-    xy = _hsic_features(Phi_x, Phi_y, estimator)
-    xx = _hsic_features(Phi_x, Phi_x, estimator)
-    yy = _hsic_features(Phi_y, Phi_y, estimator)
-    return xy / jnp.sqrt(xx * yy)
+    return (
+        _hsic_features(Phi_x, Phi_y, estimator),
+        _hsic_features(Phi_x, Phi_x, estimator),
+        _hsic_features(Phi_y, Phi_y, estimator),
+    )
+
+
+def _anchor(kernel: AbstractKernel, X: Float[Array, "N D"]) -> Float[Array, "N D"]:
+    """Centre the inputs of an origin-anchored `Distance` kernel.
+
+    Centred statistics under `Distance` are translation invariant, but its
+    Gram carries ``|x|^a`` terms that only cancel on paper; with a large
+    offset they would bury the pairwise distances.
+    """
+    if isinstance(kernel, Distance):
+        return X - jnp.mean(X, axis=0)
+    return X
 
 
 def kernel_alignment(

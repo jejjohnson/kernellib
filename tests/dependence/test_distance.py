@@ -206,3 +206,39 @@ def test_chunked_distances_match_a_direct_computation(monkeypatch):
     n1 = np.linalg.norm(np.asarray(X1), axis=1) ** 0.8
     n2 = np.linalg.norm(np.asarray(X2), axis=1) ** 0.8
     assert np.allclose(got, 0.5 * (n1[:, None] + n2[None, :] - D), rtol=1e-12)
+
+
+def test_nystrom_collapse_gives_zero_not_nan():
+    # One origin landmark: Distance(0, x) = 0 for every x, so that side's
+    # features are identically zero and its distance variance is exactly 0.
+    X = jnp.arange(6.0)[:, None]
+    approx = kl.NystromFeatures(1, jax.random.key(0))
+    Phi = approx.fit(kl.Distance(), jnp.zeros((6, 1)))(X)
+    assert float(jnp.abs(Phi).max()) == 0.0
+    got = kl.distance_correlation_squared(jnp.zeros((6, 1)), X, approx=approx)
+    assert float(got) == 0.0
+
+
+def test_nan_is_not_masked_by_a_constant_partner():
+    X = jnp.array([[0.0], [jnp.nan], [2.0], [3.0]])
+    assert jnp.isnan(kl.distance_correlation_squared(X, jnp.zeros((4, 1))))
+
+
+def test_exponent_two_does_not_cancel_in_float32():
+    X1 = jnp.array([[1e10]], dtype=jnp.float32)
+    X2 = jnp.array([[1.0]], dtype=jnp.float32)
+    K = kl.functional.distance_kernel(X1, X2, jnp.array(1.0, jnp.float32), 2.0)
+    assert float(K[0, 0]) == 1e10
+    assert float(kl.Distance(exponent=2.0).pairwise(X1[0], X2[0])) == 1e10
+
+
+def test_hsic_and_mmd_centre_distance_inputs():
+    # Direct calls get the same protection as the named wrappers.
+    kx, ky = jax.random.split(jax.random.key(0))
+    X = jax.random.normal(kx, (60, 1), dtype=jnp.float32)
+    Y = X**2 + 0.3 * jax.random.normal(ky, (60, 1), dtype=jnp.float32)
+    k = kl.Distance()
+    assert jnp.allclose(kl.cka(k, k, X + 1e3, Y), kl.cka(k, k, X, Y), rtol=2e-3)
+    assert jnp.allclose(
+        kl.mmd_squared(k, X + 1e3, Y + 1e3), kl.mmd_squared(k, X, Y), rtol=2e-3
+    )

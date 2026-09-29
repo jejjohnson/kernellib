@@ -26,6 +26,7 @@ __all__ = ["Derivative", "DerivativeIndexed", "derivative_inputs"]
 
 def _check_differentiable(kernel: AbstractKernel, name: str) -> None:
     """Reject kernels whose GP is not mean-square differentiable."""
+    from kernellib._kernels._nonstationary import Distance
     from kernellib._kernels._stationary import Matern, White
 
     if not kernel.is_pointwise:
@@ -36,17 +37,23 @@ def _check_differentiable(kernel: AbstractKernel, name: str) -> None:
     rough = [
         leaf
         for leaf in jax.tree.leaves(
-            kernel, is_leaf=lambda node: isinstance(node, Matern | White)
+            kernel, is_leaf=lambda node: isinstance(node, Matern | White | Distance)
         )
-        if isinstance(leaf, White) or (isinstance(leaf, Matern) and leaf.nu < 1.0)
+        if isinstance(leaf, White)
+        or (isinstance(leaf, Matern) and leaf.nu < 1.0)
+        or (isinstance(leaf, Distance) and leaf.exponent < 2.0)
     ]
     if rough:
+        leaf = rough[0]
+        detail = ""
+        if isinstance(leaf, Matern):
+            detail = f"(nu={leaf.nu})"
+        elif isinstance(leaf, Distance):
+            detail = f"(exponent={leaf.exponent})"
         raise ValueError(
             f"{name} needs a mean-square differentiable GP, but the kernel "
-            f"contains {type(rough[0]).__name__}"
-            + (f"(nu={rough[0].nu})" if isinstance(rough[0], Matern) else "")
-            + ", whose sample paths have no derivative. Use Matern(nu >= 1.5), "
-            "RBF or RationalQuadratic."
+            f"contains {type(leaf).__name__}{detail}, whose sample paths have "
+            "no derivative. Use Matern(nu >= 1.5), RBF or RationalQuadratic."
         )
 
 

@@ -112,7 +112,11 @@ class Distance(AbstractPointwiseKernel):
 
     PSD for ``0 < exponent <= 2``. ``exponent=2`` is the linear kernel;
     smaller exponents weight large distances less and suit heavy tails.
-    ``exponent`` is static. Gradients are finite at coincident points.
+    ``exponent`` is static. Gradients are finite at coincident points. The
+    GP it defines is mean-square differentiable only at ``exponent=2``, so
+    `Derivative` and `DerivativeIndexed` reject smaller exponents. `hsic`,
+    `cka` and `mmd_squared` centre its inputs, since the kernel is anchored
+    at the origin and the centred statistics are translation invariant.
 
     Attributes:
         variance: Scalar multiplier.
@@ -142,6 +146,8 @@ class Distance(AbstractPointwiseKernel):
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
         a = self.exponent
+        if a == 2.0:
+            return self.variance * jnp.dot(x, y)
         diff = x - y
         return (
             0.5

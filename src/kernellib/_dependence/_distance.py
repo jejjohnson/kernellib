@@ -14,10 +14,10 @@ so each function here is one call to `hsic`, `cka` or `mmd_squared`, with
 their estimators, ``approx`` paths and gradients.
 
 The statistics are translation invariant but the kernel is anchored at the
-origin, so a large offset would bury the distances under $\|x\|^a$ terms that
-only cancel on paper. Each function therefore centres its inputs first:
-``X`` and ``Y`` separately for dependence, by their pooled mean for energy
-distance.
+origin, so `hsic`, `cka` and `mmd_squared` centre the inputs of a `Distance`
+kernel first (``X`` and ``Y`` separately for dependence, by their pooled mean
+for MMD); otherwise a large offset would bury the distances under
+$\|x\|^a$ terms that only cancel on paper.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from typing import Literal
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._dependence._hsic import Estimator, cka, hsic
+from kernellib._dependence._hsic import Estimator, _cka_parts, hsic
 from kernellib._dependence._mmd import mmd_squared
 from kernellib._kernels import Distance
 from kernellib._spectral import AbstractFeatureMap
@@ -75,7 +75,6 @@ def distance_covariance_squared(
         0.493827
     """
     kernel = Distance(exponent=exponent)
-    X, Y = _centre(X), _centre(Y)
     return 4.0 * hsic(kernel, kernel, X, Y, estimator=estimator, approx=approx)
 
 
@@ -94,8 +93,9 @@ def distance_correlation_squared(
     samples in the limit, one when ``Y`` is a similarity transform of ``X``.
     Unlike Pearson's $\rho^2$ it detects nonlinear dependence. The square
     root is dCor; it is left to the caller because the unbiased estimate can
-    be negative. As in Székely et al., it is zero when either sample is
-    constant (zero distance variance), rather than ``0 / 0``.
+    be negative. As in Székely et al., it is zero when either distance
+    variance is exactly zero (a constant sample, or a Nyström map that
+    collapsed to zero), rather than ``0 / 0``; NaN inputs still give NaN.
 
     Same arguments as `distance_covariance_squared`.
 
@@ -111,10 +111,10 @@ def distance_correlation_squared(
         1.0
     """
     kernel = Distance(exponent=exponent)
-    degenerate = _is_constant(X) | _is_constant(Y)
-    X, Y = _centre(X), _centre(Y)
-    dcor2 = cka(kernel, kernel, X, Y, estimator=estimator, approx=approx)
-    return jnp.where(degenerate, jnp.zeros_like(dcor2), dcor2)
+    xy, xx, yy = _cka_parts(kernel, kernel, X, Y, estimator, approx)
+    denom = xx * yy
+    zero = denom == 0  # NaN compares False, so it propagates
+    return jnp.where(zero, 0.0, xy / jnp.sqrt(jnp.where(zero, 1.0, denom)))
 
 
 def energy_distance(
@@ -155,14 +155,4 @@ def energy_distance(
         4.5
     """
     kernel = Distance(exponent=exponent)
-    offset = jnp.mean(jnp.concatenate([X, Y]), axis=0)
-    X, Y = X - offset, Y - offset
     return 2.0 * mmd_squared(kernel, X, Y, estimator=estimator, approx=approx)
-
-
-def _centre(X: Float[Array, "N D"]) -> Float[Array, "N D"]:
-    return X - jnp.mean(X, axis=0)
-
-
-def _is_constant(X: Float[Array, "N D"]) -> Array:
-    return jnp.all(X[0] == X)

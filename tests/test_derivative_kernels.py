@@ -106,14 +106,26 @@ def test_gp_conditioned_on_gradients_recovers_the_function(d):
 
 @pytest.mark.parametrize(
     "kernel",
-    [kl.Matern(nu=0.5), kl.RBF() + kl.White(0.1), 2.0 * kl.Matern(nu=0.5)],
-    ids=["matern05", "white", "scaled-matern05"],
+    [
+        kl.Matern(nu=0.5),
+        kl.RBF() + kl.White(0.1),
+        2.0 * kl.Matern(nu=0.5),
+        kl.Distance(exponent=1.5),
+        kl.RBF() + kl.Distance(),
+    ],
+    ids=["matern05", "white", "scaled-matern05", "distance15", "sum-distance"],
 )
 def test_rough_kernels_are_rejected(kernel):
     with pytest.raises(ValueError, match="mean-square differentiable"):
         kl.Derivative(kernel, dx=0)
     with pytest.raises(ValueError, match="mean-square differentiable"):
         kl.DerivativeIndexed(kernel)
+
+
+def test_distance_with_exponent_two_is_differentiable():
+    # Distance(exponent=2) is the linear kernel: its GP is differentiable.
+    k = kl.Derivative(kl.Distance(exponent=2.0), dx=0, dy=0)
+    assert float(k.pairwise(jnp.zeros(1), jnp.zeros(1))) == 1.0
 
 
 def test_config_errors():
