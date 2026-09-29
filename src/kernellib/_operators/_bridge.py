@@ -6,13 +6,16 @@ lineax / gaussx (``gaussx.solve``, ``gaussx.logdet``, the solver strategies).
 
 from __future__ import annotations
 
+from typing import Literal
+
 import equinox as eqx
+import gaussx as gx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from kernellib._kernels._base import AbstractKernel
+from kernellib._kernels._base import AbstractKernel, GramParts
 from kernellib._operators._implicit import ImplicitKernelOperator
 from kernellib._operators._implicit_cross import ImplicitCrossKernelOperator
 
@@ -50,18 +53,36 @@ def to_operator(
     *,
     noise: float | Float[Array, ""] | None = None,
     implicit: bool = False,
+    structure: Literal["auto", "dense"] = "auto",
 ) -> lx.AbstractLinearOperator:
     r"""``K(X, X) (+ noise * I)`` as a symmetric, PSD-tagged linear operator.
+
+    With ``structure="auto"`` (default), a kernel whose Gram is diagonal
+    and/or low-rank keeps that structure: `White` becomes a
+    `lineax.DiagonalLinearOperator`, and `Constant`, `Linear` and their
+    `Sum` / `Scaled` / `ActiveDims` / `Warped` combinations with `White`
+    become one `gaussx.LowRankUpdate` on a diagonal base, which `gaussx.solve`
+    and `gaussx.logdet` handle by Woodbury in ``O(N R^2)``. Any part without
+    such structure (``RBF``, ``Product``, ...) makes the whole Gram dense.
+    A pure low-rank Gram (no `White`, no ``noise``) is singular for
+    ``R < N``; add noise before solving with it.
+
+    `White` is taken as observation noise, ``sigma^2 I``. That differs from
+    its dense Gram only when ``X`` repeats a row, where the dense delta on
+    locations also correlates the repeats.
 
     Args:
         kernel: Any kernel. ``implicit=True`` needs a pointwise one.
         X: Inputs, shape ``(N, D)``.
         noise: Optional diagonal noise variance added to the kernel.
-        implicit: ``False`` (default) materialises the Gram matrix as a
-            `lineax.MatrixLinearOperator`. ``True`` returns a matrix-free
+        implicit: ``False`` (default) builds the Gram operator eagerly (see
+            ``structure``). ``True`` returns a matrix-free
             `ImplicitKernelOperator` with ``O(N)`` memory per matvec and the
             noise fused in; gradients reach the kernel's hyperparameters
             through its custom JVP.
+        structure: ``"auto"`` keeps diagonal / low-rank structure where the
+            kernel has it; ``"dense"`` always materialises a
+            `lineax.MatrixLinearOperator`. Ignored when ``implicit=True``.
 
     Returns:
         A square ``(N, N)`` operator for use with `gaussx.solve` and friends.
@@ -82,6 +103,11 @@ def to_operator(
         (5,)
     """
     if not implicit:
+        if structure not in ("auto", "dense"):
+            raise ValueError(f"structure must be 'auto' or 'dense', got {structure!r}.")
+        parts = kernel._gram_structure(X) if structure == "auto" else None
+        if parts is not None:
+            return _structured_operator(parts, X, noise)
         K = kernel(X, X)
         if noise is not None:
             K = K + noise * jnp.eye(X.shape[0], dtype=K.dtype)
@@ -97,6 +123,36 @@ def to_operator(
         ) from err
     return ImplicitKernelOperator(
         kernel_fn, X, noise_var, params=params, tags=_PSD_TAGS
+    )
+
+
+def _structured_operator(
+    parts: GramParts,
+    X: Float[Array, "N D"],
+    noise: float | Float[Array, ""] | None,
+) -> lx.AbstractLinearOperator:
+    """``diag(δ) + U diag(w) Uᵀ (+ noise I)`` as a diagonal or low-rank operator."""
+    n = X.shape[0]
+    arrays = [
+        a for a in (parts.diagonal, parts.factors, parts.weights) if a is not None
+    ]
+    dtype = jnp.result_type(X, *arrays, *([] if noise is None else [noise]))
+    diagonal = jnp.zeros(n, dtype=dtype)
+    if parts.diagonal is not None:
+        diagonal = diagonal + parts.diagonal
+    if noise is not None:
+        diagonal = diagonal + noise
+    base = lx.DiagonalLinearOperator(diagonal)
+    if parts.factors is None:
+        return lx.TaggedLinearOperator(base, _PSD_TAGS)
+    assert parts.weights is not None
+    U = parts.factors.astype(dtype)
+    # The weights go on V with d = 1: gaussx's Woodbury capacitance inverts
+    # d, and a zero weight (Linear's default bias) would make it infinite,
+    # while folding sqrt(w) into both factors has an infinite gradient at 0.
+    V = U * parts.weights.astype(dtype)
+    return gx.LowRankUpdate(
+        base=base, U=U, d=jnp.ones(U.shape[1], dtype=dtype), V=V, tags=_PSD_TAGS
     )
 
 

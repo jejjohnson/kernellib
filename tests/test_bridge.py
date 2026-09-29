@@ -110,3 +110,86 @@ def test_dense_noise_can_be_differentiated():
         return jnp.trace(kl.to_operator(_kernel(), X, noise=noise).as_matrix())
 
     assert jnp.allclose(jax.grad(loss)(jnp.array(NOISE)), 30.0)
+
+
+# ---------------------------------------------------------------------------
+# Structured Gram operators (#55)
+# ---------------------------------------------------------------------------
+
+STRUCTURED = [
+    (kl.White(0.3), lx.TaggedLinearOperator),
+    (kl.Constant(2.0), gx.LowRankUpdate),
+    (kl.Linear(), gx.LowRankUpdate),
+    (kl.Linear(variance=0.4, bias=0.5) + kl.White(0.1), gx.LowRankUpdate),
+    (2.0 * (kl.Linear() + kl.Constant()) + kl.White(0.2), gx.LowRankUpdate),
+    (kl.ActiveDims(kl.Linear(), (1,)) + kl.White(0.1), gx.LowRankUpdate),
+    (kl.Warped(kl.Linear(), lambda x: jnp.tanh(x)) + kl.White(0.1), gx.LowRankUpdate),
+    (kl.RBF() + kl.White(0.1), lx.MatrixLinearOperator),
+    (kl.Linear() * kl.Linear(), lx.MatrixLinearOperator),
+]
+STRUCTURED_IDS = [
+    "white",
+    "constant",
+    "linear",
+    "linear+white",
+    "scaled-sum",
+    "active-dims",
+    "warped",
+    "rbf+white-dense",
+    "product-dense",
+]
+
+
+@pytest.mark.parametrize(("kernel", "cls"), STRUCTURED, ids=STRUCTURED_IDS)
+def test_structured_operator_matches_the_gram(kernel, cls):
+    op = kl.to_operator(kernel, X, noise=NOISE)
+    assert isinstance(op, cls)
+    assert jnp.allclose(op.as_matrix(), kernel(X, X) + NOISE * jnp.eye(30), atol=1e-12)
+    assert lx.is_symmetric(op) and lx.is_positive_semidefinite(op)
+
+
+@pytest.mark.parametrize(("kernel", "cls"), STRUCTURED, ids=STRUCTURED_IDS)
+def test_structured_solve_and_logdet_match_dense(kernel, cls):
+    op = kl.to_operator(kernel, X, noise=NOISE)
+    dense = kl.to_operator(kernel, X, noise=NOISE, structure="dense")
+    assert isinstance(dense, lx.MatrixLinearOperator)
+    assert jnp.allclose(gx.solve(op, Y), jnp.linalg.solve(dense.as_matrix(), Y))
+    assert jnp.allclose(gx.logdet(op), jnp.linalg.slogdet(dense.as_matrix())[1])
+
+
+def test_structured_logdet_gradients_match_dense():
+    def loss(params, structure):
+        variance, bias, noise = params
+        k = kl.Linear(variance=variance, bias=bias) + kl.White(noise)
+        op = kl.to_operator(k, X, structure=structure)
+        return gx.logdet(op) + Y @ gx.solve(op, Y)
+
+    # bias = 0 is the default: the zero-weight column must not break gradients.
+    params = (jnp.array(0.7), jnp.array(0.0), jnp.array(0.2))
+    structured = jax.grad(loss)(params, "auto")
+    dense = jax.grad(loss)(params, "dense")
+    for a, b in zip(structured, dense, strict=True):
+        assert jnp.isfinite(a) and jnp.allclose(a, b, rtol=1e-8)
+
+
+def test_structured_solve_never_forms_an_n_by_n_matrix():
+    n = 4096
+    Xn = jr.normal(jr.key(3), (n, 3))
+    yn = jr.normal(jr.key(4), (n,))
+    k = kl.Linear(bias=0.3) + kl.White(0.1)
+    jaxpr = str(jax.make_jaxpr(lambda X, y: gx.solve(kl.to_operator(k, X), y))(Xn, yn))
+    assert f"{n},{n}" not in jaxpr
+
+
+def test_structured_white_is_observation_noise_on_repeated_rows():
+    # The dense delta on locations also correlates repeated rows; the
+    # structured Gram is sigma^2 I, independent noise per observation.
+    Xd = jnp.concatenate([X[:3], X[:3]])
+    op = kl.to_operator(kl.White(0.5), Xd)
+    assert jnp.allclose(op.as_matrix(), 0.5 * jnp.eye(6))
+    assert kl.White(0.5)(Xd, Xd)[0, 3] == 0.5
+
+
+def test_unknown_structure_raises():
+    with pytest.raises(ValueError, match="structure"):
+        kl.to_operator(kl.RBF(), X, structure="sparse")

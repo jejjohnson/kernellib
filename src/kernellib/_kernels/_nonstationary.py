@@ -6,7 +6,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._kernels._base import AbstractPointwiseKernel
+from kernellib._kernels._base import AbstractPointwiseKernel, GramParts
 from kernellib.functional import _nonstationary as _f
 
 
@@ -46,6 +46,19 @@ class Linear(AbstractPointwiseKernel):
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.variance * jnp.sum(X * X, axis=-1) + self.bias
+
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
+        # sigma^2 X Xᵀ + b 11ᵀ: rank D + 1 (a zero bias is a zero-weight column).
+        n, d = X.shape
+        factors = jnp.concatenate([X, jnp.ones((n, 1), dtype=X.dtype)], axis=1)
+        dtype = jnp.result_type(self.variance, self.bias, X)
+        weights = jnp.concatenate(
+            [
+                jnp.full((d,), self.variance, dtype=dtype),
+                jnp.atleast_1d(self.bias).astype(dtype),
+            ]
+        )
+        return GramParts(factors=factors, weights=weights)
 
 
 class Polynomial(AbstractPointwiseKernel):

@@ -17,7 +17,11 @@ import jax.numpy as jnp
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._kernels._base import AbstractPointwiseKernel, AbstractStationaryKernel
+from kernellib._kernels._base import (
+    AbstractPointwiseKernel,
+    AbstractStationaryKernel,
+    GramParts,
+)
 from kernellib.functional import _stationary as _f
 from kernellib.functional._special import log_bessel_kv
 
@@ -398,6 +402,12 @@ class White(AbstractPointwiseKernel):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.variance * jnp.ones(X.shape[0], dtype=X.dtype)
 
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
+        # Observation noise, sigma^2 I. Differs from the dense Gram only when
+        # X repeats a row, where the delta on locations would also correlate
+        # the repeats.
+        return GramParts(diagonal=self.diag(X))
+
 
 class Constant(AbstractPointwiseKernel):
     r"""Constant kernel, ``k(x, x') = sigma^2``.
@@ -420,3 +430,7 @@ class Constant(AbstractPointwiseKernel):
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.variance * jnp.ones(X.shape[0], dtype=X.dtype)
+
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
+        ones = jnp.ones((X.shape[0], 1), dtype=X.dtype)
+        return GramParts(factors=ones, weights=jnp.atleast_1d(self.variance))

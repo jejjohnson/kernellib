@@ -83,6 +83,32 @@ Practical guidance:
 
 ::: kernellib.batched_kernel_rmatvec
 
+## Structured Gram operators
+
+With the default `structure="auto"`, `to_operator` keeps the structure a
+kernel's Gram matrix already has instead of materialising it:
+
+| Kernel | `to_operator(kernel, X, noise=σ²)` |
+|---|---|
+| `White` | diagonal (`lineax.DiagonalLinearOperator`, PSD-tagged) |
+| `Constant`, `Linear` | `gaussx.LowRankUpdate`, rank 1 / `D + 1`, on a diagonal base |
+| `Sum`, `Scaled`, `ActiveDims`, `Warped` of the above | one `LowRankUpdate`: factors concatenated, diagonals added |
+| anything with a dense part (`RBF`, `Product`, ...) | dense `MatrixLinearOperator`, as before |
+
+`gaussx.solve` and `gaussx.logdet` then use the Woodbury identity and the
+matrix-determinant lemma, ``O(N R^2)`` instead of ``O(N^3)``, so a Bayesian
+linear model `kl.Linear() + kl.White(0.1)` on a million points never forms an
+``N x N`` matrix. Pass `structure="dense"` for the old dense operator.
+
+```python
+op = kl.to_operator(kl.Linear(bias=1.0) + kl.White(0.1), X)  # gx.LowRankUpdate
+alpha = gx.solve(op, y)  # Woodbury
+```
+
+A pure low-rank Gram (no `White`, no `noise`) is singular for rank below
+``N``: add noise before solving. `White` is taken as observation noise,
+``σ² I``, which differs from its dense Gram only when `X` repeats a row.
+
 ## Low-rank approximations
 
 Nyström ($K \approx K_{nm} K_{mm}^{-1} K_{mn}$), random-Fourier-feature and
