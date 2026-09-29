@@ -96,13 +96,30 @@ def cka(
     Same arguments as `hsic`. With the biased estimator the value lies in
     ``[0, 1]`` and is invariant to rescaling either kernel.
 
+    With `Linear` kernels it is the RV coefficient (Escoufier, 1973),
+    $\|\Sigma_{xy}\|_F^2 / (\|\Sigma_{xx}\|_F \|\Sigma_{yy}\|_F)$, the
+    multivariate $\rho^2$; with `Distance` kernels it is the squared distance
+    correlation, except for a constant sample: there this ratio is
+    ``0 / 0 = NaN``, while `distance_correlation_squared` returns the
+    conventional zero.
+
     Examples:
         >>> import jax
+        >>> import jax.numpy as jnp
         >>> import kernellib as kl
         >>> X = jax.random.normal(jax.random.key(0), (30, 2))
         >>> k = kl.RBF()
         >>> round(float(kl.cka(k, k, X, X)), 6)
         1.0
+
+        The RV coefficient, from the cross-covariance matrices:
+
+        >>> Y = jnp.tanh(X) + 0.1 * jax.random.normal(jax.random.key(1), (30, 2))
+        >>> Xc, Yc = X - X.mean(0), Y - Y.mean(0)
+        >>> frob2 = lambda A, B: jnp.sum((A.T @ B) ** 2)
+        >>> rv = frob2(Xc, Yc) / jnp.sqrt(frob2(Xc, Xc) * frob2(Yc, Yc))
+        >>> bool(jnp.isclose(kl.cka(kl.Linear(), kl.Linear(), X, Y), rv))
+        True
     """
     xy, xx, yy = _cka_parts(kernel_x, kernel_y, X, Y, estimator, approx)
     return xy / jnp.sqrt(xx * yy)
