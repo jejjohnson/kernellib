@@ -131,7 +131,7 @@ eigenmaps, LPP.
 | GP models, ELBOs, conditionals, Markov / sparse GPs | pyrox-gp (modelling), gaussx (`_gp` recipes) |
 | Structured operators, solvers, preconditioners, logdets | gaussx |
 | Basis-function zoo (Laplace eigenfunctions, spherical harmonics, Slepian, wavelets, Gabor) | geonnax |
-| Information theory (entropy, MI estimators, KDE, kNN) | pysim, unchanged |
+| Information theory (entropy, MI estimators, KDE, kNN) | out of scope (pysim is retired, see below) |
 | Multi-output kernels (LMC, ICM, OILMM) | pyrox-gp, for now (see open questions) |
 | Positivity transforms / constrained optimisation of hyperparameters | caller (optax / pyrox-gp), see open questions |
 | numpy / PyTorch backends | never |
@@ -499,10 +499,12 @@ geonnax depends only on jax, equinox, jaxtyping, einops, einx, so there is
 no cycle. It is pinned by git tag exactly as pyrox-gp pins it until it is
 on PyPI.
 
-### pysim: reimplemented, not modified
+### pysim: retired into kernellib
 
-pysim is not touched. The following is reimplemented in kernellib in JAX with
-the same semantics, and pysim may later import from kernellib if wanted:
+pysim is no longer used; kernellib is its successor. Its kernel and linear
+halves are reimplemented here in JAX (with its bugs fixed, not reproduced),
+and its documentation's derivations live on in the similarity-measures
+notebook:
 
 | pysim | kernellib |
 |---|---|
@@ -510,6 +512,10 @@ the same semantics, and pysim may later import from kernellib if wanted:
 | `RandomizedHSIC` (Nyström) and `RFFHSIC` | `hsic(..., approx=NystromFeatures(...) \| RandomFourierFeatures(...) \| FastFoodFeatures(...))`: the feature map yields `LowRankUpdate` operators for `X` and `Y`, and `kernellib.functional.hsic` evaluates `‖Φ̃xᵀ Φ̃y‖²_F / n²` in `O(n m²)` through gaussx's low-rank `trace_product` fast path |
 | `estimate_sigma` / `estimate_gamma` (mean, median, Silverman, Scott; subsample; k-th percentile neighbour), `sigma_to_gamma`, `get_sigma_grid` | `estimate_lengthscale(X, *, method, subsample, percent, key)`, `lengthscale_to_gamma`, `lengthscale_grid` |
 | `RandomFourierFeatures` (sklearn transformer) | `RandomFourierFeatures(n_features, key).fit(kernel)` eqx.Module with `__call__(X) -> Φ` and `operator(X)` |
+| `LinearRV` (RV coefficient) | `cka(Linear(), Linear(), X, Y)`, documented rather than aliased |
+| Distance correlation (`docs/linear/dist.md`, never implemented) | `Distance(exponent)` kernel; `distance_covariance_squared` = 4 `hsic`, `distance_correlation_squared` = `cka`, `energy_distance` = 2 `mmd_squared` (Sejdinovic et al., 2013) |
+| `viz.TaylorDiagram` (matplotlib) and the kernel Taylor diagram of `docs/viz/taylor.md` | `taylor_statistics(kx, ky, X, Y)` returns the coordinates; plotting stays out of kernellib and lives in the notebook |
+| `docs/` derivations (RV, HSIC, MMD, linear-algebra tricks, Taylor diagrams) | `docs/notebooks/similarity_measures.ipynb` |
 | `information/*` (entropy, MI, KDE, kNN) | out of scope |
 
 Old kernellib's `hsic_rbf_derivative` / `rhsic_rff_derivative` become
@@ -910,3 +916,4 @@ equals the dense value.
 | 2026-09-26 | Decomposition as built, and manifold learning brought into scope (the earlier deferral is superseded). `nearest_neighbors(X, k, backend=...)` returns a `KNNGraph`: exact batched brute force in JAX by default, with `pynndescent` (extra `kernellib[neighbors]`) and `sklearn` backends imported lazily inside the function, so `import kernellib` still loads neither (the import guard now also lists pynndescent and numba). `adjacency_matrix` / `graph_laplacian` are dense; the graph kernels (`diffusion`, `regularized_laplacian`, `random_walk`, `cosine_graph`, `commute_time`) are spectral functions of the Laplacian from the old `decomposition/graph.py`. `LaplacianEigenmaps`, `SchrodingerEigenmaps` (potentials: `barrier_potential`, `label_potential`, `spatial_spectral_potential`, with Cahill's `tr(L)/tr(V)` normalisation of α) and `LocalityPreservingProjections` solve the generalised problems densely in JAX or, with `eigen_solver="arpack"`, sparsely with SciPy (SciPy is already a JAX dependency). `KernelPCA` has an exact path and an `approx=` feature-map path. scikit-learn adapters for all four pass `check_estimator`; the Schrödinger adapter takes partial labels as `y` (`-1` unlabelled) |
 | 2026-09-26 | `_derivatives.py` is dropped. Kernel derivatives, derivative Gram blocks, predictor gradients and HSIC input gradients are one-line compositions of `jax.grad` / `jacfwd` / `vmap` with `pairwise`, `predict` and `hsic`; a tutorial notebook documents them instead of a module wrapping them |
 | 2026-09-29 | Narrows the entry above. Derivative *helpers* stay a tutorial, but derivative *kernels* are objects, because a GP with gradient observations needs the joint covariance as a kernel that composes with `Sum`, `to_operator` and the solvers, which a recipe cannot provide (#58, prompted by mlkernels' `k.diff`). `Derivative(k, dx, dy)` is ∂ₓᵢ∂ₓ'ⱼk for fixed dimensions; `DerivativeIndexed(k)` takes rows `[x, i]` (`i = -1` value, `i = d` partial) and keeps the `(N1, N2)` Gram contract, so any mix of value and partial observations is one Gram; `derivative_inputs` builds the rows. Both are autodiff of `pairwise` and reject kernels whose GP is not mean-square differentiable (`Matern(nu=0.5)`, `White`) |
+| 2026-09-29 | pysim is retired and kernellib is its successor (supersedes "pysim itself is not changed"). Its remaining kernel-side content moves here: the `Distance` kernel with distance covariance / correlation and energy distance as HSIC / CKA / MMD under it, `taylor_statistics` for kernel Taylor diagrams, the RV coefficient documented as linear CKA, and its derivations as a notebook. Information-theory estimators stay out of scope |

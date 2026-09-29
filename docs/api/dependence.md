@@ -53,6 +53,9 @@ lengthscale (bandwidth selection) or the inputs (sensitivity) works directly.
 
 ## Distance-based statistics
 
+For a walk-through from correlation to these measures, see the
+[Similarity measures](../../similarity-measures/) notebook.
+
 Distance covariance, distance correlation and energy distance are HSIC, CKA
 and MMD under the distance-induced kernel
 $k(x, x') = \tfrac12(\|x\|^a + \|x'\|^a - \|x - x'\|^a)$ (Sejdinovic et

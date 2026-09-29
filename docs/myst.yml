@@ -33,6 +33,7 @@ project:
     - title: Examples
       children:
         - file: notebooks/kernel_approximations.ipynb
+        - file: notebooks/similarity_measures.ipynb
         - file: notebooks/matrix_free_gp.ipynb
         - file: notebooks/sklearn_workflows.ipynb
         - file: notebooks/graph_embeddings.ipynb

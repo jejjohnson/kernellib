@@ -3,7 +3,8 @@
 kernellib sits between gaussx and pyrox-gp. This page is the short version of
 the design document committed at `design_docs/kernellib/architecture.md`,
 which fixes the kernel contract, the package layout, the migration phases, and
-the boundaries with gaussx, pyrox-gp, geonnax and pysim.
+the boundaries with gaussx, pyrox-gp and geonnax. kernellib is also the
+successor of pysim, whose similarity measures it reimplements.
 
 ## The rule
 

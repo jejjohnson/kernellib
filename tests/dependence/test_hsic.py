@@ -142,3 +142,16 @@ def test_errors():
             estimator="unbiased",
             approx=kl.RandomFourierFeatures(4, jax.random.key(0)),
         )
+
+
+@pytest.mark.parametrize("dy", [1, 2, 4])
+def test_linear_cka_is_the_rv_coefficient(dy):
+    # Escoufier's RV coefficient from the (Dx, Dy) cross-covariance matrices;
+    # linear CKA computes it in sample space from N x N Gram matrices.
+    X = jax.random.normal(jax.random.key(0), (40, 3))
+    Y = jnp.tanh(X[:, :1]) + 0.5 * jax.random.normal(jax.random.key(1), (40, dy))
+    Xc, Yc = X - X.mean(0), Y - Y.mean(0)
+    S_xy, S_xx, S_yy = Xc.T @ Yc, Xc.T @ Xc, Yc.T @ Yc
+    rv = jnp.sum(S_xy**2) / (jnp.linalg.norm(S_xx) * jnp.linalg.norm(S_yy))
+    got = kl.cka(kl.Linear(), kl.Linear(), X, Y)
+    assert jnp.allclose(got, rv, rtol=1e-10)
