@@ -314,8 +314,10 @@ class Periodic(AbstractPointwiseKernel):
     Warning:
         Applied to the Euclidean distance, this kernel is positive
         semidefinite for 1-D inputs but not in general for ``D > 1``. For
-        multi-dimensional periodicity use a `Product` of per-dimension
-        periodic kernels via `ActiveDims`.
+        multi-dimensional periodicity use `Periodised`, which wraps each
+        coordinate onto a circle and is PSD in any dimension, with any base
+        kernel; ``Periodised(RBF(lengthscale=l), p)`` equals this kernel in
+        1-D.
 
     Attributes:
         lengthscale: Scalar lengthscale.

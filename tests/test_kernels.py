@@ -337,3 +337,71 @@ def test_taylor_branch_is_continuous(kernel):
 def test_matern_half_gradient_is_finite_at_zero():
     g = jax.grad(kl.Matern(nu=0.5).pairwise, argnums=0)(jnp.zeros(2), jnp.zeros(2))
     assert jnp.all(jnp.isfinite(g))
+
+
+# ---------------------------------------------------------------------------
+# Periodised (#56)
+# ---------------------------------------------------------------------------
+
+
+def _min_eig(K):
+    return float(jnp.linalg.eigvalsh(0.5 * (K + K.T)).min())
+
+
+def test_periodised_rbf_is_periodic_in_1d():
+    X = jax.random.uniform(jax.random.key(0), (40, 1), minval=-5.0, maxval=5.0)
+    a = kl.Periodised(kl.RBF(lengthscale=0.7, variance=1.3), period=2.0)(X, X)
+    b = kl.Periodic(lengthscale=0.7, variance=1.3, period=2.0)(X, X)
+    assert jnp.allclose(a, b, atol=1e-12)
+
+
+def test_periodised_is_psd_where_periodic_is_not():
+    X = jax.random.uniform(jax.random.key(1), (200, 2), minval=-5.0, maxval=5.0)
+    # Guard: the Euclidean-distance Periodic is indefinite on these points.
+    assert _min_eig(kl.Periodic(lengthscale=0.3, period=2.0)(X, X)) < -1.0
+    for base in (
+        kl.RBF(lengthscale=0.3),
+        kl.Matern(nu=0.5, lengthscale=0.5),
+        kl.Matern(nu=2.5),
+        kl.RationalQuadratic(alpha=0.8),
+    ):
+        K = kl.Periodised(base, period=jnp.array([2.0, 3.0]))(X, X)
+        assert _min_eig(K) > -1e-8
+
+
+def test_periodised_is_periodic_and_stationary():
+    k = kl.Periodised(kl.Matern(nu=1.5, lengthscale=0.8), period=jnp.array([2.0, 5.0]))
+    x, y = jnp.array([0.3, -1.1]), jnp.array([1.7, 0.4])
+    for d, p in enumerate((2.0, 5.0)):
+        shift = jnp.zeros(2).at[d].set(p)
+        assert jnp.allclose(k.pairwise(x + shift, y), k.pairwise(x, y))
+    assert jnp.allclose(k.pairwise(x + 0.37, y + 0.37), k.pairwise(x, y))
+
+
+def test_periodised_gram_diag_and_pairwise_agree():
+    X = jax.random.normal(jax.random.key(2), (7, 3))
+    k = kl.Periodised(kl.RationalQuadratic(alpha=2.0), period=1.5)
+    K = k(X, X)
+    assert jnp.allclose(jnp.diag(K), k.diag(X))
+    assert jnp.allclose(K[2, 5], k.pairwise(X[2], X[5]))
+    assert k.is_pointwise
+
+
+def test_periodised_period_gradient_is_finite():
+    X = jax.random.normal(jax.random.key(3), (10, 2))
+
+    def loss(period):
+        return jnp.sum(kl.Periodised(kl.RBF(), period=period)(X, X))
+
+    g = jax.jit(jax.grad(loss))(jnp.array([1.5, 2.5]))
+    assert jnp.all(jnp.isfinite(g)) and jnp.all(g != 0.0)
+
+
+def test_periodised_linear_keeps_low_rank_structure():
+    import gaussx as gx
+
+    X = jax.random.normal(jax.random.key(4), (12, 2))
+    k = kl.Periodised(kl.Linear(), period=2.0) + kl.White(0.1)
+    op = kl.to_operator(k, X)
+    assert isinstance(op, gx.LowRankUpdate)
+    assert jnp.allclose(op.as_matrix(), k(X, X), atol=1e-12)

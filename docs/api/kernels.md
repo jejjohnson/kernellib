@@ -65,6 +65,8 @@ gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
 
 ::: kernellib.Warped
 
+::: kernellib.Periodised
+
 ## Bridge to gaussx
 
 ::: kernellib.to_operator

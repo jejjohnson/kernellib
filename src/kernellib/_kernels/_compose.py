@@ -27,6 +27,7 @@ from kernellib._kernels._base import AbstractKernel, AbstractStationaryKernel, G
 
 __all__ = [
     "ActiveDims",
+    "Periodised",
     "Product",
     "Scaled",
     "Sum",
@@ -350,6 +351,69 @@ class Warped(AbstractKernel):
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
         return self.kernel.pairwise(self.warp(x), self.warp(y))
+
+    @property
+    def is_pointwise(self) -> bool:
+        return self.kernel.is_pointwise
+
+
+class Periodised(AbstractKernel):
+    r"""Make any kernel periodic: apply it to inputs wrapped onto circles.
+
+    Each input coordinate is embedded as
+    $z_d \mapsto (\sin(2\pi z_d / p_d), \cos(2\pi z_d / p_d))$, and
+    ``kernel`` is evaluated on the ``2D``-dimensional embedding (MacKay,
+    1998). A kernel of warped inputs is positive semidefinite whenever the
+    base kernel is, in any dimension, unlike `Periodic`, which applies the
+    sine to the Euclidean distance and is not PSD for ``D > 1``.
+
+    With a stationary base the result is stationary and periodic in each
+    coordinate: $\lVert\phi(x) - \phi(y)\rVert^2
+    = \sum_d 4 \sin^2(\pi (x_d - y_d) / p_d)$, so
+    ``Periodised(RBF(lengthscale=l), p)`` is
+    $\exp(-2 \sum_d \sin^2(\pi (x_d - y_d) / p_d) / l^2)$: exactly
+    `Periodic` in 1-D, and the product of per-dimension periodic kernels in
+    higher dimensions. Any base works (`Matern`, `RationalQuadratic`,
+    ``Linear``, ...).
+
+    The base kernel acts on the embedding, so an ARD lengthscale on it needs
+    ``2 * D`` entries (sine and cosine of each coordinate).
+
+    Attributes:
+        kernel: The base kernel, applied to the ``(2D,)`` embedding.
+        period: Scalar, or ``(D,)`` for a period per input dimension.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> k = kl.Periodised(kl.Matern(nu=1.5, lengthscale=0.8), period=2.0)
+        >>> x = jnp.array([0.3, -0.4])
+        >>> bool(jnp.allclose(k.pairwise(x, x + 2.0), k.pairwise(x, x)))
+        True
+    """
+
+    kernel: AbstractKernel
+    period: Float[Array, ""] | Float[Array, " D"] = eqx.field(converter=jnp.asarray)
+
+    def _embed(self, x: Float[Array, " D"]) -> Float[Array, " 2D"]:
+        z = 2.0 * jnp.pi * x / self.period
+        return jnp.concatenate([jnp.sin(z), jnp.cos(z)], axis=-1)
+
+    def __call__(
+        self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]
+    ) -> Float[Array, "N1 N2"]:
+        return self.kernel(self._embed(X1), self._embed(X2))
+
+    def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
+        return self.kernel.diag(self._embed(X))
+
+    def pairwise(
+        self, x: Float[Array, " D"], y: Float[Array, " D"]
+    ) -> Float[Array, ""]:
+        return self.kernel.pairwise(self._embed(x), self._embed(y))
+
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        return self.kernel._gram_structure(self._embed(X))
 
     @property
     def is_pointwise(self) -> bool:
