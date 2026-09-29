@@ -17,7 +17,11 @@ from __future__ import annotations
 
 from kernellib.functional._compose import kernel_add, kernel_mul
 from kernellib.functional._mixed_precision import stable_rbf_kernel
-from kernellib.functional._nonstationary import linear_kernel, polynomial_kernel
+from kernellib.functional._nonstationary import (
+    distance_kernel,
+    linear_kernel,
+    polynomial_kernel,
+)
 from kernellib.functional._stationary import (
     constant_kernel,
     cosine_kernel,
@@ -42,6 +46,7 @@ __all__ = [
     "cka",
     "constant_kernel",
     "cosine_kernel",
+    "distance_kernel",
     "hsic",
     "kernel_add",
     "kernel_mul",

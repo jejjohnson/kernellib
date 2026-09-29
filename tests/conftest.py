@@ -32,6 +32,8 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._decomposition._eigenmaps.schrodinger_eigenmap",
         "kernellib._decomposition._graph.adjacency_matrix",
         "kernellib._decomposition._kpca.KernelPCA",
+        "kernellib._dependence._distance.distance_correlation_squared",
+        "kernellib._dependence._distance.energy_distance",
         "kernellib._dependence._hsic.hsic",
         "kernellib._dependence._permutation.permutation_test",
         "kernellib._heuristics.estimate_lengthscale",

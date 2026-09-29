@@ -4,6 +4,11 @@ The matrix-level versions live in `kernellib.functional`; these take kernels
 and samples, and optionally a feature map for a randomised ``O(N)`` path.
 """
 
+from kernellib._dependence._distance import (
+    distance_correlation_squared,
+    distance_covariance_squared,
+    energy_distance,
+)
 from kernellib._dependence._hsic import cka, hsic, kernel_alignment
 from kernellib._dependence._mmd import mmd_squared
 from kernellib._dependence._permutation import PermutationTestResult, permutation_test
@@ -12,6 +17,9 @@ from kernellib._dependence._permutation import PermutationTestResult, permutatio
 __all__ = [
     "PermutationTestResult",
     "cka",
+    "distance_correlation_squared",
+    "distance_covariance_squared",
+    "energy_distance",
     "hsic",
     "kernel_alignment",
     "mmd_squared",

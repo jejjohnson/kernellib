@@ -53,6 +53,13 @@ gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
 
 ::: kernellib.Polynomial
 
+## Distance-induced
+
+`Distance` turns HSIC and MMD into the distance-based statistics of Székely
+et al.; see [Dependence](dependence.md#distance-based-statistics).
+
+::: kernellib.Distance
+
 ## Composition
 
 Besides the constructors below, every kernel has shorthand methods returning

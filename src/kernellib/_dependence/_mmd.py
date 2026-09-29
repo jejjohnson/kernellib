@@ -9,7 +9,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from kernellib import functional as F
-from kernellib._kernels import AbstractKernel
+from kernellib._kernels import AbstractKernel, Distance
 from kernellib._spectral import AbstractFeatureMap
 
 
@@ -78,9 +78,10 @@ def mmd_squared(
             raise ValueError(
                 f"The linear-time estimator needs equal sample sizes, got {m} and {n}."
             )
-        return _mmd_linear(kernel, X, Y)
+        return _mmd_linear(kernel, *_anchor_pooled(kernel, X, Y))
     if estimator == "unbiased" and min(m, n) < 2:
         raise ValueError("The unbiased estimator needs two points per sample.")
+    X, Y = _anchor_pooled(kernel, X, Y)
 
     if approx is not None:
         fitted = approx.fit(kernel, jnp.concatenate([X, Y]))
@@ -98,6 +99,17 @@ def mmd_squared(
     within_x = (jnp.sum(K_xx) - jnp.trace(K_xx)) / (m * (m - 1))
     within_y = (jnp.sum(K_yy) - jnp.trace(K_yy)) / (n * (n - 1))
     return within_x + within_y - 2.0 * jnp.mean(K_xy)
+
+
+def _anchor_pooled(
+    kernel: AbstractKernel, X: Float[Array, "Nx D"], Y: Float[Array, "Ny D"]
+) -> tuple[Float[Array, "Nx D"], Float[Array, "Ny D"]]:
+    """Shift both samples by their pooled mean for an origin-anchored
+    `Distance` kernel: MMD is invariant to it, the rounding is not."""
+    if not isinstance(kernel, Distance):
+        return X, Y
+    offset = jnp.mean(jnp.concatenate([X, Y]), axis=0)
+    return X - offset, Y - offset
 
 
 def _mmd_linear(
