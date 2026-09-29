@@ -227,3 +227,38 @@ class TestEigenProSpectrum:
     def test_more_components_allow_larger_steps(self):
         steps = [eigenpro_step_size(self._setup(k)[2], 64) for k in (1, 10, 40)]
         assert steps[0] < steps[1] < steps[2]
+
+
+class TestEigenProBetaScan:
+    """The β estimate streams chunks in a ``lax.scan`` (#38)."""
+
+    @pytest.mark.parametrize("n", [257, 1000])
+    @pytest.mark.parametrize("implicit", [True, False])
+    def test_beta_scan_matches_reference(self, n, implicit):
+        X = jax.random.uniform(jax.random.key(0), (n, 2), minval=-1.0, maxval=1.0)
+        kernel = kernellib.RBF(lengthscale=0.3)
+        op = (
+            kernellib.to_operator(kernel, X, implicit=True)
+            if implicit
+            else lx.MatrixLinearOperator(kernel(X, X), lx.positive_semidefinite_tag)
+        )
+        precond = eigenpro_preconditioner(
+            op, subsample_size=100, n_components=10, key=jax.random.key(1)
+        )
+        K_xs = kernel(X, X[precond.subsample_indices])
+        diag = 1.0 - jnp.sum(precond.D * (K_xs @ precond.V) ** 2, axis=1) / 100
+        assert jnp.allclose(precond.beta, jnp.max(diag), rtol=1e-12, atol=1e-12)
+
+    def test_trace_size_independent_of_n(self):
+        def n_eqns(n):
+            X = jnp.zeros((n, 2))
+            op = kernellib.to_operator(kernellib.RBF(lengthscale=0.2), X, implicit=True)
+
+            def beta(op):
+                return eigenpro_preconditioner(
+                    op, subsample_size=50, n_components=5, key=jax.random.key(1)
+                ).beta
+
+            return len(jax.make_jaxpr(beta)(op).eqns)
+
+        assert n_eqns(1_000) == n_eqns(10_000)

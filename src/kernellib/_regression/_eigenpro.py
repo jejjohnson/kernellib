@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import equinox as eqx
 import gaussx as gx
 import jax
@@ -290,63 +292,84 @@ def _residual_kernel_diagonal(
     Streams the cross-kernel matrix in row-chunks (``_RESIDUAL_CHUNK``
     rows at a time) so we never hold the full ``(N, m)`` ``K_nm`` in
     memory at once — important for typical EigenPro settings where
-    ``N`` can be 10^6+ and ``m ≈ 4000``.
+    ``N`` can be 10^6+ and ``m ≈ 4000``. The chunks run in a
+    ``jax.lax.scan``, so the traced program does not grow with ``N``.
     """
     m = subsample_indices.shape[0]
     diag = _kernel_diagonal(kernel_op)
     n = diag.shape[0]
     dtype = V.dtype
 
-    def chunk_max(start: int, max_so_far: Float[Array, ""]) -> Float[Array, ""]:
-        # ``start`` is a Python int from ``range()``; keep chunk_size as
-        # a Python int too so static shapes propagate through the
-        # specialised kernel-row builders.
-        stop = min(start + _RESIDUAL_CHUNK, n)
-        chunk_size = stop - start
+    chunk = min(_RESIDUAL_CHUNK, n)
+    n_chunks = -(-n // chunk)
+    n_pad = n_chunks * chunk - n
+    # Padded rows get a -inf diagonal, so they never win the max.
+    diag = jnp.pad(diag, (0, n_pad), constant_values=-jnp.inf)
+    # Dispatch on the operator type once, outside the loop.
+    rows = _cross_kernel_row_fn(kernel_op, subsample_indices, chunk, n_pad)
+
+    def chunk_max(
+        max_so_far: Float[Array, ""], start: Int[Array, ""]
+    ) -> tuple[Float[Array, ""], None]:
         # Build only K_{x_chunk, m} — never the full K_nm.
-        K_chunk = _cross_kernel_rows(kernel_op, subsample_indices, start, chunk_size)
+        K_chunk = rows(start)
         projections = K_chunk @ V  # (chunk, k)
         removed = jnp.sum(weights * projections**2, axis=1) / m
-        chunk_residual = diag[start:stop] - removed
-        return jnp.maximum(max_so_far, jnp.max(chunk_residual))
+        chunk_residual = jax.lax.dynamic_slice_in_dim(diag, start, chunk) - removed
+        return jnp.maximum(max_so_far, jnp.max(chunk_residual)), None
 
     init = jnp.asarray(-jnp.inf, dtype=dtype)
-    # Iterate chunks in pure Python (compile-time loop) so the chunk
-    # build can dispatch on ``kernel_op``'s concrete type.
-    max_residual = init
-    for start in range(0, n, _RESIDUAL_CHUNK):
-        max_residual = chunk_max(start, max_residual)
+    starts = jnp.arange(n_chunks) * chunk
+    max_residual, _ = jax.lax.scan(chunk_max, init, starts)
     eps = jnp.finfo(dtype).eps
     return jnp.maximum(max_residual, eps)
 
 
-def _cross_kernel_rows(
+def _cross_kernel_row_fn(
     kernel_op: lx.AbstractLinearOperator,
     subsample_indices: Int[Array, " m"],
-    start: int,
-    chunk_size: int,
-) -> Float[Array, "chunk m"]:
-    """Build the ``(chunk, m)`` slice of ``K[start:start+chunk, subsample]``."""
-    stop = start + chunk_size
+    chunk: int,
+    n_pad: int,
+) -> Callable[[Int[Array, ""]], Float[Array, "chunk m"]]:
+    """Return ``start -> K[start:start+chunk, subsample]`` over zero-padded rows.
+
+    The inputs are padded by ``n_pad`` rows so that every chunk has the
+    static size ``chunk``; the padded rows' values are discarded by the
+    caller.
+    """
     if isinstance(kernel_op, ImplicitKernelOperator):
-        X_rows = kernel_op.X[start:stop]
+        X = jnp.pad(kernel_op.X, ((0, n_pad), (0, 0)))
         X_sub = kernel_op.X[subsample_indices]
-        K_block = _implicit_kernel_matrix(kernel_op, X_rows, X_sub)
-        if kernel_op.noise_var != 0.0:
-            row_idx = jnp.arange(start, stop)
-            mask = row_idx[:, None] == subsample_indices[None, :]
-            K_block = K_block + kernel_op.noise_var * mask.astype(K_block.dtype)
-        return K_block
+
+        def implicit_rows(start: Int[Array, ""]) -> Float[Array, "chunk m"]:
+            X_rows = jax.lax.dynamic_slice_in_dim(X, start, chunk)
+            K_block = _implicit_kernel_matrix(kernel_op, X_rows, X_sub)
+            if kernel_op.noise_var != 0.0:
+                row_idx = start + jnp.arange(chunk)
+                mask = row_idx[:, None] == subsample_indices[None, :]
+                K_block = K_block + kernel_op.noise_var * mask.astype(K_block.dtype)
+            return K_block
+
+        return implicit_rows
 
     if isinstance(kernel_op, KernelOperator):
-        X1_rows = kernel_op.X1[start:stop]
+        X1 = jnp.pad(kernel_op.X1, ((0, n_pad), (0, 0)))
         X2_sub = kernel_op.X2[subsample_indices]
-        return _kernel_operator_matrix(kernel_op, X1_rows, X2_sub)
+
+        def operator_rows(start: Int[Array, ""]) -> Float[Array, "chunk m"]:
+            X1_rows = jax.lax.dynamic_slice_in_dim(X1, start, chunk)
+            return _kernel_operator_matrix(kernel_op, X1_rows, X2_sub)
+
+        return operator_rows
 
     # Dense fallback: materialise once, slice. Acceptable because the
     # streaming branch is the one that matters for matrix-free kernels.
-    K = kernel_op.as_matrix()
-    return K[start:stop][:, subsample_indices]
+    K_nm = jnp.pad(kernel_op.as_matrix()[:, subsample_indices], ((0, n_pad), (0, 0)))
+
+    def dense_rows(start: Int[Array, ""]) -> Float[Array, "chunk m"]:
+        return jax.lax.dynamic_slice_in_dim(K_nm, start, chunk)
+
+    return dense_rows
 
 
 def _implicit_kernel_matrix(
