@@ -40,7 +40,8 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
     $\omega_j = (\pi j_d / 2 L_d)_d$ the matching frequency vector, so ARD
     lengthscales are handled exactly. There are ``prod(n_per_dim)``
     features. Unlike the random maps it is deterministic and needs a kernel
-    with a closed-form `spectral_density` (`RBF`, `Matern`).
+    with a closed-form `spectral_density` (`RBF`, `Matern`,
+    `RationalQuadratic`).
 
     The approximation is accurate inside the box and away from its edge;
     it is zero on the boundary. With ``L=None`` the half-widths are
@@ -110,7 +111,7 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
             )
         d = X.shape[-1]
         # Fail here rather than at the first call for kernels without a
-        # density (RationalQuadratic, user subclasses without the hook).
+        # density (user subclasses without the hook).
         kernel.spectral_density(jnp.zeros((1, d), dtype=X.dtype))
         _per_dim(self.n_per_dim, d, "n_per_dim")
         if self.L is None:

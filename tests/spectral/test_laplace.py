@@ -23,6 +23,16 @@ def test_rbf_1d_converges_inside_a_wide_box():
     assert jnp.allclose(Phi @ Phi.T, k(X, X), atol=1e-6)
 
 
+def test_rational_quadratic_converges_inside_a_wide_box():
+    # RQ decays only polynomially in r, so the box boundary, not the number of
+    # eigenfunctions, limits the accuracy; a large alpha and a wide box keep
+    # it small (alpha = 0.8 plateaus at ~2e-2 whatever the basis size).
+    X = jnp.linspace(-1.0, 1.0, 50)[:, None]
+    k = kl.RationalQuadratic(lengthscale=0.3, variance=1.7, alpha=3.0)
+    Phi = kl.LaplaceEigenfunctionFeatures(64, boundary_factor=4.0).fit(k, X)(X)
+    assert jnp.allclose(Phi @ Phi.T, k(X, X), atol=1e-4)
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     ("kernel", "n_per_dim", "atol"),
@@ -98,7 +108,6 @@ def test_operator_and_grad():
 @pytest.mark.parametrize(
     ("kernel", "exc", "match"),
     [
-        (kl.RationalQuadratic(), NotImplementedError, "RationalQuadratic"),
         (kl.Periodic(), NotImplementedError, "spectral density"),
         (kl.RBF(lengthscale=jnp.ones(3)), ValueError, "ARD lengthscale"),
     ],

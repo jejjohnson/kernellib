@@ -41,8 +41,10 @@ def test_rbf_density_matches_1d_closed_form():
         kl.RBF(lengthscale=0.7, variance=1.3),
         kl.Matern(lengthscale=0.7, variance=1.3, nu=1.5),
         kl.Matern(lengthscale=0.7, variance=1.3, nu=2.5),
+        kl.RationalQuadratic(lengthscale=0.7, variance=1.3, alpha=0.8),
+        kl.RationalQuadratic(lengthscale=0.7, variance=1.3, alpha=3.0),
     ],
-    ids=["rbf", "matern15", "matern25"],
+    ids=["rbf", "matern15", "matern25", "rq08", "rq3"],
 )
 def test_density_inverts_to_kernel_1d(kernel):
     # Bochner: k(tau) = (2 pi)^-1 int S(w) cos(w tau) dw. Riemann sum on a
@@ -59,8 +61,12 @@ def test_density_inverts_to_kernel_1d(kernel):
 @pytest.mark.parametrize("d", [2, 3])
 @pytest.mark.parametrize(
     "kernel",
-    [kl.RBF(lengthscale=0.7, variance=1.3), kl.Matern(0.7, 1.3, nu=2.5)],
-    ids=["rbf", "matern25"],
+    [
+        kl.RBF(lengthscale=0.7, variance=1.3),
+        kl.Matern(0.7, 1.3, nu=2.5),
+        kl.RationalQuadratic(lengthscale=0.7, variance=1.3, alpha=2.5),
+    ],
+    ids=["rbf", "matern25", "rq"],
 )
 def test_density_integrates_to_variance(kernel, d):
     # (2 pi)^-d int S = k(0) = variance. The density is radial for an
@@ -159,9 +165,53 @@ def test_ard_size_mismatch_raises():
         k.sample_frequencies(jax.random.key(0), 2, 2)
 
 
-def test_rational_quadratic_has_no_density():
-    with pytest.raises(NotImplementedError, match="RationalQuadratic"):
-        kl.RationalQuadratic().spectral_density(jnp.zeros((1, 1)))
+def _rq_mixture_density(omega_sq, alpha, d, n=200_000):
+    # s(w) = E_tau[(2 pi / tau)^{d/2} exp(-w^2 / (2 tau))], tau ~ Gamma(alpha,
+    # rate alpha), by quadrature on the Gamma quantiles: an independent route.
+    import scipy.stats as st
+
+    u = (jnp.arange(n) + 0.5) / n
+    tau = jnp.asarray(st.gamma(alpha, scale=1.0 / alpha).ppf(u))
+    vals = (2 * jnp.pi / tau) ** (d / 2) * jnp.exp(-omega_sq[:, None] / (2 * tau))
+    return jnp.mean(vals, axis=1)
+
+
+@pytest.mark.parametrize(("alpha", "d"), [(0.8, 1), (3.0, 1), (2.0, 2), (4.0, 3)])
+def test_rational_quadratic_density_is_the_gamma_mixture(alpha, d):
+    omega_sq = jnp.array([0.01, 0.3, 1.0, 4.0, 12.0])
+    k = kl.RationalQuadratic(alpha=alpha)
+    got = k.unit_spectral_density(omega_sq, d)
+    assert jnp.allclose(got, _rq_mixture_density(omega_sq, alpha, d), rtol=1e-3)
+
+
+@pytest.mark.parametrize("d", [1, 2, 3])
+def test_rational_quadratic_density_at_the_origin(d):
+    finite = kl.RationalQuadratic(alpha=d / 2 + 1.3)
+    limit = finite.unit_spectral_density(jnp.array([0.0, 1e-12]), d)
+    assert jnp.isfinite(limit[0])
+    assert jnp.allclose(limit[0], limit[1], rtol=1e-5)
+    # For alpha <= d / 2 the density diverges (integrably) at the origin.
+    divergent = kl.RationalQuadratic(alpha=d / 2)
+    assert divergent.unit_spectral_density(jnp.array(0.0), d) == jnp.inf
+
+
+@pytest.mark.parametrize("d", [1, 2, 3])
+def test_rational_quadratic_density_gradients(d):
+    omega = jax.random.normal(jax.random.key(d), (16, d))
+
+    def total(params):
+        ell, var, alpha = params
+        k = kl.RationalQuadratic(lengthscale=ell, variance=var, alpha=alpha)
+        return jnp.sum(jnp.log(k.spectral_density(omega)))
+
+    params = (jnp.array(0.7), jnp.array(1.3), jnp.array(d / 2 + 0.6))
+    grads = jax.jit(jax.grad(total))(params)
+    assert all(bool(jnp.isfinite(g)) for g in grads)
+    # Check d/dalpha against central differences.
+    eps = 1e-6
+    up = total((params[0], params[1], params[2] + eps))
+    down = total((params[0], params[1], params[2] - eps))
+    assert jnp.allclose(grads[2], (up - down) / (2 * eps), rtol=1e-5)
 
 
 class _Bare(kl.AbstractStationaryKernel):
