@@ -47,6 +47,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.0",
+    "pytest-xdist>=3.8",
 ]
 lint = [
     "ruff>=0.15.22",
@@ -124,15 +125,17 @@ python-version = "3.12"
 # ``Examples:`` blocks in every Google-style docstring. They are executable
 # documentation: if an example in the docs goes stale, CI fails.
 testpaths = ["tests", "src/kernellib"]
+# The default run is the fast tier. Select the others with -m (the last -m
+# wins): `pytest -m slow`, `pytest -m integration`, or everything with
+# `pytest -m ""`. Coverage is not in addopts: no single tier reaches the
+# threshold, so CI combines the tiers' coverage and gates on the union.
 addopts = """\
     --doctest-modules \
-    --cov=src/kernellib \
-    --cov-report=term-missing \
-    --cov-report=xml:coverage.xml\
+    -m "not slow and not integration"\
 """
 markers = [
-    "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
-    "integration: end-to-end workflows across gaussx / geonnax / pyrox-gp",
+    "slow: individually expensive tests (>~1s: heavy numerics, jit+grad+vmap sweeps, Monte Carlo convergence)",
+    "integration: end-to-end workflows (scikit-learn estimator checks, cross-library pipelines, optional backends)",
 ]
 
 [tool.coverage.run]

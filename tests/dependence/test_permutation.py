@@ -12,6 +12,7 @@ import kernellib as kl
 K = kl.RBF(lengthscale=1.0)
 
 
+@pytest.mark.slow
 def test_independence_test_rejects_dependence():
     X = jax.random.normal(jax.random.key(0), (80, 1))
     Y = jnp.cos(2.0 * X) + 0.1 * jax.random.normal(jax.random.key(1), (80, 1))
@@ -38,6 +39,7 @@ def test_independence_test_does_not_reject_independent_data():
     assert res.p_value > 0.05
 
 
+@pytest.mark.slow
 def test_two_sample_test():
     X = jax.random.normal(jax.random.key(0), (50, 2))
     Y = jax.random.normal(jax.random.key(1), (40, 2)) + 0.8

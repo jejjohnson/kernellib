@@ -24,6 +24,7 @@ def _brute(X, k):
 
 
 class TestNearestNeighbors:
+    @pytest.mark.slow
     @pytest.mark.parametrize("batch_size", [7, 16, 1024])
     def test_exact_matches_brute_force(self, batch_size):
         X = _X()
@@ -73,6 +74,7 @@ class TestNearestNeighbors:
 
 
 class TestAdjacencyAndLaplacian:
+    @pytest.mark.slow
     def test_heat_weights_and_symmetry(self):
         X = _X()
         g = kl.nearest_neighbors(X, 6)
@@ -89,6 +91,7 @@ class TestAdjacencyAndLaplacian:
             kl.adjacency_matrix(g), kl.adjacency_matrix(g, bandwidth=sigma)
         )
 
+    @pytest.mark.slow
     def test_symmetrization_modes(self):
         X = jnp.array([[0.0], [1.0], [1.5], [10.0]])
         g = kl.nearest_neighbors(X, 1)
@@ -114,6 +117,7 @@ class TestAdjacencyAndLaplacian:
         Ls = kl.graph_laplacian(W, "symmetric")
         assert jnp.all(jnp.isfinite(Ls)) and jnp.all(Ls[2] == 0)
 
+    @pytest.mark.slow
     def test_errors(self):
         g = kl.nearest_neighbors(_X(), 3)
         with pytest.raises(ValueError, match="weighting"):
@@ -129,6 +133,7 @@ class TestGraphKernels:
     def _W():
         return kl.adjacency_matrix(kl.nearest_neighbors(_X(n=30), 5))
 
+    @pytest.mark.slow
     def test_closed_forms(self):
         W = self._W()
         L = kl.graph_laplacian(W, "symmetric")
@@ -166,6 +171,7 @@ class TestGraphKernels:
         K = kl.commute_time_kernel(W)
         assert jnp.allclose(L @ K @ L, L, atol=1e-8)
 
+    @pytest.mark.slow
     def test_diffusion_is_differentiable_in_beta(self):
         W = self._W()
         g = jax.grad(lambda b: jnp.trace(kl.diffusion_kernel(W, b)))(0.5)

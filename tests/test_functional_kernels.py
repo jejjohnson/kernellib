@@ -114,6 +114,7 @@ def test_matern_unsupported_nu_raises():
         matern_kernel(X, X, jnp.array(1.0), jnp.array(1.0), 1.0)
 
 
+@pytest.mark.slow
 def test_matern_grad_is_finite_at_zero_distance():
     """Sqrt clipping must keep grad finite when X1 == X2."""
 
@@ -395,6 +396,7 @@ def test_ard_constant_vector_matches_scalar(kernel_fn, closed_form):
     assert jnp.allclose(K_scalar, K_ard, rtol=0.0, atol=1e-12)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kernel_fn,closed_form", _ard_kernel_cases())
 def test_ard_grad_is_finite_on_self_gram(kernel_fn, closed_form):
     """Grad w.r.t. a ``(D,)`` lengthscale must stay finite on a self-Gram,
@@ -424,6 +426,7 @@ def test_ard_jit_vmap_over_per_latent_lengthscales():
     assert jnp.all(jnp.isfinite(K))
 
 
+@pytest.mark.slow
 def test_ard_gram_never_builds_n1_n2_d_intermediate():
     """N = 2000, D = 50 ARD Gram stays O(N^2): every jaxpr intermediate is
     rank <= 2 (an ``(N, N, D)`` difference tensor would be 1.6 GB)."""
@@ -459,6 +462,7 @@ def test_periodic_and_cosine_bit_identical_to_unscaled_distance():
     assert (K_cosine == expected_cosine).all()
 
 
+@pytest.mark.slow
 def test_ard_kernel_is_symmetric_under_argument_swap():
     """``K(X1, X2) == K(X2, X1).T`` must hold for ARD. A data-dependent
     centring offset would break this, which is why the ARD path scales

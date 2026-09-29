@@ -23,6 +23,7 @@ def _rbf_blocks(x, y):
     return k, dx, -dx, dxdy
 
 
+@pytest.mark.slow
 def test_derivative_matches_closed_form_rbf():
     k = kl.RBF(lengthscale=ELL, variance=VAR)
     x, y = X[0], X[3]
@@ -35,6 +36,7 @@ def test_derivative_matches_closed_form_rbf():
             assert jnp.allclose(got, dxdy[i, j])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "kernel",
     [kl.Matern(nu=2.5, lengthscale=0.6), kl.RationalQuadratic(alpha=1.5)],
@@ -53,6 +55,7 @@ def test_derivative_matches_finite_differences(kernel):
     assert jnp.allclose(got, fd, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_indexed_gram_is_the_block_covariance_and_psd():
     k = kl.RBF(lengthscale=ELL, variance=VAR)
     Xa = kl.derivative_inputs(X)
@@ -67,6 +70,7 @@ def test_indexed_gram_is_the_block_covariance_and_psd():
     assert jnp.linalg.eigvalsh(K)[0] > -1e-10
 
 
+@pytest.mark.slow
 def test_diagonal_is_finite_at_coincident_points():
     Xa = kl.derivative_inputs(X)
     for k in (kl.RBF(), kl.Matern(nu=1.5), kl.Matern(nu=2.5), kl.Periodic()):
@@ -74,6 +78,7 @@ def test_diagonal_is_finite_at_coincident_points():
         assert jnp.all(jnp.isfinite(d)) and jnp.all(d > 0.0)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [1, 2])
 def test_gp_conditioned_on_gradients_recovers_the_function(d):
     # f(x) = sum_d sin(2 x_d): observe the value at 3 points and the gradient
@@ -127,6 +132,7 @@ def test_config_errors():
         kl.Derivative(_GramOnly(), dx=0)
 
 
+@pytest.mark.slow
 def test_hyperparameter_gradients_are_finite():
     Xa = kl.derivative_inputs(X)
     y = jnp.linspace(-1.0, 1.0, Xa.shape[0])

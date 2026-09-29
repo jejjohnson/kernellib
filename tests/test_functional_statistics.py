@@ -76,6 +76,7 @@ class TestCenterKernel:
 
 
 class TestHSIC:
+    @pytest.mark.slow
     def test_independent_near_zero(self, getkey):
         """HSIC of independent features should be near zero."""
         N = 50
@@ -170,6 +171,7 @@ def _hsic_u_statistic(K, L):
 
 
 class TestUnbiasedHSIC:
+    @pytest.mark.slow
     @pytest.mark.parametrize("n", [4, 5, 7])
     def test_matches_brute_force_u_statistic(self, n):
         k1, k2 = jr.split(jr.key(0))
@@ -202,6 +204,7 @@ class TestUnbiasedHSIC:
 
 
 class TestCKA:
+    @pytest.mark.slow
     def test_self_alignment_is_one(self):
         K = _op(_gram(jr.key(4), 12))
         assert jnp.allclose(cka(K, K), 1.0, rtol=1e-12)
@@ -247,6 +250,7 @@ class TestLowRank:
         noise = jr.uniform(kn, (n,), minval=0.1, maxval=1.0)
         return Phi_x, Phi_y, noise
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("with_noise", [False, True])
     def test_center_kernel_stays_low_rank(self, with_noise):
         import gaussx as gx
@@ -262,6 +266,7 @@ class TestLowRank:
         assert lx.is_symmetric(K_c)
         assert jnp.allclose(K_c.as_matrix(), H @ K.as_matrix() @ H, atol=1e-12)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
     @pytest.mark.parametrize("with_noise", [False, True])
     def test_hsic_and_cka_match_dense(self, estimator, with_noise):
@@ -288,6 +293,7 @@ class TestLowRank:
                 rtol=1e-10,
             )
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
     def test_no_n_by_n_intermediate(self, estimator):
         n = 512

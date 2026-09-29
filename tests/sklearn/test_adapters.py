@@ -28,6 +28,9 @@ from kernellib.sklearn import (
 )
 
 
+pytestmark = pytest.mark.integration
+
+
 def _data(n=80, d=2, seed=0):
     rng = np.random.default_rng(seed)
     X = rng.uniform(-1, 1, size=(n, d))

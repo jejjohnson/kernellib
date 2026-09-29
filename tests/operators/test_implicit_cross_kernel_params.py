@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from kernellib import ImplicitCrossKernelOperator, implicit_cross_kernel
 from kernellib._testing import tree_allclose
@@ -121,6 +122,7 @@ class TestParamsMv:
 
         assert scan_eqn.params["length"] == 3
 
+    @pytest.mark.slow
     def test_batched_mv_and_as_matrix(self, getkey):
         X = jr.normal(getkey(), (2, 3, 12, 3))
         Z = jr.normal(getkey(), (2, 3, 6, 3))
@@ -162,6 +164,7 @@ class TestTransposeParams:
 
 
 class TestParamsGradients:
+    @pytest.mark.slow
     def test_grad_params(self, getkey):
         X = jr.normal(getkey(), (8, 2))
         Z = jr.normal(getkey(), (5, 2))
@@ -185,6 +188,7 @@ class TestParamsGradients:
             rtol=1e-4,
         )
 
+    @pytest.mark.slow
     def test_grad_x_data(self, getkey):
         Z = jr.normal(getkey(), (5, 2))
         params = _make_params(getkey())

@@ -7,6 +7,7 @@ and MMD tests from that file move with the statistics module.
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from kernellib import nystrom_operator, rff_operator
 
@@ -17,6 +18,7 @@ def _rbf_kernel(x, y, lengthscale=1.0):
 
 
 class TestNystromOperator:
+    @pytest.mark.slow
     def test_shape(self, getkey):
         """Output should be N x N."""
         N, M = 10, 3
@@ -29,6 +31,7 @@ class TestNystromOperator:
         mat = op.as_matrix()
         assert mat.shape == (N, N)
 
+    @pytest.mark.slow
     def test_approximation(self, getkey):
         """Nystrom should approximate K_XZ K_ZZ^{-1} K_ZX."""
         N, M, D = 8, 3, 2
@@ -72,6 +75,7 @@ class TestRFFOperator:
         mat = op.as_matrix()
         assert mat.shape == (N, N)
 
+    @pytest.mark.slow
     def test_symmetric_psd(self, getkey):
         """Result should be symmetric and PSD."""
         N, D, D_rff = 8, 2, 15

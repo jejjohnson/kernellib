@@ -15,6 +15,7 @@ NUS = np.array([0.0, 0.1, 0.3, 0.5, 0.75, 1.0, 1.5, 2.3, 5.0, 10.0, 25.0])
 XS = np.logspace(-4, 2.5, 60)
 
 
+@pytest.mark.slow
 def test_matches_scipy_over_a_grid():
     got = log_bessel_kv(NUS[:, None], XS[None, :])
     # Compare the exponentially scaled kve: kv itself underflows at large x.
@@ -23,6 +24,7 @@ def test_matches_scipy_over_a_grid():
     assert rel.max() < 1e-10
 
 
+@pytest.mark.slow
 def test_negative_order_is_symmetric():
     x = jnp.asarray(XS)
     assert jnp.allclose(log_bessel_kv(-1.7, x), log_bessel_kv(1.7, x), rtol=1e-14)
@@ -34,6 +36,7 @@ def test_half_integer_closed_form():
     assert jnp.allclose(log_bessel_kv(0.5, x), exact, rtol=1e-12)
 
 
+@pytest.mark.slow
 def test_gradient_in_x_matches_the_recurrence():
     # dK_nu/dx = -(K_{nu-1} + K_{nu+1}) / 2.
     grad = jax.vmap(jax.vmap(jax.grad(log_bessel_kv, 1), (None, 0)), (0, None))
@@ -43,6 +46,7 @@ def test_gradient_in_x_matches_the_recurrence():
     assert np.allclose(got, ref, rtol=1e-10)
 
 
+@pytest.mark.slow
 def test_gradient_in_order_matches_finite_differences():
     # No closed form in nu; central differences of scipy's kve, O(eps^2).
     nus, eps = NUS[1:], 1e-5

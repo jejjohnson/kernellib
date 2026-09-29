@@ -28,6 +28,7 @@ def _W(X, k=10):
 
 
 class TestLaplacianEigenmap:
+    @pytest.mark.slow
     def test_solves_the_generalised_eigenproblem(self):
         X = jax.random.normal(jax.random.key(0), (60, 3))
         W = _W(X)
@@ -39,6 +40,7 @@ class TestLaplacianEigenmap:
         assert jnp.allclose(W.sum(1) @ Y, 0.0, atol=1e-8)
         assert jnp.all(lam > 0) and jnp.all(jnp.diff(lam) >= 0)
 
+    @pytest.mark.slow
     def test_identity_constraint(self):
         W = _W(jax.random.normal(jax.random.key(1), (40, 2)))
         lam, Y = kl.laplacian_eigenmap(W, 2, constraint="identity")
@@ -51,6 +53,7 @@ class TestLaplacianEigenmap:
         le = kl.LaplacianEigenmaps(n_components=2, n_neighbors=10).fit(X)
         assert abs(_spearman(np.asarray(le.embedding[:, 0]), t)) > 0.95
 
+    @pytest.mark.slow
     def test_arpack_matches_dense(self):
         X, _ = _swiss_roll(n=250)
         dense = kl.LaplacianEigenmaps(n_components=2).fit(X)
@@ -63,6 +66,7 @@ class TestLaplacianEigenmap:
 
 
 class TestSchrodinger:
+    @pytest.mark.slow
     def test_zero_alpha_is_laplacian_eigenmaps(self):
         X = jax.random.normal(jax.random.key(2), (50, 2))
         W = _W(X)
@@ -72,6 +76,7 @@ class TestSchrodinger:
         assert jnp.allclose(lam_se, lam_le)
         assert jnp.allclose(jnp.abs(Y_se), jnp.abs(Y_le), atol=1e-8)
 
+    @pytest.mark.slow
     def test_label_potential_pulls_a_class_together(self):
         X = jax.random.normal(jax.random.key(3), (80, 2))
         labels = jnp.where(jnp.arange(80) < 15, 0, -1)
@@ -85,6 +90,7 @@ class TestSchrodinger:
         _, Y_se = kl.schrodinger_eigenmap(W, kl.label_potential(labels), 2, alpha=10.0)
         assert spread(Y_se) < 0.25 * spread(Y_le)
 
+    @pytest.mark.slow
     def test_barrier_pins_points(self):
         X = jax.random.normal(jax.random.key(4), (60, 2))
         pinned = jnp.arange(5)
@@ -92,6 +98,7 @@ class TestSchrodinger:
         _, Y = kl.schrodinger_eigenmap(_W(X), V, 2, alpha=50.0, drop_first=False)
         assert jnp.max(jnp.abs(Y[pinned])) < 0.1 * jnp.max(jnp.abs(Y))
 
+    @pytest.mark.slow
     def test_normalization_makes_the_potential_scale_free(self):
         X = jax.random.normal(jax.random.key(5), (40, 2))
         W = _W(X)
@@ -100,12 +107,14 @@ class TestSchrodinger:
         b = kl.schrodinger_eigenmap(W, 7.0 * V, 2, alpha=3.0)[0]
         assert jnp.allclose(a, b)
 
+    @pytest.mark.slow
     def test_label_potential(self):
         V = kl.label_potential(jnp.array([0, 1, 0, -1, 1]))
         assert jnp.allclose(V.sum(1), 0.0)
         assert float(V[0, 2]) == -1.0 and float(V[0, 1]) == 0.0
         assert jnp.all(V[3] == 0)
 
+    @pytest.mark.slow
     def test_spatial_spectral_potential(self):
         # A 6 x 6 "image": pixels on a grid with 2 spectral bands.
         yy, xx = jnp.meshgrid(jnp.arange(6.0), jnp.arange(6.0), indexing="ij")
@@ -120,6 +129,7 @@ class TestSchrodinger:
         joined = {int(j) for j in jnp.nonzero(V[pixel])[0] if int(j) != pixel}
         assert joined == {pixel - 6, pixel - 1, pixel + 1, pixel + 6}
 
+    @pytest.mark.slow
     def test_estimator_and_arpack(self):
         X, _ = _swiss_roll(n=200)
         V = kl.label_potential(jnp.where(jnp.arange(200) < 20, 0, -1))
@@ -134,6 +144,7 @@ class TestSchrodinger:
 
 
 class TestLPP:
+    @pytest.mark.slow
     def test_transform_and_generalised_eigenproblem(self):
         X = jax.random.normal(jax.random.key(7), (80, 4))
         lpp = kl.LocalityPreservingProjections(n_components=2).fit(X)
@@ -148,6 +159,7 @@ class TestLPP:
         B = (Xc * d[:, None]).T @ Xc
         assert jnp.allclose(A @ P, B @ P * lpp.eigenvalues, rtol=1e-5, atol=1e-6)
 
+    @pytest.mark.slow
     def test_recovers_a_plane_in_five_dimensions(self):
         # Points spread over a 2-D plane, rotated into 5-D with tiny noise
         # off the plane. LPP's 2-D projection keeps almost every 8-NN

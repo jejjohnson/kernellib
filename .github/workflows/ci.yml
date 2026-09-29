@@ -9,12 +9,20 @@ on:
 permissions:
   contents: read
 
+# Three tiers run in parallel (see [tool.pytest.ini_options] in pyproject.toml):
+# fast on both Pythons, slow and integration once. Each writes its own coverage
+# file; the coverage job combines them and enforces the threshold on the union,
+# since no single tier covers the package.
 jobs:
-  test:
+  fast:
+    name: fast (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
+    env:
+      COVERAGE_FILE: .coverage.fast-${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -22,16 +30,81 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --group dev
-      - name: Run tests with coverage
-        run: uv run pytest -v
-      - name: Upload coverage report
+      - name: Run fast tests
+        run: uv run pytest -n auto --cov=src/kernellib --cov-report= --cov-fail-under=0
+      - name: Upload coverage data
         if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-fast
+          path: .coverage.fast-*
+          include-hidden-files: true
+
+  slow:
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE_FILE: .coverage.slow
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run slow tests
+        run: uv run pytest -n auto -m "slow and not integration" --cov=src/kernellib --cov-report= --cov-fail-under=0
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-slow
+          path: .coverage.slow
+          include-hidden-files: true
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE_FILE: .coverage.integration
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run integration tests
+        run: uv run pytest -n auto -m integration --cov=src/kernellib --cov-report= --cov-fail-under=0
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-integration
+          path: .coverage.integration
+          include-hidden-files: true
+
+  coverage:
+    needs: [fast, slow, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+      - name: Combine and check coverage
+        run: |
+          uv run coverage combine .coverage.*
+          uv run coverage report
+          uv run coverage xml -o coverage.xml
+      - name: Upload coverage report
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml

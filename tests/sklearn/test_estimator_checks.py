@@ -21,6 +21,9 @@ from kernellib.sklearn import (
 )
 
 
+pytestmark = pytest.mark.integration
+
+
 ESTIMATORS = [
     KernelRidge(),
     FalkonRegressor(n_inducing=20, random_state=0),

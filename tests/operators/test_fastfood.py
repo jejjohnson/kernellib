@@ -23,6 +23,7 @@ import kernellib as kl
 # --- Walsh-Hadamard transform ----------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [1, 2, 4, 8, 64])
 def test_hadamard_matches_dense_sylvester_matrix(d):
     x = jr.normal(jr.key(0), (3, d))
@@ -30,11 +31,13 @@ def test_hadamard_matches_dense_sylvester_matrix(d):
     assert jnp.allclose(kl.hadamard_transform(x), expected, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_hadamard_is_its_own_inverse_up_to_d():
     x = jr.normal(jr.key(1), (5, 16))
     assert jnp.allclose(kl.hadamard_transform(kl.hadamard_transform(x)), 16 * x)
 
 
+@pytest.mark.slow
 def test_hadamard_jits_and_batches():
     x = jr.normal(jr.key(2), (2, 3, 8))
     expected = kl.hadamard_transform(x)
@@ -50,6 +53,7 @@ def test_hadamard_rejects_non_power_of_two(d):
 # --- parameters -------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_params_shapes_and_structure():
     p = kl.fastfood_params(d=5, n_components=20, lengthscale=0.7, key=jr.key(0))
     assert (p.d_padded, p.n_stacks) == (8, 3)
@@ -61,6 +65,7 @@ def test_params_shapes_and_structure():
     assert bool(jnp.all(p.S > 0))
 
 
+@pytest.mark.slow
 def test_params_are_deterministic_under_a_key():
     a = kl.fastfood_params(d=4, n_components=16, lengthscale=1.0, key=jr.key(3))
     b = kl.fastfood_params(d=4, n_components=16, lengthscale=1.0, key=jr.key(3))
@@ -96,12 +101,14 @@ def _dense_v(p):
     return V / p.lengthscale
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("lengthscale", [0.7, jnp.array([0.5, 1.0, 2.0, 0.8, 1.3])])
 def test_frequencies_match_dense_product(lengthscale):
     p = kl.fastfood_params(d=5, n_components=20, lengthscale=lengthscale, key=jr.key(0))
     assert jnp.allclose(kl.fastfood_frequencies(p), _dense_v(p), atol=1e-10)
 
 
+@pytest.mark.slow
 def test_row_lengths_are_s_over_lengthscale_before_padding_truncation():
     """With d a power of two nothing is truncated: every row has length S / l."""
     p = kl.fastfood_params(d=8, n_components=16, lengthscale=0.5, key=jr.key(1))
@@ -110,6 +117,7 @@ def test_row_lengths_are_s_over_lengthscale_before_padding_truncation():
     assert jnp.allclose(norms, expected, rtol=1e-10)
 
 
+@pytest.mark.slow
 def test_features_equal_cos_sin_of_dense_frequencies():
     p = kl.fastfood_params(d=5, n_components=20, lengthscale=0.9, key=jr.key(2))
     X = jr.normal(jr.key(3), (7, 5))
@@ -118,12 +126,14 @@ def test_features_equal_cos_sin_of_dense_frequencies():
     assert jnp.allclose(kl.fastfood_features(X, p), expected, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_features_reject_wrong_input_dimension():
     p = kl.fastfood_params(d=5, n_components=8, lengthscale=1.0, key=jr.key(0))
     with pytest.raises(ValueError, match="d=5"):
         kl.fastfood_features(jnp.ones((2, 4)), p)
 
 
+@pytest.mark.slow
 def test_constant_ard_lengthscale_matches_scalar():
     kw = dict(d=3, n_components=16, key=jr.key(4))
     X = jr.normal(jr.key(5), (6, 3))
@@ -135,6 +145,7 @@ def test_constant_ard_lengthscale_matches_scalar():
 # --- operator ---------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_operator_is_psd_low_rank_update_and_solves():
     p = kl.fastfood_params(d=3, n_components=64, lengthscale=1.0, key=jr.key(6))
     X = jr.normal(jr.key(7), (40, 3))
@@ -153,6 +164,7 @@ def test_operator_is_psd_low_rank_update_and_solves():
     assert jnp.allclose(gx.solve(noisy, y), jnp.linalg.solve(dense, y), atol=1e-8)
 
 
+@pytest.mark.slow
 def test_gradient_through_lengthscale_is_finite():
     X = jr.normal(jr.key(9), (10, 3))
 

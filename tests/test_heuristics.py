@@ -21,6 +21,7 @@ def _pdist(X):
     return D[np.triu_indices(len(X), k=1)], D
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(("method", "agg"), [("median", np.median), ("mean", np.mean)])
 def test_distance_methods_match_numpy(method, agg):
     X = _data()
@@ -70,6 +71,7 @@ def test_silverman_and_scott_formulas():
     assert np.isclose(float(kl.estimate_lengthscale(X, "scott")), scott)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("method", ["median", "mean", "silverman", "scott"])
 def test_ard_is_per_dimension(method):
     X = _data()
@@ -88,6 +90,7 @@ def test_scale_and_translation():
     assert jnp.allclose(kl.estimate_lengthscale(X + 7.0), base)
 
 
+@pytest.mark.slow
 def test_subsample_is_deterministic_in_key_and_a_noop_when_large():
     X = _data(n=60)
     a = kl.estimate_lengthscale(X, subsample=20, key=jax.random.key(1))

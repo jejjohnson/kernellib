@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from kernellib import (
     batched_kernel_matvec,
@@ -28,6 +29,7 @@ def _build_dense(kernel_fn, X, Z):
 
 
 class TestBatchedKernelMatvec:
+    @pytest.mark.slow
     def test_matches_dense(self, getkey):
         X = jr.normal(getkey(), (20, 3))
         Z = jr.normal(getkey(), (10, 3))
@@ -44,6 +46,7 @@ class TestBatchedKernelMatvec:
         result = batched_kernel_matvec(_rbf, X, Z, v, batch_size=1)
         assert tree_allclose(result, K @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_batch_size_equals_n(self, getkey):
         N = 10
         X = jr.normal(getkey(), (N, 3))
@@ -61,6 +64,7 @@ class TestBatchedKernelMatvec:
         result = batched_kernel_matvec(_rbf, X, Z, v, batch_size=32)
         assert tree_allclose(result, K @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_non_divisible(self, getkey):
         """N % batch_size != 0."""
         X = jr.normal(getkey(), (11, 3))
@@ -78,6 +82,7 @@ class TestBatchedKernelMatvec:
         result = batched_kernel_matvec(_rbf, X, Z, v, batch_size=4)
         assert tree_allclose(result, K @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_output_shape(self, getkey):
         X = jr.normal(getkey(), (15, 3))
         Z = jr.normal(getkey(), (8, 3))
@@ -85,6 +90,7 @@ class TestBatchedKernelMatvec:
         result = batched_kernel_matvec(_rbf, X, Z, v, batch_size=4)
         assert result.shape == (15,)
 
+    @pytest.mark.slow
     def test_consistent_batch_sizes(self, getkey):
         """Result should be identical regardless of batch_size."""
         X = jr.normal(getkey(), (12, 3))
