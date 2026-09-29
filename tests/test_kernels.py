@@ -89,6 +89,12 @@ ZOO = [
         id="polynomial",
     ),
     pytest.param(
+        kl.Distance(variance=0.8, exponent=1.3),
+        lambda A, B: F.distance_kernel(A, B, jnp.array(0.8), 1.3),
+        True,
+        id="distance",
+    ),
+    pytest.param(
         kl.White(variance=0.5),
         lambda A, B: F.white_kernel(A, B, jnp.array(0.5)),
         True,
