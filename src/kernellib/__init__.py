@@ -69,10 +69,12 @@ from kernellib._kernels import (
     Polynomial,
     Product,
     RationalQuadratic,
+    Residual,
     Scaled,
     Sum,
     Warped,
     White,
+    nystrom_kernel,
 )
 from kernellib._operators import (
     FastFoodParams,
@@ -160,6 +162,7 @@ __all__ = [
     "Product",
     "RandomFourierFeatures",
     "RationalQuadratic",
+    "Residual",
     "Scaled",
     "SchrodingerEigenmaps",
     "Sum",
@@ -200,6 +203,7 @@ __all__ = [
     "lengthscale_to_gamma",
     "mmd_squared",
     "nearest_neighbors",
+    "nystrom_kernel",
     "nystrom_operator",
     "permutation_test",
     "random_walk_kernel",

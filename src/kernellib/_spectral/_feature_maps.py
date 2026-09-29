@@ -409,6 +409,34 @@ class NystromFeatures(AbstractFeatureMap):
                 f"{self.leverage_regularization}."
             )
 
+    @classmethod
+    def from_landmarks(
+        cls,
+        kernel: AbstractKernel,
+        landmarks: Float[Array, "M D"],
+        *,
+        jitter: float = 1e-6,
+    ) -> NystromFeatures:
+        """A fitted map with given landmarks, e.g. inducing points.
+
+        No selection happens, so the ``key`` is a placeholder.
+
+        Examples:
+            >>> import jax.numpy as jnp
+            >>> import kernellib as kl
+            >>> Z = jnp.linspace(-1.0, 1.0, 4)[:, None]
+            >>> nys = kl.NystromFeatures.from_landmarks(kl.RBF(), Z)
+            >>> nys(jnp.zeros((3, 1))).shape
+            (3, 4)
+        """
+        return cls(
+            landmarks.shape[0],
+            jax.random.key(0),
+            jitter=jitter,
+            kernel=kernel,
+            landmarks=landmarks,
+        )
+
     def fit(self, kernel: AbstractKernel, X: Float[Array, "N D"]) -> NystromFeatures:
         """Choose ``n_components`` landmarks from ``X``.
 

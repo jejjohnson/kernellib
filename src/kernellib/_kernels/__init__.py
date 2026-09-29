@@ -17,6 +17,7 @@ from kernellib._kernels._compose import (
 )
 from kernellib._kernels._feature import FeatureKernel, Modulated
 from kernellib._kernels._nonstationary import Linear, Polynomial
+from kernellib._kernels._residual import Residual, nystrom_kernel
 from kernellib._kernels._stationary import (
     RBF,
     Constant,
@@ -45,8 +46,10 @@ __all__ = [
     "Polynomial",
     "Product",
     "RationalQuadratic",
+    "Residual",
     "Scaled",
     "Sum",
     "Warped",
     "White",
+    "nystrom_kernel",
 ]
