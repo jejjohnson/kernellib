@@ -86,7 +86,17 @@ K_low = rff.operator(X)  # LowRankUpdate, rank 2048
 
 nys = kl.NystromFeatures(300, key).fit(k, X)
 nys.landmarks  # (300, D)
+
+# Landmarks by approximate ridge leverage scores instead of uniformly
+lev = kl.NystromFeatures(
+    300, key, selection="leverage", leverage_regularization=1e-3
+).fit(k, X)
 ```
+
+Leverage-score landmarks help on unevenly spread data once `n_components` is
+at least the effective dimension $d_{\mathrm{eff}}(\lambda)$; below it they can
+all go to isolated points. `uniform_mixing` (default `0.5`) mixes in the
+uniform distribution to guard against that; `0` gives pure leverage sampling.
 
 ::: kernellib.AbstractFeatureMap
 

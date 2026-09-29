@@ -139,9 +139,36 @@ class FastFoodFeatures(RandomFourierFeatures):
 class NystromFeatures(RandomFourierFeatures):
     """Nyström features for any kernellib kernel, like
     ``sklearn.kernel_approximation.Nystroem``. ``n_components`` landmarks are
-    drawn uniformly from the training inputs (capped at ``n`` with a
-    warning); the output has ``n_components`` columns.
+    drawn from the training inputs (capped at ``n`` with a warning); the
+    output has ``n_components`` columns.
+
+    Args:
+        n_components: Number of landmarks.
+        kernel: A kernellib kernel, or ``None`` for a median-heuristic `RBF`.
+        selection: ``"uniform"`` (default) or ``"leverage"`` (approximate
+            ridge leverage scores; see `kernellib.NystromFeatures`).
+        leverage_regularization: The ridge ``lambda`` of the leverage scores.
+        uniform_mixing: Weight of the uniform distribution mixed into the
+            leverage-score one; ``0`` is pure leverage sampling.
+        random_state: Seed.
     """
+
+    def __init__(
+        self,
+        n_components: int = 100,
+        *,
+        kernel: AbstractKernel | None = None,
+        selection: str = "uniform",
+        leverage_regularization: float = 1e-3,
+        uniform_mixing: float = 0.5,
+        random_state: Any = None,
+    ) -> None:
+        self.n_components = n_components
+        self.kernel = kernel
+        self.selection = selection
+        self.leverage_regularization = leverage_regularization
+        self.uniform_mixing = uniform_mixing
+        self.random_state = random_state
 
     def _build(self, key: Any, X: np.ndarray) -> spectral.AbstractFeatureMap:
         n_components = self.n_components
@@ -152,7 +179,13 @@ class NystromFeatures(RandomFourierFeatures):
                 stacklevel=3,
             )
             n_components = X.shape[0]
-        return spectral.NystromFeatures(n_components, key)
+        return spectral.NystromFeatures(
+            n_components,
+            key,
+            selection=self.selection,
+            leverage_regularization=self.leverage_regularization,
+            uniform_mixing=self.uniform_mixing,
+        )
 
 
 class LaplaceEigenfunctionFeatures(_FeatureMap):
