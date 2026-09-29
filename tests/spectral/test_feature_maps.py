@@ -65,6 +65,7 @@ def test_random_maps_are_unbiased_for_composites(cls, kernel):
     assert jnp.all(jnp.abs(jnp.mean(errs, axis=0)) <= 7 * se + 1e-12)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kernel", COMPOSITES, ids=COMPOSITE_IDS)
 @pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
 def test_composites_are_exact_on_the_diagonal(cls, kernel):
@@ -74,6 +75,7 @@ def test_composites_are_exact_on_the_diagonal(cls, kernel):
     assert jnp.allclose(jnp.sum(Phi**2, axis=1), kernel.spectral_variance)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
 def test_composite_hyperparameters_are_read_at_call_time(cls):
     X = _X()
@@ -85,6 +87,7 @@ def test_composite_hyperparameters_are_read_at_call_time(cls):
     assert jnp.allclose(swapped(X), refit(X))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
 def test_grad_reaches_every_part_of_a_composite(cls):
     X = _X()
@@ -121,6 +124,7 @@ def test_fastfood_rbf_row_lengths_would_bias_matern():
     assert jnp.any(jnp.abs(jnp.mean(errs, axis=0)) > 7 * se)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
 def test_random_maps_are_exact_on_the_diagonal(cls):
     # cos^2 + sin^2 = 1 per frequency, so phi(x).phi(x) = variance exactly.
@@ -130,6 +134,7 @@ def test_random_maps_are_exact_on_the_diagonal(cls):
     assert jnp.allclose(jnp.sum(Phi**2, axis=1), 1.3)
 
 
+@pytest.mark.slow
 def test_orf_blocks_are_orthogonal():
     X = _X(d=4)
     orf = kl.OrthogonalRandomFeatures(10, jax.random.key(0)).fit(kl.Matern(), X)
@@ -139,6 +144,7 @@ def test_orf_blocks_are_orthogonal():
         assert jnp.allclose(G - jnp.diag(jnp.diag(G)), 0.0, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_fastfood_row_lengths_come_from_the_kernel():
     X = _X(d=5)
     ff = kl.FastFoodFeatures(20, jax.random.key(0)).fit(kl.Matern(nu=0.5), X)
@@ -159,6 +165,7 @@ def test_hyperparameters_are_read_at_call_time(cls):
     assert jnp.allclose(swapped(X), refit(X))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "cls",
     [*RANDOM_MAPS, lambda n, key: kl.NystromFeatures(n, key)],
@@ -190,6 +197,7 @@ def test_operator_is_low_rank_psd():
     assert op.U.shape == (6, 8)
 
 
+@pytest.mark.slow
 def test_nystrom_is_exact_with_every_point_a_landmark():
     X = _X(n=8)
     k = kl.Matern(nu=1.5, lengthscale=0.6)
@@ -197,6 +205,7 @@ def test_nystrom_is_exact_with_every_point_a_landmark():
     assert jnp.allclose(Phi @ Phi.T, k(X, X), atol=1e-6)
 
 
+@pytest.mark.slow
 def test_nystrom_is_exact_on_its_landmarks():
     X = _X(n=30)
     k = kl.RBF(lengthscale=0.4) + kl.Linear()
@@ -283,6 +292,7 @@ def _exact_leverage(K, lam):
     return jnp.diag(K @ jnp.linalg.inv(K + lam * n * jnp.eye(n)))
 
 
+@pytest.mark.slow
 def test_leverage_scores_are_exact_with_a_full_pilot():
     from kernellib._spectral._feature_maps import _ridge_leverage_scores
 
@@ -293,6 +303,7 @@ def test_leverage_scores_are_exact_with_a_full_pilot():
     assert jnp.allclose(jnp.sum(scores), jnp.sum(exact), rtol=1e-6)  # d_eff
 
 
+@pytest.mark.slow
 def test_leverage_scores_approach_d_eff_as_the_pilot_grows():
     from kernellib._spectral._feature_maps import _ridge_leverage_scores
 
@@ -365,6 +376,7 @@ def test_mixing_keeps_leverage_no_worse_than_uniform_below_it():
     assert mixed <= 1.1 * uniform
 
 
+@pytest.mark.slow
 def test_leverage_landmarks_are_distinct_inputs_and_the_map_jits():
     X = _X(n=50, d=2)
     nys = kl.NystromFeatures(10, jax.random.key(0), selection="leverage").fit(

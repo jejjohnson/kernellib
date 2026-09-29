@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from kernellib import ImplicitKernelOperator
 
@@ -94,6 +95,7 @@ class TestImplicitKernelOperator:
         expected = K @ v
         assert jnp.allclose(result, expected, atol=1e-5)
 
+    @pytest.mark.slow
     def test_batched_mv_and_as_matrix(self, getkey):
         """Batched inputs should preserve leading dimensions."""
         X = jax.random.normal(getkey(), (2, 3, 5, 2))
@@ -176,6 +178,7 @@ class TestImplicitKernelOperator:
         assert jnp.allclose(transposed.as_matrix(), op.as_matrix().T)
 
 
+@pytest.mark.slow
 def test_unbatched_linear_solve_via_lineax_metadata(getkey):
     """Unbatched ImplicitKernelOperator integrates with lineax.linear_solve.
 

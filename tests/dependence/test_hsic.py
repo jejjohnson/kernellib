@@ -27,6 +27,7 @@ def _op(M):
     return lx.MatrixLinearOperator(M, lx.symmetric_tag)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
 def test_dense_matches_functional(estimator):
     X, Y = _pair()
@@ -34,6 +35,7 @@ def test_dense_matches_functional(estimator):
     assert jnp.allclose(kl.hsic(KX, KY, X, Y, estimator=estimator), expected)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
 def test_feature_path_is_exact_for_its_gram(estimator):
     # The feature formulas equal the dense estimator on Phi Phi^T exactly.
@@ -47,6 +49,7 @@ def test_feature_path_is_exact_for_its_gram(estimator):
     assert jnp.allclose(got, expected)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
 def test_full_nystrom_recovers_the_dense_value(estimator):
     X, Y = _pair(n=25)
@@ -66,6 +69,7 @@ def test_random_features_approximate_the_dense_value():
     assert jnp.abs(got - dense) < 0.05 * dense
 
 
+@pytest.mark.slow
 def test_detects_dependence():
     X, Y = _pair(n=150)
     _, Z = _pair(n=150, key=1, dependent=False)
@@ -76,6 +80,7 @@ def test_detects_dependence():
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("approx", [None, kl.NystromFeatures(30, jax.random.key(0))])
 def test_cka_bounds_and_scale_invariance(approx):
     X, Y = _pair(n=30)
@@ -105,6 +110,7 @@ def test_kernel_alignment():
     )
 
 
+@pytest.mark.slow
 def test_gradients_for_bandwidth_selection():
     X, Y = _pair()
 
@@ -120,6 +126,7 @@ def test_gradients_for_bandwidth_selection():
     assert gX.shape == X.shape and jnp.all(jnp.isfinite(gX))
 
 
+@pytest.mark.slow
 def test_errors():
     X, Y = _pair()
     with pytest.raises(ValueError, match="paired"):

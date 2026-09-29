@@ -118,6 +118,7 @@ class TestMv:
         K_dense = _build_dense(_rbf_kernel, params, X1, X2)
         assert tree_allclose(op.mv(v), K_dense @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_mv_matches_dense_batched(self, getkey):
         X1 = jr.normal(getkey(), (2, 3, 8, 2))
         X2 = jr.normal(getkey(), (2, 3, 5, 2))
@@ -388,6 +389,7 @@ class TestJAX:
         assert jnp.all(jnp.isfinite(g["variance"]))
         assert jnp.all(jnp.isfinite(g["lengthscale"]))
 
+    @pytest.mark.slow
     def test_jvp_matches_dense(self, getkey):
         X = jr.normal(getkey(), (6, 2))
         params = _make_params(getkey())
@@ -453,6 +455,7 @@ class TestJAX:
             rtol=1e-4,
         )
 
+    @pytest.mark.slow
     def test_jacrev_matches_dense(self, getkey):
         X = jr.normal(getkey(), (5, 2))
         params = _make_params(getkey())
@@ -471,6 +474,7 @@ class TestJAX:
             rtol=1e-4,
         )
 
+    @pytest.mark.slow
     def test_jacfwd_matches_dense(self, getkey):
         X = jr.normal(getkey(), (5, 2))
         params = _make_params(getkey())
@@ -489,6 +493,7 @@ class TestJAX:
             rtol=1e-4,
         )
 
+    @pytest.mark.slow
     def test_hessian_matches_dense(self, getkey):
         X = jr.normal(getkey(), (5, 2))
         params = _make_params(getkey())

@@ -58,6 +58,7 @@ def test_preconditioner_inverts_the_nystrom_approximation() -> None:
     assert jnp.allclose(P @ P.T, expected, rtol=1e-8, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_k_mm_cancels_in_the_preconditioned_system() -> None:
     # Pᵀ (K_nmᵀ K_nm + λ n K_mm) P = A⁻ᵀ [T⁻ᵀ K_nmᵀ K_nm T⁻¹ + λ n I] A⁻¹.
     n, lam = 100, 1e-3
@@ -90,6 +91,7 @@ def test_preconditioning_collapses_the_condition_number() -> None:
     assert jnp.linalg.cond(P.T @ system @ P) < 1e3
 
 
+@pytest.mark.slow
 def test_transpose_application_is_the_transpose() -> None:
     m = 10
     pre = kernellib.falkon_preconditioner(random_pd_matrix(jr.key(3), m), 0.1)
@@ -170,6 +172,7 @@ def _targets(X):
     return jnp.sin(3.0 * X[:, 0]) + 0.1 * jr.normal(jr.key(7), (X.shape[0],))
 
 
+@pytest.mark.slow
 def test_solve_matches_the_direct_nystrom_solve() -> None:
     n, m, lam = 200, 30, 1e-3
     X, _, K_nm, K_mm = _krr_problem(n, m)
@@ -185,6 +188,7 @@ def test_solve_matches_the_direct_nystrom_solve() -> None:
     assert jnp.allclose(K_nm @ alpha, K_nm @ expected, rtol=1e-6, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_solve_is_matrix_free_with_an_implicit_cross_kernel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -279,6 +283,7 @@ def test_info_reports_an_exhausted_budget() -> None:
     assert int(info.n_iter) == 5
 
 
+@pytest.mark.slow
 def test_estimator_reports_per_column_iterations() -> None:
     X = jr.normal(jr.key(0), (200, 2))
     y = _targets(X)
@@ -301,6 +306,7 @@ def test_estimator_reports_per_column_iterations() -> None:
     assert abs(int(single.n_iter) - int(model.n_iter[0])) <= 2
 
 
+@pytest.mark.slow
 def test_solve_is_jittable() -> None:
     n, m, lam = 100, 20, 1e-3
     X, _, K_nm, K_mm = _krr_problem(n, m)
@@ -316,6 +322,7 @@ def test_solve_is_jittable() -> None:
     assert jnp.allclose(eager, jitted, rtol=1e-10, atol=1e-12)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("data_dtype", "regularization_dtype"),
     [(jnp.float32, jnp.float64), (jnp.float64, jnp.float32)],
@@ -387,6 +394,7 @@ def test_solve_rejects_mismatched_shapes() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_predict_matches_explicit_kernel_evaluation() -> None:
     Z = jr.normal(jr.key(8), (15, 2))
     X_test = jr.normal(jr.key(9), (40, 2))
@@ -479,6 +487,7 @@ def test_predict_on_an_empty_test_set() -> None:
     assert prediction.shape == (0,)
 
 
+@pytest.mark.slow
 def test_predict_on_an_empty_test_set_keeps_the_kernel_dtype() -> None:
     # A float64 amplitude widens float32 points; an empty prediction must come
     # back in the same dtype a non-empty one does.
@@ -502,6 +511,7 @@ def _cosine(x, z):
     return jnp.dot(x, z) / (jnp.linalg.norm(x) * jnp.linalg.norm(z))
 
 
+@pytest.mark.slow
 def test_predict_gradient_is_finite_with_a_ragged_last_batch() -> None:
     # Cosine similarity is undefined at zero. Three points in batches of two
     # used to pad one zero row, whose NaN leaked into the gradient.

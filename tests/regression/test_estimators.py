@@ -20,6 +20,7 @@ K = kl.RBF(lengthscale=0.3)
 
 
 class TestFalkon:
+    @pytest.mark.slow
     def test_every_point_a_centre_is_krr(self):
         # Falkon's system with M = N reduces to (K + lambda n I) alpha = y.
         X, y = _data(n=60)
@@ -30,6 +31,7 @@ class TestFalkon:
         X_test, _ = _data(n=20, key=1)
         assert jnp.allclose(falkon.predict(X_test), krr.predict(X_test), atol=1e-6)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("implicit", [True, False])
     def test_generalises_with_few_centres(self, implicit):
         X, y = _data()
@@ -61,6 +63,7 @@ class TestFalkon:
 
         assert jnp.allclose(fit(True).alpha, fit(False).alpha, atol=1e-7)
 
+    @pytest.mark.slow
     def test_multi_output(self):
         X, y = _data(n=100)
         Y = jnp.stack([y, -y], axis=1)
@@ -70,6 +73,7 @@ class TestFalkon:
         assert model.alpha.shape == (30, 2)
         assert jnp.allclose(model.predict(X)[:, 1], -model.predict(X)[:, 0])
 
+    @pytest.mark.slow
     def test_gram_only_kernel_uses_the_dense_path(self):
         X, y = _data(n=80)
         model = kl.Falkon(K * 1.0, n_inducing=20).fit(X, y, key=jax.random.key(0))
@@ -93,6 +97,7 @@ class TestEigenPro:
         X_test, y_test = _data(n=100, key=2)
         assert model.loss(X_test, y_test) < 1e-3
 
+    @pytest.mark.slow
     def test_preconditioning_speeds_up_sgd(self):
         # One component barely changes plain kernel SGD; twenty damp the top
         # of the spectrum, allow a much larger step and fit faster.
@@ -109,6 +114,7 @@ class TestEigenPro:
 
         assert loss(20) < 0.5 * loss(1)
 
+    @pytest.mark.slow
     def test_loss_decreases_with_epochs(self):
         X, y = _data()
 
@@ -123,6 +129,7 @@ class TestEigenPro:
 
         assert loss(8) < loss(2) < loss(1)
 
+    @pytest.mark.slow
     def test_multi_output_and_jit(self):
         X, y = _data(n=150)
         Y = jnp.stack([y, 2.0 * y], axis=1)

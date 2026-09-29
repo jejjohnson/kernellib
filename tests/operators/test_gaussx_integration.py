@@ -16,8 +16,12 @@ import gaussx as gx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from kernellib import ImplicitKernelOperator, KernelOperator
+
+
+pytestmark = pytest.mark.integration
 
 
 def _rbf(params, x, y):

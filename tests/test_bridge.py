@@ -56,6 +56,7 @@ def test_cg_solve_through_implicit_operator_matches_dense_solve():
     assert jnp.allclose(x_cg, x_dense, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_solve_gradient_wrt_lengthscale_matches_dense():
     """Exercises the implicit operator's custom JVP with kernellib params."""
 
@@ -75,6 +76,7 @@ def test_solve_gradient_wrt_lengthscale_matches_dense():
     assert jnp.allclose(g_implicit, g_dense, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_cross_operator_dense_and_implicit_match():
     k = _kernel()
     dense = kl.to_cross_operator(k, X, Z)
@@ -157,6 +159,7 @@ def test_structured_solve_and_logdet_match_dense(kernel, cls):
     assert jnp.allclose(gx.logdet(op), jnp.linalg.slogdet(dense.as_matrix())[1])
 
 
+@pytest.mark.slow
 def test_structured_logdet_gradients_match_dense():
     def loss(params, structure):
         variance, bias, noise = params

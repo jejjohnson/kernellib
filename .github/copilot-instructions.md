@@ -14,7 +14,7 @@
 
 ```bash
 make install     # Install all dependencies (uv sync --all-groups)
-make test        # Run tests (uv run pytest -v)
+make test        # Fast tier (uv run pytest -n auto); make test-all for every tier
 make lint        # Lint code (ruff check)
 make format      # Format code (ruff format + ruff check --fix)
 make typecheck   # Type check (ty check)
@@ -30,7 +30,8 @@ make docs-serve  # Serve docs locally
 # 1. Tests + doctests — zero failures required
 #    `--doctest-modules` is in addopts, so every `Examples:` block in a
 #    docstring is executed. A stale example is a failing build.
-uv run pytest -v
+#    This is the fast tier; CI also runs `-m slow` and `-m integration`.
+uv run pytest -n auto
 
 # 2. Lint — run on the ENTIRE repo (includes tests/ and scripts/)
 uv run --group lint ruff check .

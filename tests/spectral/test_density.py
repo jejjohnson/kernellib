@@ -35,6 +35,7 @@ def test_rbf_density_matches_1d_closed_form():
     assert jnp.allclose(k.spectral_density(omega[:, None]), expected)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "kernel",
     [
@@ -58,6 +59,7 @@ def test_density_inverts_to_kernel_1d(kernel):
         assert jnp.allclose(k_tau, expected, atol=1e-4)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [2, 3])
 @pytest.mark.parametrize(
     "kernel",
@@ -111,6 +113,7 @@ def test_density_batch_shape():
 _TAU = jnp.array([0.4, -0.3, 0.2])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "kernel",
     [
@@ -143,6 +146,7 @@ def test_coordinatewise_matern_draw_would_fail_the_check():
     assert jnp.abs(jnp.mean(c) - k.pairwise(jnp.zeros(3), _TAU)) > 7 * se
 
 
+@pytest.mark.slow
 def test_sample_frequencies_shape_and_dtype():
     k = kl.Matern(nu=1.5)
     omega = k.sample_frequencies(jax.random.key(0), 5, 2, dtype=jnp.float32)
@@ -176,6 +180,7 @@ def _rq_mixture_density(omega_sq, alpha, d, n=200_000):
     return jnp.mean(vals, axis=1)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(("alpha", "d"), [(0.8, 1), (3.0, 1), (2.0, 2), (4.0, 3)])
 def test_rational_quadratic_density_is_the_gamma_mixture(alpha, d):
     omega_sq = jnp.array([0.01, 0.3, 1.0, 4.0, 12.0])
@@ -184,6 +189,7 @@ def test_rational_quadratic_density_is_the_gamma_mixture(alpha, d):
     assert jnp.allclose(got, _rq_mixture_density(omega_sq, alpha, d), rtol=1e-3)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [1, 2, 3])
 def test_rational_quadratic_density_at_the_origin(d):
     finite = kl.RationalQuadratic(alpha=d / 2 + 1.3)
@@ -195,6 +201,7 @@ def test_rational_quadratic_density_at_the_origin(d):
     assert divergent.unit_spectral_density(jnp.array(0.0), d) == jnp.inf
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [1, 2, 3])
 def test_rational_quadratic_density_gradients(d):
     omega = jax.random.normal(jax.random.key(d), (16, d))
@@ -229,6 +236,7 @@ def test_subclass_without_hooks_raises():
         _Bare().sample_frequencies(jax.random.key(0), 1, 1)
 
 
+@pytest.mark.slow
 def test_density_gradient_and_jit():
     omega = jnp.linspace(0.0, 3.0, 5)[:, None]
 
@@ -240,6 +248,7 @@ def test_density_gradient_and_jit():
     assert jnp.allclose(jax.jit(total)(0.8), total(0.8))
 
 
+@pytest.mark.slow
 def test_frequency_draw_is_differentiable_in_lengthscale():
     # sample_frequencies divides unit draws by the lengthscale, so the draw
     # is reparameterised: d omega / d l = -omega / l.

@@ -27,7 +27,10 @@ what belongs in gaussx versus here.
 
 ```bash
 make install              # Install all deps (uv sync --all-groups) + pre-commit hooks
-make test                 # Run tests: uv run pytest -v
+make test                 # Fast tier (the default): uv run pytest -n auto
+make test-slow            # Slow tier: -m "slow and not integration"
+make test-integration     # Integration tier: -m integration
+make test-all             # Every tier: -m ""
 make format               # Auto-fix: ruff format . && ruff check --fix .
 make lint                 # Lint code: ruff check .
 make typecheck            # Type check: ty check src/kernellib scripts
@@ -44,7 +47,7 @@ uv run pytest tests/test_example.py::TestClass::test_method -v
 ### Pre-commit checklist (all four must pass)
 
 ```bash
-uv run pytest -v                              # Tests + doctests
+uv run pytest -n auto                         # Fast tests + doctests (add `-m ""` for all tiers)
 uv run --group lint ruff check .              # Lint — ENTIRE repo, not just src/kernellib/
 uv run --group lint ruff format --check .     # Format — ENTIRE repo
 uv run --group typecheck ty check src/kernellib scripts  # Typecheck
@@ -99,11 +102,11 @@ Dependency direction is strictly one-way, layer 0 → 1 → 2.
 
 ## Test Speed Tiers
 
-- Unmarked (default): unit tests, < ~1 s each.
-- `@pytest.mark.slow`: individually expensive tests (> ~1.5 s — heavy numerics, `jit`+`grad`+`vmap` sweeps, RFF-convergence checks).
-- `@pytest.mark.integration`: end-to-end workflows across gaussx / geonnax / pyrox-gp. Usually combined with `slow`.
+- Unmarked (**fast**, the default selection): unit tests and doctests, < ~1 s each.
+- `@pytest.mark.slow`: individually expensive tests (> ~1 s — heavy numerics, `jit`+`grad`+`vmap` sweeps, Monte Carlo / RFF-convergence checks).
+- `@pytest.mark.integration`: end-to-end workflows — scikit-learn `check_estimator` sweeps, cross-library pipelines (gaussx / geonnax / pyrox-gp), optional backends.
 
-Run a subset with `uv run pytest -m "not slow and not integration"`.
+`addopts` selects `-m "not slow and not integration"`, so plain `uv run pytest` runs the fast tier. The last `-m` wins: `uv run pytest -m slow`, `-m integration`, or `-m ""` for everything. Mark a new test `slow` if it takes more than about a second. CI runs the three tiers as parallel jobs and gates coverage (90%) on their union, so no single tier has to reach it; locally, `make test-cov` runs every tier with coverage.
 
 ## Tests That Assert On Random Draws
 

@@ -14,6 +14,7 @@ import kernellib as kl
 X = jax.random.normal(jax.random.key(0), (25, 3))
 
 
+@pytest.mark.slow
 def test_identity_features_are_the_linear_kernel():
     k = kl.FeatureKernel(lambda x: x)
     assert jnp.allclose(k(X, X), kl.Linear()(X, X))
@@ -27,6 +28,7 @@ def test_scalar_features_are_an_outer_product():
     assert jnp.allclose(kl.FeatureKernel(f)(X, X), jnp.outer(fx, fx))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "make",
     [
@@ -43,6 +45,7 @@ def test_a_fitted_feature_map_is_its_approximation_as_a_kernel(make):
     assert jnp.allclose(k.pairwise(X[0], X[3]), Phi[0] @ Phi[3], atol=1e-10)
 
 
+@pytest.mark.slow
 def test_feature_kernel_stays_low_rank_in_to_operator():
     k = kl.FeatureKernel(lambda x: jnp.concatenate([x, x**2])) + kl.White(0.1)
     op = kl.to_operator(k, X)
@@ -51,6 +54,7 @@ def test_feature_kernel_stays_low_rank_in_to_operator():
     assert jnp.allclose(op.as_matrix(), k(X, X), atol=1e-12)
 
 
+@pytest.mark.slow
 def test_modulated_is_a_congruence():
     a = lambda x: 1.0 + x[0] ** 2
     k = kl.Modulated(kl.RBF(lengthscale=0.7), amplitude=a)
@@ -75,6 +79,7 @@ def test_modulated_keeps_structure():
     assert jnp.allclose(op.as_matrix(), k(X, X), atol=1e-10)
 
 
+@pytest.mark.slow
 def test_gradients_reach_neural_features_and_amplitudes():
     mlp = eqx.nn.MLP(3, 4, width_size=8, depth=1, key=jax.random.key(2))
     amp = eqx.nn.MLP(3, "scalar", width_size=8, depth=1, key=jax.random.key(3))
@@ -100,6 +105,7 @@ def test_gradients_reach_neural_features_and_amplitudes():
 Z = X[:6]
 
 
+@pytest.mark.slow
 def test_nystrom_kernel_matches_the_nystrom_operator():
     k = kl.RBF(lengthscale=0.8)
     kz = kl.nystrom_kernel(k, Z, jitter=1e-10)
@@ -107,6 +113,7 @@ def test_nystrom_kernel_matches_the_nystrom_operator():
     assert jnp.allclose(kz(X, X), expected, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_from_landmarks_equals_a_fit_with_those_landmarks():
     k = kl.Matern(nu=2.5)
     given = kl.NystromFeatures.from_landmarks(k, Z)
@@ -115,6 +122,7 @@ def test_from_landmarks_equals_a_fit_with_those_landmarks():
     assert jnp.allclose(given(X), fitted(X))
 
 
+@pytest.mark.slow
 def test_nystrom_residual_is_psd_and_vanishes_on_the_landmarks():
     k = kl.RBF(lengthscale=0.8)
     r = kl.Residual(k, kl.nystrom_kernel(k, Z))
@@ -141,6 +149,7 @@ def test_nystrom_kernel_plus_noise_is_low_rank_with_dense_logdet():
     assert jnp.allclose(gx.logdet(op), jnp.linalg.slogdet(dense)[1], rtol=1e-8)
 
 
+@pytest.mark.slow
 def test_nystrom_kernel_hyperparameters_are_differentiable():
     def loss(ell):
         k = kl.nystrom_kernel(kl.RBF(lengthscale=ell), Z) + kl.White(0.1)

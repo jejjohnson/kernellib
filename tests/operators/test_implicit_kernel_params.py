@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from kernellib import ImplicitKernelOperator
 from kernellib._testing import tree_allclose
@@ -116,6 +117,7 @@ class TestParamsMv:
         K = _build_dense(_rbf_kernel_params, params, X) + 0.05 * jnp.eye(N)
         assert tree_allclose(op.as_matrix(), K, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_batched_mv_and_as_matrix(self, getkey):
         X = jr.normal(getkey(), (2, 3, 6, 2))
         params = _make_params(getkey())
@@ -135,6 +137,7 @@ class TestParamsMv:
 
 
 class TestParamsGradients:
+    @pytest.mark.slow
     def test_grad_params(self, getkey):
         """Gradient via custom JVP matches naive dense autodiff."""
         N = 6

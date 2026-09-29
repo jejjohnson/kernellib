@@ -19,6 +19,7 @@ def _data(n=30, key=0):
     return X, y
 
 
+@pytest.mark.slow
 def test_matches_the_closed_form():
     X, y = _data()
     k = kl.Matern(nu=1.5, lengthscale=0.5)
@@ -56,6 +57,7 @@ def test_multi_output_equals_per_column_fits():
         assert jnp.allclose(model.alpha[:, c], single.alpha)
 
 
+@pytest.mark.slow
 def test_regularization_scales_with_n():
     # The same lambda on duplicated data gives the same function: the ridge
     # is lambda * n, so the objective is a mean, not a sum.
@@ -69,6 +71,7 @@ def test_regularization_scales_with_n():
     assert jnp.allclose(once.predict(X_test), twice.predict(X_test), atol=1e-8)
 
 
+@pytest.mark.slow
 def test_fits_a_smooth_function():
     X, y = _data(n=80)
     ell = kl.estimate_lengthscale(X)
@@ -77,6 +80,7 @@ def test_fits_a_smooth_function():
     assert model.loss(X_test, y_test) < 0.02
 
 
+@pytest.mark.slow
 def test_validation_loss_gradient():
     X, y = _data()
     X_val, y_val = _data(n=10, key=2)

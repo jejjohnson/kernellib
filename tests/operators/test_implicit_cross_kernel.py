@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from kernellib import ImplicitCrossKernelOperator, implicit_cross_kernel
 from kernellib._testing import tree_allclose
@@ -109,6 +110,7 @@ class TestMv:
         K_dense = _build_dense(_rbf, X, Z)
         assert tree_allclose(op.mv(v), K_dense @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_mv_matches_dense_batched(self, getkey):
         X = jr.normal(getkey(), (2, 3, 11, 3))
         Z = jr.normal(getkey(), (2, 3, 7, 3))
@@ -118,6 +120,7 @@ class TestMv:
         expected = jnp.matmul(K_dense, v[..., None]).squeeze(-1)
         assert tree_allclose(op.mv(v), expected, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_batched_structure_metadata(self, getkey):
         """Operator and its transpose must report batched structures
         consistent with the ``mv`` contract."""
@@ -156,6 +159,7 @@ class TestAsMatrix:
         op = ImplicitCrossKernelOperator(_rbf, X, Z)
         assert op.as_matrix().shape == (N, M)
 
+    @pytest.mark.slow
     def test_as_matrix_matches_manual_batched(self, getkey):
         X = jr.normal(getkey(), (2, 3, 10, 3))
         Z = jr.normal(getkey(), (2, 3, 6, 3))

@@ -22,6 +22,7 @@ def _match_signs(a, b):
     return b * np.sign(np.sum(a * b, axis=0))
 
 
+@pytest.mark.slow
 def test_matches_sklearn_with_a_precomputed_kernel():
     X, X_new = _X(), _X(n=10, seed=1)
     ours = kl.KernelPCA(K, n_components=3).fit(X)
@@ -54,6 +55,7 @@ def test_linear_kernel_is_pca():
     assert np.allclose(kpca.eigenvalues, s[:2] ** 2, rtol=1e-8)
 
 
+@pytest.mark.slow
 def test_full_rank_nystrom_recovers_the_exact_components():
     X = _X(n=40)
     exact = kl.KernelPCA(K, n_components=3).fit(X)
@@ -68,6 +70,7 @@ def test_full_rank_nystrom_recovers_the_exact_components():
     assert jnp.allclose(approx.transform(X), approx.embedding, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_gradients_reach_the_kernel():
     X = _X(n=30)
 

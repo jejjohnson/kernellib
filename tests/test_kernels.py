@@ -125,6 +125,7 @@ class TestZoo:
         K_pw = jax.vmap(lambda x: jax.vmap(lambda y: kernel.pairwise(x, y))(X2))(X1)
         assert jnp.allclose(K_pw, kernel(X1, X2), atol=1e-10)
 
+    @pytest.mark.slow
     def test_hyperparameter_grad_is_finite(self, kernel, reference, psd):
         params, static = eqx.partition(kernel, eqx.is_inexact_array)
 
@@ -281,6 +282,7 @@ def test_composites_reject_empty_and_non_kernels():
 _ELL, _VAR, _PERIOD = 0.7, 1.5, 2.0
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("kernel", "dim", "expected"),
     [
@@ -302,6 +304,7 @@ def test_cross_hessian_at_coincident_points(kernel, dim, expected):
     assert jnp.allclose(H, expected * jnp.eye(dim), rtol=1e-10)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("nu", [1.5, 2.5])
 def test_derivative_gram_is_psd(nu):
     k = kl.Matern(lengthscale=0.8, nu=nu)
@@ -355,6 +358,7 @@ def test_periodised_rbf_is_periodic_in_1d():
     assert jnp.allclose(a, b, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_periodised_is_psd_where_periodic_is_not():
     X = jax.random.uniform(jax.random.key(1), (200, 2), minval=-5.0, maxval=5.0)
     # Guard: the Euclidean-distance Periodic is indefinite on these points.
@@ -397,6 +401,7 @@ def test_periodised_period_gradient_is_finite():
     assert jnp.all(jnp.isfinite(g)) and jnp.all(g != 0.0)
 
 
+@pytest.mark.slow
 def test_periodised_linear_keeps_low_rank_structure():
     import gaussx as gx
 

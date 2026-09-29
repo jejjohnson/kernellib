@@ -45,6 +45,7 @@ def test_path_covariance_matches_kernel(kernel):
     assert jnp.all(jnp.abs(jnp.mean(prods, axis=0) - kernel(X, X)) < 7 * se)
 
 
+@pytest.mark.slow
 def test_shapes_and_dtype():
     v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
         kl.RBF(lengthscale=jnp.ones(3)),
@@ -61,6 +62,7 @@ def test_shapes_and_dtype():
     assert jnp.all((phase >= 0) & (phase <= 2 * jnp.pi))
 
 
+@pytest.mark.slow
 def test_frequencies_are_unit_lengthscale():
     # The lengthscale is applied at evaluation, not baked into omega.
     a = kl.draw_rff_cosine_basis(
@@ -80,6 +82,7 @@ def test_frequencies_are_unit_lengthscale():
     assert jnp.array_equal(a, b)
 
 
+@pytest.mark.slow
 def test_matches_geonnax_cosine_forward():
     # One path is sqrt(variance) * phi(x) . w with phi geonnax's single-cosine
     # map; the ARD lengthscale is folded into the frequency matrix.
@@ -116,6 +119,7 @@ def test_rejects_non_stationary_kernels(kernel):
         )
 
 
+@pytest.mark.slow
 def test_composite_paths_have_the_kernel_covariance():
     kernel = kl.RBF(lengthscale=0.3) + 0.5 * kl.Matern(nu=1.5, lengthscale=2.0)
     v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
@@ -132,6 +136,7 @@ def test_composite_paths_have_the_kernel_covariance():
     assert jnp.allclose(cov, kernel(X, X), atol=0.15)
 
 
+@pytest.mark.slow
 def test_single_kernel_basis_is_unchanged_by_composite_support():
     # pyrox-gp's _basis wrapper reads (variance, lengthscale, unit omega).
     v, ell, omega, _, _ = kl.draw_rff_cosine_basis(
@@ -164,6 +169,7 @@ def test_ard_mismatch_raises():
         )
 
 
+@pytest.mark.slow
 def test_evaluate_is_differentiable_in_hyperparameters():
     v, _, omega, phase, w = kl.draw_rff_cosine_basis(
         kl.RBF(), jax.random.key(0), n_paths=2, n_features=8, in_features=1

@@ -18,6 +18,7 @@ class _GramOnly(kl.AbstractKernel):
         return (A @ B.T) ** 2
 
 
+@pytest.mark.slow
 def test_stretch_is_a_lengthscale_for_stationary_kernels():
     k = kl.RBF(lengthscale=0.5).stretch(2.0)
     assert isinstance(k, kl.Warped) and isinstance(k.warp, kl.Stretch)
@@ -52,6 +53,7 @@ def test_transform_select_periodic_build_the_constructors():
     assert jnp.allclose(per(X, Y), kl.Periodised(kl.RBF(), 2.0)(X, Y))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "kernel",
     [kl.RBF(), kl.Linear() + kl.Matern(), 2.0 * kl.Periodic(), _GramOnly()],

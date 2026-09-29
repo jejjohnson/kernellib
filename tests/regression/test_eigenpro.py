@@ -26,6 +26,7 @@ def _kernel_matrix(X):
 
 
 class TestEigenProPreconditioner:
+    @pytest.mark.slow
     def test_subsample_eigendecomposition_is_positive(self):
         X = jnp.linspace(-1.0, 1.0, 10)[:, None]
         K = _kernel_matrix(X) + 1e-3 * jnp.eye(X.shape[0])
@@ -54,6 +55,7 @@ class TestEigenProPreconditioner:
         assert precond.beta > 0.0
         assert jnp.allclose(precond.V.T @ precond.V, jnp.eye(3), atol=1e-6)
 
+    @pytest.mark.slow
     def test_implicit_kernel_operator_path(self):
         X = jnp.linspace(-1.0, 1.0, 8)[:, None]
         op = kernellib.ImplicitKernelOperator(
@@ -208,6 +210,7 @@ class TestEigenProSpectrum:
         )
         return X, kernel, precond
 
+    @pytest.mark.slow
     def test_weights_use_the_exact_tail_eigenvalue(self):
         # A 21-step Lanczos run got the 21st eigenvalue of K_mm / m wrong by
         # an order of magnitude, and with it every weight.
@@ -217,6 +220,7 @@ class TestEigenProSpectrum:
         expected = (1.0 - (lam[20] / lam[:20]) ** 0.95) / lam[:20]
         assert jnp.allclose(precond.D, expected, rtol=1e-6)
 
+    @pytest.mark.slow
     def test_beta_is_the_preconditioned_diagonal(self):
         X, kernel, precond = self._setup(20)
         K_xs = kernel(X, X[precond.subsample_indices])
@@ -224,6 +228,7 @@ class TestEigenProSpectrum:
         assert jnp.allclose(precond.beta, jnp.max(diag), rtol=1e-8)
         assert 0.0 < precond.beta < 1.0
 
+    @pytest.mark.slow
     def test_more_components_allow_larger_steps(self):
         steps = [eigenpro_step_size(self._setup(k)[2], 64) for k in (1, 10, 40)]
         assert steps[0] < steps[1] < steps[2]
@@ -232,6 +237,7 @@ class TestEigenProSpectrum:
 class TestEigenProBetaScan:
     """The β estimate streams chunks in a ``lax.scan`` (#38)."""
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("n", [257, 1000])
     @pytest.mark.parametrize("implicit", [True, False])
     def test_beta_scan_matches_reference(self, n, implicit):

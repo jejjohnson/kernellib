@@ -10,10 +10,13 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 
 FORBIDDEN_ON_IMPORT = ("numpyro", "sklearn", "pynndescent", "numba")
 
 
+@pytest.mark.slow
 def test_sklearn_adapter_is_opt_in() -> None:
     # The adapter package loads scikit-learn only when imported explicitly.
     code = (
@@ -25,6 +28,7 @@ def test_sklearn_adapter_is_opt_in() -> None:
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
+@pytest.mark.slow
 def test_import_does_not_load_modelling_dependencies() -> None:
     code = (
         "import sys, kernellib; "

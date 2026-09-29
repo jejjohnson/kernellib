@@ -63,7 +63,7 @@ check-env-%:
 # ---------------------------------------------------------------------------
 # Phony declarations
 # ---------------------------------------------------------------------------
-.PHONY: help install lint format typecheck test test-cov \
+.PHONY: help install lint format typecheck test test-slow test-integration test-all test-cov \
         precommit build clean version docs docs-check docs-api docs-serve \
         gh-labels gh-sub gh-block gh-show
 
@@ -130,14 +130,29 @@ typecheck: ## 🔬 Type-check with ty
 ##@ Testing
 # ===========================================================================
 
-test: ## 🧪 Run tests with pytest (no coverage)
-	@printf "$(YELLOW)>>> Running tests (no coverage)...$(RESET)\n"
-	uv run pytest -v -o addopts=--doctest-modules
-	@printf "$(GREEN)>>> ✅ Tests passed!$(RESET)\n"
+test: ## 🧪 Run the fast tier (the default pytest selection)
+	@printf "$(YELLOW)>>> Running fast tests...$(RESET)\n"
+	uv run pytest -n auto
+	@printf "$(GREEN)>>> ✅ Fast tests passed!$(RESET)\n"
 
-test-cov: ## 📊 Run tests with coverage report
-	@printf "$(YELLOW)>>> Running tests with coverage...$(RESET)\n"
-	uv run pytest -v
+test-slow: ## 🐢 Run the slow tier
+	@printf "$(YELLOW)>>> Running slow tests...$(RESET)\n"
+	uv run pytest -n auto -m "slow and not integration"
+	@printf "$(GREEN)>>> ✅ Slow tests passed!$(RESET)\n"
+
+test-integration: ## 🔗 Run the integration tier
+	@printf "$(YELLOW)>>> Running integration tests...$(RESET)\n"
+	uv run pytest -n auto -m integration
+	@printf "$(GREEN)>>> ✅ Integration tests passed!$(RESET)\n"
+
+test-all: ## 🧪 Run every tier
+	@printf "$(YELLOW)>>> Running all tests...$(RESET)\n"
+	uv run pytest -n auto -m ""
+	@printf "$(GREEN)>>> ✅ All tests passed!$(RESET)\n"
+
+test-cov: ## 📊 Run every tier with a coverage report (fails under 90%)
+	@printf "$(YELLOW)>>> Running all tests with coverage...$(RESET)\n"
+	uv run pytest -n auto -m "" --cov=src/kernellib --cov-report=term-missing --cov-report=xml:coverage.xml
 	@printf "$(GREEN)>>> ✅ Coverage report generated!$(RESET)\n"
 
 # ===========================================================================

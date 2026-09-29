@@ -9,6 +9,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from kernellib._testing import tree_allclose
 from kernellib.functional import stable_rbf_kernel
@@ -20,6 +21,7 @@ from kernellib.functional import stable_rbf_kernel
 
 
 class TestStableRBFKernel:
+    @pytest.mark.slow
     def test_matches_naive(self, getkey):
         """Should match naive RBF computation in float64."""
         X = jr.normal(getkey(), (6, 3)).astype(jnp.float64)
@@ -38,12 +40,14 @@ class TestStableRBFKernel:
         )
         assert tree_allclose(result, expected, rtol=1e-10)
 
+    @pytest.mark.slow
     def test_output_shape(self, getkey):
         X = jr.normal(getkey(), (10, 3))
         Z = jr.normal(getkey(), (6, 3))
         K = stable_rbf_kernel(X, Z, lengthscale=1.0)
         assert K.shape == (10, 6)
 
+    @pytest.mark.slow
     def test_psd_high_dim(self, getkey):
         """RBF kernel eigenvalues should all be >= 0 for D=500."""
         D = 500
@@ -52,6 +56,7 @@ class TestStableRBFKernel:
         eigvals = jnp.linalg.eigvalsh(K.astype(jnp.float64))
         assert jnp.all(eigvals > -1e-5)
 
+    @pytest.mark.slow
     def test_cholesky_float32_high_dim(self, getkey):
         """Cholesky should succeed in float32 for D=500."""
         D = 500
@@ -61,6 +66,7 @@ class TestStableRBFKernel:
         L = jnp.linalg.cholesky(K)
         assert jnp.all(jnp.isfinite(L))
 
+    @pytest.mark.slow
     def test_grad_lengthscale(self, getkey):
         """Gradient should flow through lengthscale."""
         X = jr.normal(getkey(), (6, 3))

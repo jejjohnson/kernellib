@@ -15,6 +15,7 @@ def _X(n=40, d=2, key=0):
     return jax.random.uniform(jax.random.key(key), (n, d), minval=-1.0, maxval=1.0)
 
 
+@pytest.mark.slow
 def test_rbf_1d_converges_inside_a_wide_box():
     X = jnp.linspace(-1.0, 1.0, 50)[:, None]
     k = kl.RBF(lengthscale=0.3, variance=1.7)
@@ -23,6 +24,7 @@ def test_rbf_1d_converges_inside_a_wide_box():
     assert jnp.allclose(Phi @ Phi.T, k(X, X), atol=1e-6)
 
 
+@pytest.mark.slow
 def test_sum_of_scales_converges_inside_a_wide_box():
     X = jnp.linspace(-1.0, 1.0, 50)[:, None]
     parts = (0.5 * kl.RBF(lengthscale=0.3), kl.Matern(nu=2.5, lengthscale=1.0))
@@ -39,6 +41,7 @@ def test_sum_of_scales_converges_inside_a_wide_box():
     assert jnp.allclose(gram(k), k(X, X), atol=1e-5)
 
 
+@pytest.mark.slow
 def test_rational_quadratic_converges_inside_a_wide_box():
     # RQ decays only polynomially in r, so the box boundary, not the number of
     # eigenfunctions, limits the accuracy; a large alpha and a wide box keep
@@ -80,6 +83,7 @@ def test_matern_error_falls_with_basis_size():
     assert err(128) < err(32) < err(8)
 
 
+@pytest.mark.slow
 def test_frequencies_follow_the_basis_order():
     # |omega_j|^2 is geonnax's summed eigenvalue, in the same row-major order.
     X = _X(n=3)
@@ -89,6 +93,7 @@ def test_frequencies_follow_the_basis_order():
     assert jnp.allclose(jnp.sum(lap.frequencies**2, axis=-1), lam)
 
 
+@pytest.mark.slow
 def test_isotropic_matches_the_summed_eigenvalue_form():
     # pyrox-gp's form: basis * sqrt(S_radial(sqrt(lambda))).
     X = _X(n=5, d=3)
@@ -107,6 +112,7 @@ def test_half_widths_from_data_or_given():
     assert given.half_widths == (3.0, 3.0)
 
 
+@pytest.mark.slow
 def test_operator_and_grad():
     X = _X()
     lap = kl.LaplaceEigenfunctionFeatures(6).fit(kl.RBF(lengthscale=0.5), X)

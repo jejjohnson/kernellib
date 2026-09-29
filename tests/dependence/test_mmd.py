@@ -32,6 +32,7 @@ def test_unbiased_formula():
     assert jnp.allclose(kl.mmd_squared(K, X, Y, estimator="unbiased"), expected)
 
 
+@pytest.mark.slow
 def test_linear_formula_and_gram_only_kernels():
     X, Y = _samples(m=8, n=8)
     h = [
@@ -47,6 +48,7 @@ def test_linear_formula_and_gram_only_kernels():
     assert jnp.isfinite(kl.mmd_squared(K + kl.Linear(), X, Y, estimator="linear"))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
 def test_features_are_exact_for_their_gram(estimator):
     X, Y = _samples()
@@ -60,6 +62,7 @@ def test_features_are_exact_for_their_gram(estimator):
     assert jnp.allclose(got, expected)
 
 
+@pytest.mark.slow
 def test_separates_shifted_samples():
     X, Y = _samples(m=100, n=100, shift=1.0)
     X2, _ = _samples(m=100, n=100, key=1)
