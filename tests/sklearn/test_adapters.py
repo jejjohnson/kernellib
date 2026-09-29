@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from sklearn.base import clone
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import GridSearchCV, cross_val_score
 from sklearn.pipeline import make_pipeline
@@ -105,6 +106,18 @@ class TestRegressors:
         ridge = KernelRidge(kernel=k, regularization=1e-3).fit(X, y)
         assert falkon.landmarks_.shape == (50, 2)
         assert np.allclose(falkon.predict(X), ridge.predict(X), atol=1e-6)
+
+    def test_falkon_reports_iterations_and_warns_on_budget(self):
+        X, y = _data(n=120)
+        model = FalkonRegressor(
+            n_inducing=40, regularization=1e-3, max_iter=100, random_state=0
+        ).fit(X, y)
+        assert 0 < model.n_iter_ < 100
+        with pytest.warns(ConvergenceWarning, match="max_iter=3"):
+            model = FalkonRegressor(
+                n_inducing=40, regularization=1e-8, max_iter=3, random_state=0
+            ).fit(X, y)
+        assert model.n_iter_ == 3
 
     def test_random_state_reproducibility(self):
         X, y = _data(n=120)

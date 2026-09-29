@@ -13,14 +13,14 @@ touched only through matvecs.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal, overload
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Bool, Float, Int
 
 from kernellib._operators._implicit_cross import ImplicitCrossKernelOperator
 
@@ -66,6 +66,19 @@ class FalkonPreconditioner(eqx.Module):
     ) -> Float[Array, " M *C"]:
         r"""Apply $P^{\top} = A^{-\top} T^{-\top}$."""
         return _solve_upper(self.A, _solve_upper(self.T, vector, trans=1), trans=1)
+
+
+class FalkonInfo(eqx.Module):
+    """Convergence report of a `falkon_solve` run.
+
+    Attributes:
+        n_iter: Conjugate-gradient steps taken.
+        converged: Whether the relative residual reached ``tol`` within
+            ``max_iter`` steps.
+    """
+
+    n_iter: Int[Array, ""]
+    converged: Bool[Array, ""]
 
 
 def falkon_preconditioner(
@@ -125,6 +138,7 @@ def falkon_preconditioner(
     return FalkonPreconditioner(T=T, A=A)
 
 
+@overload
 def falkon_solve(
     K_nm: lx.AbstractLinearOperator,
     y: Float[Array, " N"],
@@ -133,7 +147,33 @@ def falkon_solve(
     *,
     max_iter: int = 20,
     tol: float = 1e-6,
-) -> Float[Array, " M"]:
+    return_info: Literal[False] = False,
+) -> Float[Array, " M"]: ...
+
+
+@overload
+def falkon_solve(
+    K_nm: lx.AbstractLinearOperator,
+    y: Float[Array, " N"],
+    preconditioner: FalkonPreconditioner,
+    regularization: float | Float[Array, ""],
+    *,
+    max_iter: int = 20,
+    tol: float = 1e-6,
+    return_info: Literal[True],
+) -> tuple[Float[Array, " M"], FalkonInfo]: ...
+
+
+def falkon_solve(
+    K_nm: lx.AbstractLinearOperator,
+    y: Float[Array, " N"],
+    preconditioner: FalkonPreconditioner,
+    regularization: float | Float[Array, ""],
+    *,
+    max_iter: int = 20,
+    tol: float = 1e-6,
+    return_info: bool = False,
+) -> Float[Array, " M"] | tuple[Float[Array, " M"], FalkonInfo]:
     r"""Nyström kernel ridge regression weights by Falkon's preconditioned CG.
 
     Solves $(K_{nm}^{\top} K_{nm} + \lambda n K_{mm})\, \alpha = K_{nm}^{\top} y$
@@ -152,7 +192,9 @@ def falkon_solve(
     Following Falkon, ``max_iter`` is a budget rather than a failure: the
     preconditioned system is well conditioned enough that a few tens of
     iterations reach the statistical accuracy of the estimator, and the
-    iterate at the budget is returned without raising.
+    iterate at the budget is returned without raising. Pass
+    ``return_info=True`` to see how many steps were taken and whether the
+    tolerance was reached.
 
     Args:
         K_nm: Cross-kernel operator between the ``N`` data points and the
@@ -164,10 +206,15 @@ def falkon_solve(
         regularization: Ridge parameter $\lambda$; must match the
             preconditioner's.
         max_iter: CG iteration budget.
-        tol: Relative residual tolerance for stopping early.
+        tol: Relative residual tolerance for stopping early: CG stops once
+            every component of the preconditioned residual is below
+            ``tol * (max|b| + |b_i|)``.
+        return_info: Also return a `FalkonInfo` with the number of CG steps
+            and whether CG converged.
 
     Returns:
-        Nyström weights $\alpha$, shape ``(M,)``.
+        Nyström weights $\alpha$, shape ``(M,)``; with ``return_info=True``,
+        the pair ``(alpha, info)``.
 
     Raises:
         ValueError: If the shapes of ``K_nm``, ``y`` and ``preconditioner``
@@ -228,13 +275,27 @@ def falkon_solve(
     )
     projected = adjoint(y.astype(dtype))
     rhs = _solve_upper(A, _solve_upper(T, projected, trans=1), trans=1)
+    # lineax's CG stops when every component satisfies |r_i| <= atol +
+    # rtol |b_i| (and likewise for the step against y). With atol = 0 a single
+    # near-zero component of b or y blocks convergence, so the solve always
+    # ran to max_iter; scaling atol by max|b| makes ``tol`` a relative
+    # residual in the max norm.
+    # lineax annotates atol as float but takes a (traced) array.
+    atol = tol * jnp.max(jnp.abs(rhs))
     solution = lx.linear_solve(
         operator,
         rhs,
-        lx.CG(rtol=tol, atol=0.0, max_steps=max_iter),
+        lx.CG(rtol=tol, atol=atol, max_steps=max_iter),  # ty: ignore[invalid-argument-type]
         throw=False,
     )
-    return _solve_upper(T, _solve_upper(A, solution.value))
+    alpha = _solve_upper(T, _solve_upper(A, solution.value))
+    if not return_info:
+        return alpha
+    info = FalkonInfo(
+        n_iter=solution.stats["num_steps"],
+        converged=solution.result == lx.RESULTS.successful,
+    )
+    return alpha, info
 
 
 def falkon_predict(

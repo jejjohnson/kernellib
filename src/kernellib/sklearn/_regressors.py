@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from kernellib._kernels import AbstractKernel
@@ -146,8 +148,9 @@ class FalkonRegressor(_Regressor):
         kernel_: The kernel used.
         alpha_: Weights on the centres.
         landmarks_: The centres, ``(m, d)``.
-        n_iter_: The conjugate-gradient budget, ``max_iter``.
-            `kernellib.falkon_solve` does not report the iterations used.
+        n_iter_: Conjugate-gradient steps taken (the most over target
+            columns). A `~sklearn.exceptions.ConvergenceWarning` is raised
+            when ``max_iter`` is reached before ``tol``.
         n_features_in_: Number of input features.
 
     Examples:
@@ -198,7 +201,14 @@ class FalkonRegressor(_Regressor):
     def fit(self, X: Any, y: Any) -> FalkonRegressor:
         super().fit(X, y)
         self.landmarks_ = np.asarray(self.model_.landmarks)
-        self.n_iter_ = self.max_iter
+        self.n_iter_ = int(np.max(self.model_.n_iter))
+        if not bool(np.all(self.model_.converged)):
+            warnings.warn(
+                f"Falkon's conjugate gradients did not reach tol={self.tol} "
+                f"within max_iter={self.max_iter} iterations; increase max_iter.",
+                ConvergenceWarning,
+                stacklevel=2,
+            )
         return self
 
 

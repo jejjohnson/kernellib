@@ -3,11 +3,12 @@ r"""`Falkon` and `EigenPro` estimators over the moved primitives."""
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 
 from kernellib._einx import rearrange
 from kernellib._kernels import AbstractKernel
@@ -25,11 +26,22 @@ from kernellib._regression._falkon import falkon_preconditioner, falkon_solve
 __all__ = ["EigenPro", "Falkon"]
 
 
-def _per_column(fn, y: Array) -> Array:
+def _per_column(fn, y: Array, out_axes: Any = 1) -> Any:
     """Apply a vector solver to ``(N,)`` targets or each column of ``(N, C)``."""
     if y.ndim == 1:
         return fn(y)
-    return jax.vmap(fn, in_axes=1, out_axes=1)(y)
+    if y.shape[1] == 1:
+        # Solve the lone column unbatched, so (N, 1) targets give bit-for-bit
+        # the (N,) result: vmapped matvecs round differently, and an
+        # iterative solver that stops at a tolerance does not wash that out.
+        out = fn(y[:, 0])
+        if not isinstance(out_axes, tuple):
+            return jax.tree.map(lambda leaf: jnp.expand_dims(leaf, out_axes), out)
+        return tuple(
+            jax.tree.map(lambda leaf, axis=axis: jnp.expand_dims(leaf, axis), part)
+            for part, axis in zip(out, out_axes, strict=True)
+        )
+    return jax.vmap(fn, in_axes=1, out_axes=out_axes)(y)
 
 
 class Falkon(AbstractEstimator):
@@ -55,6 +67,10 @@ class Falkon(AbstractEstimator):
         jitter: Diagonal jitter on ``K_mm``; ``None`` for the default.
         landmarks: The centres ``Z``, ``None`` before `fit`.
         alpha: Weights on the centres, ``None`` before `fit`.
+        n_iter: CG steps taken, one per target column for ``(N, C)``
+            targets; ``None`` before `fit`.
+        converged: Whether CG reached ``tol`` within ``max_iter``, per
+            target column; ``None`` before `fit`.
 
     Examples:
         >>> import jax
@@ -81,6 +97,8 @@ class Falkon(AbstractEstimator):
     jitter: float | None = eqx.field(default=None, static=True)
     landmarks: Float[Array, "M D"] | None = None
     alpha: Float[Array, " M"] | Float[Array, "M C"] | None = None
+    n_iter: Int[Array, ""] | Int[Array, " C"] | None = None
+    converged: Bool[Array, ""] | Bool[Array, " C"] | None = None
 
     def fit(
         self,
@@ -107,7 +125,7 @@ class Falkon(AbstractEstimator):
             self.kernel(Z, Z), self.regularization, jitter=self.jitter
         )
         K_nm = self._cross(X, Z)
-        alpha = _per_column(
+        alpha, info = _per_column(
             lambda col: falkon_solve(
                 K_nm,
                 col,
@@ -115,10 +133,19 @@ class Falkon(AbstractEstimator):
                 self.regularization,
                 max_iter=self.max_iter,
                 tol=self.tol,
+                return_info=True,
             ),
             y,
+            # Weights stack as columns, the per-column info along axis 0.
+            out_axes=(1, 0),
         )
-        return dataclasses.replace(self, landmarks=Z, alpha=alpha)
+        return dataclasses.replace(
+            self,
+            landmarks=Z,
+            alpha=alpha,
+            n_iter=info.n_iter,
+            converged=info.converged,
+        )
 
     def _cross(self, X: Float[Array, "N D"], Z: Float[Array, "M D"]):
         implicit = self.implicit and self.kernel.is_pointwise

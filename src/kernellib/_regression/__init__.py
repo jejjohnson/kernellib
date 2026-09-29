@@ -15,6 +15,7 @@ from kernellib._regression._eigenpro import (
 )
 from kernellib._regression._estimators import EigenPro, Falkon
 from kernellib._regression._falkon import (
+    FalkonInfo,
     FalkonPreconditioner,
     falkon_preconditioner,
     falkon_predict,
@@ -29,6 +30,7 @@ __all__ = [
     "EigenPro",
     "EigenProPreconditioner",
     "Falkon",
+    "FalkonInfo",
     "FalkonPreconditioner",
     "eigenpro_correction",
     "eigenpro_preconditioner",
