@@ -36,6 +36,7 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._dependence._distance.energy_distance",
         "kernellib._dependence._hsic.hsic",
         "kernellib._dependence._permutation.permutation_test",
+        "kernellib._dependence._taylor.taylor_statistics",
         "kernellib._heuristics.estimate_lengthscale",
         "kernellib._kernels._derivative.DerivativeIndexed",
         "kernellib._operators._fastfood.fastfood_features",

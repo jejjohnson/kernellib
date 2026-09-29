@@ -13,6 +13,7 @@ kernels and samples.
 | `distance_covariance_squared` | dependence (Székely et al., 2007) | biased (V), unbiased (U-centred) |
 | `distance_correlation_squared` | dCov normalised to ``[0, 1]`` | biased, unbiased |
 | `energy_distance` | difference between two distributions | biased, unbiased, linear-time |
+| `taylor_statistics` | radii, CKA and distance for a kernel Taylor diagram | biased, unbiased |
 | `permutation_test` | a p-value for any of the above | exact permutation test |
 
 ```python
@@ -66,6 +67,24 @@ al., 2013), so they share every estimator and the ``approx`` path:
 Use Nyström for ``approx`` here: `Distance` is not stationary and has no
 spectral density.
 
+## Taylor diagrams
+
+Centred Gram matrices are vectors with inner product HSIC, so their norms,
+their CKA and their distance obey the law of cosines, the same triangle a
+Taylor diagram (Taylor, 2001) draws for standard deviation, correlation and
+centred RMSE. `taylor_statistics` returns the four numbers from one set of
+HSIC values, so the triangle closes exactly, including under ``approx``:
+
+```python
+k = kl.RBF(lengthscale=kl.estimate_lengthscale(X_ref))
+for name, Y in models.items():
+    s = kl.taylor_statistics(k, k, X_ref, Y)
+    ax.plot(jnp.arccos(s.correlation), s.norm_y, "o", label=name)  # polar axes
+```
+
+With `Linear` kernels it is the RV-coefficient diagram; on 1-D data, the
+classic diagram on a squared scale (variance and $\rho^2$).
+
 ::: kernellib.hsic
 
 ::: kernellib.cka
@@ -79,6 +98,10 @@ spectral density.
 ::: kernellib.distance_correlation_squared
 
 ::: kernellib.energy_distance
+
+::: kernellib.taylor_statistics
+
+::: kernellib.TaylorStatistics
 
 ::: kernellib.permutation_test
 

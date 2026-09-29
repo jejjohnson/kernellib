@@ -40,6 +40,7 @@ from kernellib._decomposition import (
 )
 from kernellib._dependence import (
     PermutationTestResult,
+    TaylorStatistics,
     cka,
     distance_correlation_squared,
     distance_covariance_squared,
@@ -48,6 +49,7 @@ from kernellib._dependence import (
     kernel_alignment,
     mmd_squared,
     permutation_test,
+    taylor_statistics,
 )
 from kernellib._heuristics import (
     estimate_lengthscale,
@@ -180,6 +182,7 @@ __all__ = [
     "Shift",
     "Stretch",
     "Sum",
+    "TaylorStatistics",
     "Warped",
     "White",
     "__version__",
@@ -229,6 +232,7 @@ __all__ = [
     "rff_operator",
     "schrodinger_eigenmap",
     "spatial_spectral_potential",
+    "taylor_statistics",
     "to_cross_operator",
     "to_operator",
 ]
