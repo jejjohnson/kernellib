@@ -249,3 +249,81 @@ def test_frequency_draw_is_differentiable_in_lengthscale():
     omega = f(0.5)
     J = jax.jacobian(f)(0.5)
     assert jnp.allclose(J, -omega / 0.5)
+
+
+# ---------------------------------------------------------------------------
+# Scaled and Sum of stationary kernels (#35)
+# ---------------------------------------------------------------------------
+
+_SUM = kl.RBF(lengthscale=0.3, variance=0.7) + kl.Matern(nu=1.5, lengthscale=2.0)
+_SCALED = 2.5 * kl.RBF(lengthscale=0.7)
+
+
+def test_scaled_and_sum_densities_are_the_parts():
+    omega = jax.random.normal(jax.random.key(0), (9, 2))
+    rbf, matern = _SUM.kernels
+    assert jnp.allclose(
+        _SUM.spectral_density(omega),
+        rbf.spectral_density(omega) + matern.spectral_density(omega),
+    )
+    assert jnp.allclose(
+        _SCALED.spectral_density(omega),
+        2.5 * _SCALED.kernel.spectral_density(omega),
+    )
+    nested = 3.0 * (_SCALED + kl.Matern(nu=0.5))
+    assert jnp.allclose(
+        nested.spectral_density(omega),
+        3.0 * (2.5 * _SCALED.kernel.spectral_density(omega))
+        + 3.0 * kl.Matern(nu=0.5).spectral_density(omega),
+    )
+    assert jnp.allclose(_SUM.spectral_variance, 1.7)
+    assert jnp.allclose(nested.spectral_variance, 3.0 * (2.5 + 1.0))
+
+
+@pytest.mark.parametrize("kernel", [_SUM, _SCALED], ids=["sum", "scaled"])
+def test_composite_density_inverts_to_kernel_1d(kernel):
+    omega = jnp.linspace(-80.0, 80.0, 160_001)
+    dw = omega[1] - omega[0]
+    S = kernel.spectral_density(omega[:, None])
+    for tau in (0.0, 0.3, 1.0):
+        k_tau = jnp.sum(S * jnp.cos(omega * tau)) * dw / (2 * jnp.pi)
+        expected = kernel.pairwise(jnp.zeros(1), jnp.array([tau]))
+        assert jnp.allclose(k_tau, expected, atol=1e-4)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "kernel",
+    [
+        _SUM,
+        _SCALED,
+        0.5 * kl.Matern(nu=0.5, lengthscale=0.4) + kl.RationalQuadratic(alpha=0.8),
+    ],
+    ids=["sum", "scaled", "sum-of-scaled"],
+)
+def test_composite_sampler_is_the_mixture(kernel):
+    # E[cos(w . tau)] = k(tau) / k(0) under the mixture, within 7 standard
+    # errors, as for the single kernels above.
+    n = 100_000
+    omega = kernel.sample_frequencies(jax.random.key(0), n, 3)
+    assert omega.shape == (n, 3)
+    c = jnp.cos(omega @ _TAU)
+    se = jnp.std(c) / jnp.sqrt(n)
+    expected = kernel.pairwise(jnp.zeros(3), _TAU) / kernel.spectral_variance
+    assert jnp.abs(jnp.mean(c) - expected) < 7 * se
+
+
+@pytest.mark.parametrize(
+    "kernel",
+    [kl.RBF() * kl.Matern(), kl.RBF() + kl.Linear(), 2.0 * kl.Periodic()],
+    ids=["product", "sum-with-linear", "scaled-periodic"],
+)
+def test_composites_without_a_spectrum_raise(kernel):
+    omega = jnp.zeros((1, 1))
+    for call in (
+        lambda: kernel.spectral_density(omega),
+        lambda: kernel.sample_frequencies(jax.random.key(0), 4, 1),
+        lambda: kernel.spectral_variance,
+    ):
+        with pytest.raises((NotImplementedError, AttributeError)):
+            call()

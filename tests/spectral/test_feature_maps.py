@@ -24,6 +24,12 @@ KERNELS = [
     kl.RationalQuadratic(lengthscale=0.7, variance=1.3, alpha=0.8),
 ]
 KERNEL_IDS = ["rbf-ard", "matern05", "rq"]
+COMPOSITES = [
+    kl.RBF(lengthscale=0.3) + kl.Matern(nu=1.5, lengthscale=2.0),
+    2.0 * kl.RBF(lengthscale=jnp.array([0.7, 1.2, 0.5])),
+    0.5 * kl.RBF(lengthscale=0.4) + 1.5 * kl.RationalQuadratic(alpha=2.0),
+]
+COMPOSITE_IDS = ["sum", "scaled-ard", "sum-of-scaled"]
 
 
 def _X(n=6, d=3, key=9):
@@ -48,6 +54,53 @@ def test_random_maps_are_unbiased(cls, kernel):
     errs = _gram_error_draws(cls, kernel, _X(), n_features=256, n_draws=40)
     se = jnp.std(errs, axis=0) / jnp.sqrt(errs.shape[0])
     assert jnp.all(jnp.abs(jnp.mean(errs, axis=0)) <= 7 * se + 1e-12)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("kernel", COMPOSITES, ids=COMPOSITE_IDS)
+@pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
+def test_random_maps_are_unbiased_for_composites(cls, kernel):
+    errs = _gram_error_draws(cls, kernel, _X(), n_features=256, n_draws=40)
+    se = jnp.std(errs, axis=0) / jnp.sqrt(errs.shape[0])
+    assert jnp.all(jnp.abs(jnp.mean(errs, axis=0)) <= 7 * se + 1e-12)
+
+
+@pytest.mark.parametrize("kernel", COMPOSITES, ids=COMPOSITE_IDS)
+@pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
+def test_composites_are_exact_on_the_diagonal(cls, kernel):
+    X = _X()
+    Phi = cls(17, jax.random.key(0)).fit(kernel, X)(X)
+    assert Phi.shape == (6, 34)
+    assert jnp.allclose(jnp.sum(Phi**2, axis=1), kernel.spectral_variance)
+
+
+@pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
+def test_composite_hyperparameters_are_read_at_call_time(cls):
+    X = _X()
+    a = 2.0 * kl.RBF(lengthscale=0.5) + kl.Matern(nu=0.5, variance=0.4)
+    b = 0.7 * kl.RBF(lengthscale=1.5) + kl.Matern(nu=0.5, variance=1.9)
+    fitted = cls(8, jax.random.key(0)).fit(a, X)
+    swapped = eqx.tree_at(lambda m: m.kernel, fitted, b)
+    refit = cls(8, jax.random.key(0)).fit(b, X)
+    assert jnp.allclose(swapped(X), refit(X))
+
+
+@pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
+def test_grad_reaches_every_part_of_a_composite(cls):
+    X = _X()
+    kernel = 2.0 * kl.RBF(lengthscale=0.8) + kl.Matern(nu=1.5, variance=0.5)
+    fitted = cls(8, jax.random.key(0)).fit(kernel, X)
+    g = eqx.filter_grad(lambda m: jnp.sum(m(X) ** 2))(fitted)
+    scaled, matern = g.kernel.kernels
+    for leaf in (scaled.scale, scaled.kernel.lengthscale, matern.variance):
+        assert jnp.isfinite(leaf) and leaf != 0.0
+
+
+@pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
+def test_too_few_features_for_the_parts_raises(cls):
+    kernel = kl.RBF() + kl.Matern() + kl.RationalQuadratic()
+    with pytest.raises(ValueError, match="3 stationary parts"):
+        cls(2, jax.random.key(0)).fit(kernel, _X())
 
 
 @pytest.mark.slow
@@ -187,7 +240,10 @@ def test_nystrom_config_errors():
 
 
 @pytest.mark.parametrize("cls", RANDOM_MAPS, ids=lambda c: c.__name__)
-@pytest.mark.parametrize("kernel", [kl.Periodic(), kl.Linear(), kl.RBF() * kl.RBF()])
+@pytest.mark.parametrize(
+    "kernel",
+    [kl.Periodic(), kl.Linear(), kl.RBF() * kl.RBF(), kl.RBF() + kl.Linear()],
+)
 def test_random_maps_need_a_spectral_kernel(cls, kernel):
     with pytest.raises(NotImplementedError, match="NystromFeatures"):
         cls(4, jax.random.key(0)).fit(kernel, _X())

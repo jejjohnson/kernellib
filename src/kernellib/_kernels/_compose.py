@@ -4,6 +4,12 @@ input warping.
 Composites are pointwise exactly when all their children are, so a sum of
 pointwise kernels still gets the matrix-free operator path. Their Gram matrix
 is built from each child's own Gram path, so closed forms are kept.
+
+`Scaled` and `Sum` of stationary kernels are stationary, and their spectra
+are the scaled and summed parts: they carry `spectral_density`,
+`sample_frequencies` and `spectral_variance`, so the random-feature and
+Laplace maps accept them. `Product` has a spectrum too (the convolution of
+the parts), but not a closed-form one, so it does not.
 """
 
 from __future__ import annotations
@@ -13,9 +19,10 @@ from collections.abc import Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jax.typing import DTypeLike
+from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._kernels._base import AbstractKernel
+from kernellib._kernels._base import AbstractKernel, AbstractStationaryKernel
 
 
 __all__ = [
@@ -35,7 +42,114 @@ def _check_kernels(kernels: tuple[object, ...], name: str) -> None:
             raise TypeError(f"{name} takes kernels, got {type(k).__name__}.")
 
 
-class Sum(AbstractKernel):
+SpectralComponents = tuple[tuple[Float[Array, ""], AbstractStationaryKernel], ...]
+
+
+def _spectral_components(kernel: AbstractKernel) -> SpectralComponents | None:
+    """``((c_j, k_j), ...)`` with ``kernel = sum_j c_j k_j``, or ``None``.
+
+    Each ``k_j`` is an `AbstractStationaryKernel` and ``c_j`` the product of
+    the `Scaled` factors above it. ``None`` when any part is not a stationary
+    kernel, a `Scaled` one or a `Sum` of them.
+    """
+    if isinstance(kernel, AbstractStationaryKernel):
+        return ((jnp.asarray(1.0), kernel),)
+    if isinstance(kernel, Scaled):
+        inner = _spectral_components(kernel.kernel)
+        if inner is None:
+            return None
+        return tuple((kernel.scale * c, k) for c, k in inner)
+    if isinstance(kernel, Sum):
+        parts = [_spectral_components(k) for k in kernel.kernels]
+        if any(p is None for p in parts):
+            return None
+        return tuple(c for p in parts for c in p)  # ty: ignore[not-iterable]
+    return None
+
+
+def _require_components(kernel: AbstractKernel) -> SpectralComponents:
+    components = _spectral_components(kernel)
+    if components is None:
+        raise NotImplementedError(
+            f"This {type(kernel).__name__} has no spectral density: every part "
+            "must be a stationary kernel, or a Scaled or Sum of them (a Product "
+            "or a non-stationary part has none in closed form)."
+        )
+    return components
+
+
+def _components_density(
+    components: SpectralComponents, omega: Float[Array, "*batch D"]
+) -> Float[Array, "*batch"]:
+    """``sum_j c_j S_j(omega)``."""
+    total = components[0][0] * components[0][1].spectral_density(omega)
+    for c, k in components[1:]:
+        total = total + c * k.spectral_density(omega)
+    return total
+
+
+class _SpectralComposite(AbstractKernel):
+    """Spectral methods of a `Scaled` or `Sum` of stationary kernels."""
+
+    def spectral_density(
+        self, omega: Float[Array, "*batch D"]
+    ) -> Float[Array, "*batch"]:
+        r"""$S(\omega) = \sum_j c_j S_j(\omega)$ over the stationary parts.
+
+        Same convention as `AbstractStationaryKernel.spectral_density`.
+
+        Raises:
+            NotImplementedError: If a part has no spectral density.
+        """
+        return _components_density(_require_components(self), omega)
+
+    @property
+    def spectral_variance(self) -> Float[Array, ""]:
+        r"""$k(0) = \sum_j c_j \sigma_j^2$.
+
+        Raises:
+            NotImplementedError: If a part has no spectral density.
+        """
+        components = _require_components(self)
+        total = components[0][0] * components[0][1].variance
+        for c, k in components[1:]:
+            total = total + c * k.variance
+        return total
+
+    def sample_frequencies(
+        self,
+        key: PRNGKeyArray,
+        n: int,
+        d: int,
+        dtype: DTypeLike | None = None,
+    ) -> Float[Array, "n d"]:
+        r"""Draw ``n`` frequencies from the normalised density.
+
+        The normalised density is the mixture $\sum_j w_j p_j$ with
+        $w_j = c_j \sigma_j^2 / \sum_l c_l \sigma_l^2$: each draw picks a
+        part from $\mathrm{Categorical}(w)$, then a frequency from it. The
+        scales $c_j$ must be positive (as they must for a valid kernel).
+
+        Raises:
+            NotImplementedError: If a part has no spectral sampler.
+            ValueError: If an ARD lengthscale does not match ``d``.
+        """
+        components = _require_components(self)
+        if len(components) == 1:
+            return components[0][1].sample_frequencies(key, n, d, dtype)
+        key_part, *keys = jax.random.split(key, len(components) + 1)
+        weights = jnp.stack([c * k.variance for c, k in components])
+        part = jax.random.categorical(key_part, jnp.log(weights), shape=(n,))
+        draws = jnp.stack(
+            [
+                k.sample_frequencies(key_j, n, d, dtype)
+                for (_, k), key_j in zip(components, keys, strict=True)
+            ]
+        )
+        return draws[part, jnp.arange(n)]
+
+
+class Sum(_SpectralComposite):
     """Sum of kernels, ``k(x, x') = sum_i k_i(x, x')``.
 
     Usually built with ``+``, which flattens nested sums.
@@ -123,7 +237,7 @@ class Product(AbstractKernel):
         return all(k.is_pointwise for k in self.kernels)
 
 
-class Scaled(AbstractKernel):
+class Scaled(_SpectralComposite):
     """A kernel times a scalar, ``k(x, x') = scale * k_0(x, x')``.
 
     Usually built with ``scale * kernel``. ``scale`` is a differentiable leaf.

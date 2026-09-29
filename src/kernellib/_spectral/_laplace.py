@@ -25,7 +25,8 @@ from geonnax.basis import fourier_basis, fourier_eigenvalues_1d
 from jaxtyping import Array, Float
 
 from kernellib._einx import rearrange
-from kernellib._kernels import AbstractKernel, AbstractStationaryKernel
+from kernellib._kernels import AbstractKernel
+from kernellib._kernels._compose import _components_density, _spectral_components
 from kernellib._spectral._base import AbstractFeatureMap
 
 
@@ -41,7 +42,7 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
     lengthscales are handled exactly. There are ``prod(n_per_dim)``
     features. Unlike the random maps it is deterministic and needs a kernel
     with a closed-form `spectral_density` (`RBF`, `Matern`,
-    `RationalQuadratic`).
+    `RationalQuadratic`, and `Scaled` / `Sum` of them).
 
     The approximation is accurate inside the box and away from its edge;
     it is zero on the boundary. With ``L=None`` the half-widths are
@@ -77,7 +78,7 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
     n_per_dim: int | tuple[int, ...] = eqx.field(static=True)
     L: float | tuple[float, ...] | None = eqx.field(default=None, static=True)
     boundary_factor: float = eqx.field(default=1.5, static=True)
-    kernel: AbstractStationaryKernel | None = None
+    kernel: AbstractKernel | None = None
     half_widths: tuple[float, ...] | None = eqx.field(default=None, static=True)
 
     def __check_init__(self) -> None:
@@ -104,15 +105,16 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
             ValueError: On a size mismatch between ``X`` and ``n_per_dim``,
                 ``L`` or an ARD lengthscale, or a non-positive half-width.
         """
-        if not isinstance(kernel, AbstractStationaryKernel):
+        if _spectral_components(kernel) is None:
             raise NotImplementedError(
                 "LaplaceEigenfunctionFeatures needs a stationary kernel with a "
-                f"spectral density; got {type(kernel).__name__}."
+                "spectral density, or a Scaled or Sum of them; got "
+                f"{type(kernel).__name__}."
             )
         d = X.shape[-1]
         # Fail here rather than at the first call for kernels without a
         # density (user subclasses without the hook).
-        kernel.spectral_density(jnp.zeros((1, d), dtype=X.dtype))
+        _density(kernel, jnp.zeros((1, d), dtype=X.dtype))
         _per_dim(self.n_per_dim, d, "n_per_dim")
         if self.L is None:
             half_widths = tuple(
@@ -145,8 +147,15 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
                 f"inputs, got {X.shape[-1]}."
             )
         basis, _ = fourier_basis(X, self.n_per_dim, self.half_widths)
-        S = self.kernel.spectral_density(self.frequencies.astype(X.dtype))
+        S = _density(self.kernel, self.frequencies.astype(X.dtype))
         return basis * jnp.sqrt(S)
+
+
+def _density(kernel: AbstractKernel, omega: Float[Array, "M D"]) -> Float[Array, " M"]:
+    """``sum_j c_j S_j(omega)`` over the kernel's stationary parts."""
+    components = _spectral_components(kernel)
+    assert components is not None
+    return _components_density(components, omega)
 
 
 def _per_dim(value, d: int, name: str) -> tuple:

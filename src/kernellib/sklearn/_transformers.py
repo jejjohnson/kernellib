@@ -68,14 +68,15 @@ class RandomFourierFeatures(_FeatureMap):
     r"""Random Fourier features for any kernellib kernel with a spectral sampler.
 
     Like ``sklearn.kernel_approximation.RBFSampler``, but for `RBF`, `Matern`
-    and `RationalQuadratic` kernels with ARD lengthscales, and with a
+    and `RationalQuadratic` kernels with ARD lengthscales (and `Scaled` or
+    `Sum` combinations of them), and with a
     ``[cos, sin]`` pair per frequency: the output has ``2 * n_components``
     columns.
 
     Args:
         n_components: Number of frequencies.
-        kernel: A stationary kernellib kernel, or ``None`` for a
-            median-heuristic `RBF`.
+        kernel: A stationary kernellib kernel (or a `Scaled` / `Sum` of
+            them), or ``None`` for a median-heuristic `RBF`.
         random_state: Seed.
 
     Attributes:

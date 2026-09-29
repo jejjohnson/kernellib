@@ -31,6 +31,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._einx import einsum, rearrange
 from kernellib._kernels import AbstractKernel, AbstractStationaryKernel
+from kernellib._kernels._compose import _spectral_components
 
 
 __all__ = ["draw_rff_cosine_basis", "evaluate_rff_cosine_paths"]
@@ -55,7 +56,10 @@ def draw_rff_cosine_basis(
 
     Args:
         kernel: A stationary kernel with a spectral sampler (`RBF`,
-            `Matern`, `RationalQuadratic`).
+            `Matern`, `RationalQuadratic`), or a `Scaled` or `Sum` of them.
+            A composite has no single lengthscale, so its frequencies are
+            drawn from the mixture density already scaled, with a returned
+            lengthscale of ``1`` and its total variance.
         key: PRNG key, split internally into frequency / phase / weight keys.
         n_paths: Number of independent prior function draws ``S``.
         n_features: Number of random features per draw ``F``.
@@ -85,17 +89,29 @@ def draw_rff_cosine_basis(
         raise ValueError(f"n_features must be >= 1, got {n_features}.")
     if n_paths < 1:
         raise ValueError(f"n_paths must be >= 1, got {n_paths}.")
-    if not isinstance(kernel, AbstractStationaryKernel):
+    if _spectral_components(kernel) is None:
         raise NotImplementedError(
             "Random Fourier features need a stationary kernel with a spectral "
-            f"sampler; got {type(kernel).__name__}."
+            f"sampler, or a Scaled or Sum of them; got {type(kernel).__name__}."
         )
     dtype = jnp.result_type(float) if dtype is None else dtype
 
     freq_key, phase_key, weight_key = jax.random.split(key, 3)
-    omega = kernel.sample_unit_frequencies(
-        freq_key, (n_paths, n_features, in_features), dtype
-    )
+    if isinstance(kernel, AbstractStationaryKernel):
+        omega = kernel.sample_unit_frequencies(
+            freq_key, (n_paths, n_features, in_features), dtype
+        )
+        variance = jnp.asarray(kernel.variance, dtype=dtype)
+        lengthscale = jnp.asarray(kernel.lengthscale, dtype=dtype)
+    else:
+        # A composite has no single lengthscale: draw effective frequencies
+        # from its mixture density and return a unit lengthscale.
+        flat = kernel.sample_frequencies(  # ty: ignore[unresolved-attribute]
+            freq_key, n_paths * n_features, in_features, dtype
+        )
+        omega = rearrange(flat, "(s f) d -> s f d", s=n_paths)
+        variance = jnp.asarray(kernel.spectral_variance, dtype=dtype)  # ty: ignore[unresolved-attribute]
+        lengthscale = jnp.asarray(1.0, dtype=dtype)
     omega = rearrange(omega, "s f d -> s d f")
     phase = jax.random.uniform(
         phase_key,
@@ -105,8 +121,6 @@ def draw_rff_cosine_basis(
         dtype=dtype,
     )
     weights = jax.random.normal(weight_key, shape=(n_paths, n_features), dtype=dtype)
-    variance = jnp.asarray(kernel.variance, dtype=dtype)
-    lengthscale = jnp.asarray(kernel.lengthscale, dtype=dtype)
     return variance, lengthscale, omega, phase, weights
 
 
