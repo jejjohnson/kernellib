@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.9](https://github.com/jejjohnson/kernellib/compare/v0.0.8...v0.0.9) (2026-09-29)
+
+
+### Features
+
+* **functional:** keep low-rank operators low-rank through center_kernel and HSIC/CKA ([#49](https://github.com/jejjohnson/kernellib/issues/49)) ([027f4de](https://github.com/jejjohnson/kernellib/commit/027f4de518f97bd3565b21af150691886376bcbc))
+* **kernels:** closed-form spectral density for RationalQuadratic ([#50](https://github.com/jejjohnson/kernellib/issues/50)) ([e69f158](https://github.com/jejjohnson/kernellib/commit/e69f158d3802b94db75ffbc7e60e090eff7a682f))
+* **kernels:** spectral densities and frequency samplers for Scaled and Sum ([#51](https://github.com/jejjohnson/kernellib/issues/51)) ([16167ed](https://github.com/jejjohnson/kernellib/commit/16167ed9f99b2878709b278acb279d12fdf2bee4))
+* **regression:** report the CG iterations falkon_solve used, and make tol work ([#48](https://github.com/jejjohnson/kernellib/issues/48)) ([ea18b76](https://github.com/jejjohnson/kernellib/commit/ea18b769c792331a84421228bb90fac501ad19ed))
+* **spectral:** leverage-score landmark selection for NystromFeatures ([#53](https://github.com/jejjohnson/kernellib/issues/53)) ([4e3eb44](https://github.com/jejjohnson/kernellib/commit/4e3eb44c6f6a8167dc7ec8136da5f18702f3af84))
+
+
+### Bug Fixes
+
+* **regression:** stream EigenPro's beta estimate in a lax.scan ([#47](https://github.com/jejjohnson/kernellib/issues/47)) ([6d9eabc](https://github.com/jejjohnson/kernellib/commit/6d9eabc5d84f9d6c102a1e2fca87f0f59db750e1))
+
 ## [0.0.8](https://github.com/jejjohnson/kernellib/compare/v0.0.7...v0.0.8) (2026-09-26)
 
 
