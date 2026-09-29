@@ -7,7 +7,14 @@ from kernellib._kernels._base import (
     AbstractPointwiseKernel,
     AbstractStationaryKernel,
 )
-from kernellib._kernels._compose import ActiveDims, Product, Scaled, Sum, Warped
+from kernellib._kernels._compose import (
+    ActiveDims,
+    Periodised,
+    Product,
+    Scaled,
+    Sum,
+    Warped,
+)
 from kernellib._kernels._nonstationary import Linear, Polynomial
 from kernellib._kernels._stationary import (
     RBF,
@@ -31,6 +38,7 @@ __all__ = [
     "Linear",
     "Matern",
     "Periodic",
+    "Periodised",
     "Polynomial",
     "Product",
     "RationalQuadratic",
