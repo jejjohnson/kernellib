@@ -12,6 +12,8 @@ from kernellib._kernels._compose import (
     Periodised,
     Product,
     Scaled,
+    Shift,
+    Stretch,
     Sum,
     Warped,
 )
@@ -48,6 +50,8 @@ __all__ = [
     "RationalQuadratic",
     "Residual",
     "Scaled",
+    "Shift",
+    "Stretch",
     "Sum",
     "Warped",
     "White",

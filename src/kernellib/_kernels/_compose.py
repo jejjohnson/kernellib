@@ -30,6 +30,8 @@ __all__ = [
     "Periodised",
     "Product",
     "Scaled",
+    "Shift",
+    "Stretch",
     "Sum",
     "Warped",
 ]
@@ -204,6 +206,10 @@ class Sum(_SpectralComposite):
     def is_pointwise(self) -> bool:
         return all(k.is_pointwise for k in self.kernels)
 
+    @property
+    def is_stationary(self) -> bool:
+        return all(k.is_stationary for k in self.kernels)
+
 
 class Product(AbstractKernel):
     """Elementwise product of kernels, ``k(x, x') = prod_i k_i(x, x')``.
@@ -243,6 +249,10 @@ class Product(AbstractKernel):
     def is_pointwise(self) -> bool:
         return all(k.is_pointwise for k in self.kernels)
 
+    @property
+    def is_stationary(self) -> bool:
+        return all(k.is_stationary for k in self.kernels)
+
 
 class Scaled(_SpectralComposite):
     """A kernel times a scalar, ``k(x, x') = scale * k_0(x, x')``.
@@ -273,6 +283,10 @@ class Scaled(_SpectralComposite):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_stationary(self) -> bool:
+        return self.kernel.is_stationary
 
 
 class ActiveDims(AbstractKernel):
@@ -321,6 +335,32 @@ class ActiveDims(AbstractKernel):
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
 
+    @property
+    def is_stationary(self) -> bool:
+        return self.kernel.is_stationary
+
+
+class Stretch(eqx.Module):
+    """Input warp ``x -> x / scale``; ``scale`` is scalar or per dimension.
+
+    With `Warped` (or `AbstractKernel.stretch`) it rescales a kernel's
+    inputs; a stretched stationary kernel stays stationary.
+    """
+
+    scale: Float[Array, ...] = eqx.field(converter=jnp.asarray)
+
+    def __call__(self, x: Float[Array, " D"]) -> Float[Array, " D"]:
+        return x / self.scale
+
+
+class Shift(eqx.Module):
+    """Input warp ``x -> x - offset``; ``offset`` is scalar or per dimension."""
+
+    offset: Float[Array, ...] = eqx.field(converter=jnp.asarray)
+
+    def __call__(self, x: Float[Array, " D"]) -> Float[Array, " D"]:
+        return x - self.offset
+
 
 class Warped(AbstractKernel):
     """Apply a kernel to warped inputs, ``k(x, x') = k_0(w(x), w(x'))``.
@@ -355,6 +395,10 @@ class Warped(AbstractKernel):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_stationary(self) -> bool:
+        return isinstance(self.warp, Shift | Stretch) and self.kernel.is_stationary
 
 
 class Periodised(AbstractKernel):
@@ -418,3 +462,7 @@ class Periodised(AbstractKernel):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_stationary(self) -> bool:
+        return self.kernel.is_stationary

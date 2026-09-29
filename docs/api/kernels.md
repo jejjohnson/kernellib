@@ -55,6 +55,22 @@ gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
 
 ## Composition
 
+Besides the constructors below, every kernel has shorthand methods returning
+them: `k.stretch(c)` (`Warped` with `Stretch`), `k.shift(c)` (`Shift`; a
+no-op for stationary kernels), `k.transform(w)` (`Warped`), `k.select(dims)`
+(`ActiveDims`) and `k.periodic(p)` (`Periodised`). `k.elwise(X1, X2)`
+evaluates the kernel on paired rows, and `k.is_stationary` reports
+stationarity for composites too.
+
+| mlkernels | kernellib |
+|---|---|
+| `EQ()`, `Matern12/32/52()`, `RQ(a)` | `RBF()`, `Matern(nu=0.5/1.5/2.5)`, `RationalQuadratic(alpha=a)` |
+| `Delta()`, `Linear()` | `White()`, `Linear()` |
+| `k.stretch(c)`, `k.shift(c)`, `k.select(d)`, `k.transform(f)`, `k.periodic(p)` | the same methods |
+| `k.elwise(x, y)`, `k.stationary` | `k.elwise(X1, X2)`, `k.is_stationary` |
+| `TensorProductKernel(f)`, `f * k` | `FeatureKernel(f)`, `Modulated(k, f)` |
+| `SubspaceKernel`, `PosteriorKernel` (noise-free) | `nystrom_kernel(k, Z)`, `Residual(k, approx)` |
+
 ::: kernellib.Sum
 
 ::: kernellib.Product
@@ -64,6 +80,10 @@ gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
 ::: kernellib.ActiveDims
 
 ::: kernellib.Warped
+
+::: kernellib.Stretch
+
+::: kernellib.Shift
 
 ::: kernellib.Periodised
 

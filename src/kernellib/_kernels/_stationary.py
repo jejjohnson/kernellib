@@ -348,6 +348,10 @@ class Periodic(AbstractPointwiseKernel):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.variance * jnp.ones(X.shape[0], dtype=X.dtype)
 
+    @property
+    def is_stationary(self) -> bool:
+        return True
+
 
 class Cosine(AbstractPointwiseKernel):
     r"""Cosine kernel, ``sigma^2 cos(2 pi ||x - x'|| / p)``. Can go negative.
@@ -381,6 +385,10 @@ class Cosine(AbstractPointwiseKernel):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.variance * jnp.ones(X.shape[0], dtype=X.dtype)
 
+    @property
+    def is_stationary(self) -> bool:
+        return True
+
 
 class White(AbstractPointwiseKernel):
     r"""White-noise kernel, ``sigma^2 delta(x, x')``.
@@ -410,6 +418,10 @@ class White(AbstractPointwiseKernel):
         # the repeats.
         return GramParts(diagonal=self.diag(X))
 
+    @property
+    def is_stationary(self) -> bool:
+        return True
+
 
 class Constant(AbstractPointwiseKernel):
     r"""Constant kernel, ``k(x, x') = sigma^2``.
@@ -436,3 +448,7 @@ class Constant(AbstractPointwiseKernel):
     def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
         ones = jnp.ones((X.shape[0], 1), dtype=X.dtype)
         return GramParts(factors=ones, weights=jnp.atleast_1d(self.variance))
+
+    @property
+    def is_stationary(self) -> bool:
+        return True
