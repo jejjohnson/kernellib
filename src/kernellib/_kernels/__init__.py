@@ -17,6 +17,11 @@ from kernellib._kernels._compose import (
     Sum,
     Warped,
 )
+from kernellib._kernels._derivative import (
+    Derivative,
+    DerivativeIndexed,
+    derivative_inputs,
+)
 from kernellib._kernels._feature import FeatureKernel, Modulated
 from kernellib._kernels._nonstationary import Linear, Polynomial
 from kernellib._kernels._residual import Residual, nystrom_kernel
@@ -39,6 +44,8 @@ __all__ = [
     "ActiveDims",
     "Constant",
     "Cosine",
+    "Derivative",
+    "DerivativeIndexed",
     "FeatureKernel",
     "Linear",
     "Matern",
@@ -55,5 +62,6 @@ __all__ = [
     "Sum",
     "Warped",
     "White",
+    "derivative_inputs",
     "nystrom_kernel",
 ]
