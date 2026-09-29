@@ -101,8 +101,8 @@ linear model `kl.Linear() + kl.White(0.1)` on a million points never forms an
 ``N x N`` matrix. Pass `structure="dense"` for the old dense operator.
 
 ```python
-op = kl.to_operator(kl.Linear(bias=1.0) + kl.White(0.1), X)   # gx.LowRankUpdate
-alpha = gx.solve(op, y)                                         # Woodbury
+op = kl.to_operator(kl.Linear(bias=1.0) + kl.White(0.1), X)  # gx.LowRankUpdate
+alpha = gx.solve(op, y)  # Woodbury
 ```
 
 A pure low-rank Gram (no `White`, no `noise`) is singular for rank below
