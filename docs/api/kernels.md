@@ -109,6 +109,26 @@ values at the landmarks.
 
 ::: kernellib.Residual
 
+## Derivative kernels
+
+Covariances of a GP's partial derivatives, as kernels.
+`Derivative(k, dx=i, dy=j)` is $\partial_{x_i}\partial_{x'_j} k$;
+`DerivativeIndexed(k)` takes rows `[x, i]` (`i = -1` for a value,
+`i = d` for $\partial_d f$) and gives the joint covariance of any mix of
+value and gradient observations, which `derivative_inputs` builds.
+
+```python
+Xa = kl.derivative_inputs(X)  # values, then every partial
+K = kl.to_operator(kl.DerivativeIndexed(kl.RBF()), Xa, noise=1e-4)
+alpha = gx.solve(K, jnp.concatenate([y, dy.T.ravel()]))
+```
+
+::: kernellib.Derivative
+
+::: kernellib.DerivativeIndexed
+
+::: kernellib.derivative_inputs
+
 ## Bridge to gaussx
 
 ::: kernellib.to_operator

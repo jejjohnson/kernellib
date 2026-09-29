@@ -60,6 +60,8 @@ from kernellib._kernels import (
     ActiveDims,
     Constant,
     Cosine,
+    Derivative,
+    DerivativeIndexed,
     FeatureKernel,
     Linear,
     Matern,
@@ -76,6 +78,7 @@ from kernellib._kernels import (
     Sum,
     Warped,
     White,
+    derivative_inputs,
     nystrom_kernel,
 )
 from kernellib._operators import (
@@ -136,6 +139,8 @@ __all__ = [
     "ActiveDims",
     "Constant",
     "Cosine",
+    "Derivative",
+    "DerivativeIndexed",
     "EigenPro",
     "EigenProPreconditioner",
     "Falkon",
@@ -180,6 +185,7 @@ __all__ = [
     "cka",
     "commute_time_kernel",
     "cosine_graph_kernel",
+    "derivative_inputs",
     "diffusion_kernel",
     "draw_rff_cosine_basis",
     "eigenpro_correction",
