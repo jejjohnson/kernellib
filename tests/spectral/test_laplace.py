@@ -23,6 +23,22 @@ def test_rbf_1d_converges_inside_a_wide_box():
     assert jnp.allclose(Phi @ Phi.T, k(X, X), atol=1e-6)
 
 
+def test_sum_of_scales_converges_inside_a_wide_box():
+    X = jnp.linspace(-1.0, 1.0, 50)[:, None]
+    parts = (0.5 * kl.RBF(lengthscale=0.3), kl.Matern(nu=2.5, lengthscale=1.0))
+    k = parts[0] + parts[1]
+    lap = kl.LaplaceEigenfunctionFeatures(128, boundary_factor=5.0)
+
+    def gram(kernel):
+        Phi = lap.fit(kernel, X)(X)
+        return Phi @ Phi.T
+
+    # The Gram is linear in the density, so the sum's is the parts' sum; the
+    # long-lengthscale Matern part needs the wide box.
+    assert jnp.allclose(gram(k), gram(parts[0]) + gram(parts[1]), atol=1e-12)
+    assert jnp.allclose(gram(k), k(X, X), atol=1e-5)
+
+
 def test_rational_quadratic_converges_inside_a_wide_box():
     # RQ decays only polynomially in r, so the box boundary, not the number of
     # eigenfunctions, limits the accuracy; a large alpha and a wide box keep
@@ -109,6 +125,7 @@ def test_operator_and_grad():
     ("kernel", "exc", "match"),
     [
         (kl.Periodic(), NotImplementedError, "spectral density"),
+        (kl.RBF() * kl.RBF(), NotImplementedError, "Scaled or Sum"),
         (kl.RBF(lengthscale=jnp.ones(3)), ValueError, "ARD lengthscale"),
     ],
 )

@@ -116,6 +116,35 @@ def test_rejects_non_stationary_kernels(kernel):
         )
 
 
+def test_composite_paths_have_the_kernel_covariance():
+    kernel = kl.RBF(lengthscale=0.3) + 0.5 * kl.Matern(nu=1.5, lengthscale=2.0)
+    v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
+        kernel, jax.random.key(0), n_paths=4000, n_features=512, in_features=1
+    )
+    assert ell == 1.0
+    assert jnp.allclose(v, 1.5)
+    X = jnp.linspace(-1.0, 1.0, 5)[:, None]
+    paths = kl.evaluate_rff_cosine_paths(
+        X, variance=v, lengthscale=ell, omega=omega, phase=phase, weights=w
+    )
+    cov = paths.T @ paths / paths.shape[0]
+    # 4000 paths: Monte Carlo error ~ 1.5 * sqrt(2 / 4000) ~ 0.03.
+    assert jnp.allclose(cov, kernel(X, X), atol=0.15)
+
+
+def test_single_kernel_basis_is_unchanged_by_composite_support():
+    # pyrox-gp's _basis wrapper reads (variance, lengthscale, unit omega).
+    v, ell, omega, _, _ = kl.draw_rff_cosine_basis(
+        kl.RBF(lengthscale=0.4, variance=2.0),
+        jax.random.key(0),
+        n_paths=2,
+        n_features=8,
+        in_features=3,
+    )
+    assert float(v) == 2.0 and float(ell) == 0.4
+    assert omega.shape == (2, 3, 8)
+
+
 def test_ard_mismatch_raises():
     v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
         kl.RBF(lengthscale=jnp.ones(2)),

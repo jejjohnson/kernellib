@@ -30,6 +30,18 @@ base class applies the hyperparameters.
 | `Matern` | $(2\nu + \lVert\ell\omega\rVert^2)^{-(\nu + D/2)}$ | multivariate Student-t, $2\nu$ degrees of freedom |
 | `RationalQuadratic` | Gamma mixture of Gaussians, closed form in a Bessel $K_{\alpha - D/2}$ (infinite at $\omega = 0$ when $\alpha \le D/2$) | Gamma scale mixture of Gaussians |
 
+| `Scaled` (`c * k`) | $c\, S_k(\omega)$ | those of `k` |
+| `Sum` (`k_1 + ... + k_J`) | $\sum_j S_j(\omega)$ | mixture: a part drawn with probability $\propto k_j(0)$, then its frequency |
+
+`Scaled` and `Sum` have the methods when every part is a stationary kernel (or
+another `Scaled` / `Sum` of them), and a `spectral_variance` ($k(0)$, the
+density's total mass over $(2\pi)^D$). The random-feature maps give each part
+an equal share of the frequencies and weight its features by
+$\sqrt{c_j \sigma_j^2 / F_j}$, which is unbiased like mixture sampling but has
+lower variance and keeps every part's hyperparameters differentiable after
+`fit`. `Product` has a spectrum (the convolution of the parts) but no closed
+form, so it has neither method.
+
 `Periodic` and `Cosine` are not `AbstractStationaryKernel` subclasses and have
 neither method.
 

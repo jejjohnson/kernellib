@@ -5,6 +5,12 @@ it for features or ``operator(X)`` for a gaussx `LowRankUpdate`. The random
 maps draw frequencies from the kernel's spectral sampler at unit lengthscale
 and apply the kernel's lengthscale and variance when called; Nyström picks
 landmarks and evaluates the kernel against them.
+
+A `Scaled` or `Sum` of stationary kernels, ``k = sum_j c_j k_j``, gets an
+equal share ``F_j`` of the frequencies per part and features
+``sqrt(c_j σ_j² / F_j) [cos, sin]`` from that part's own spectrum. That is
+unbiased for ``k`` like mixture sampling, with lower variance, and keeps
+every part's hyperparameters (scales included) differentiable after `fit`.
 """
 
 from __future__ import annotations
@@ -19,7 +25,8 @@ import jax.scipy.linalg as jsl
 from geonnax.randfeat import orthogonal_blocks, rff_forward
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._kernels import AbstractKernel, AbstractStationaryKernel
+from kernellib._kernels import AbstractKernel
+from kernellib._kernels._compose import SpectralComponents, _spectral_components
 from kernellib._operators._fastfood import (
     FastFoodParams,
     fastfood_features,
@@ -41,21 +48,52 @@ def _check_positive(name: str, value: int) -> None:
         raise ValueError(f"{name} must be >= 1, got {value}.")
 
 
+def _split_features(n_features: int, n_parts: int) -> tuple[int, ...]:
+    """Split ``n_features`` evenly over ``n_parts`` (remainder to the first)."""
+    if n_features < n_parts:
+        raise ValueError(
+            f"n_features={n_features} is fewer than the kernel's {n_parts} "
+            "stationary parts; each part needs at least one frequency."
+        )
+    base, extra = divmod(n_features, n_parts)
+    return tuple(base + (j < extra) for j in range(n_parts))
+
+
+def _part_keys(key: PRNGKeyArray, n_parts: int) -> list[PRNGKeyArray]:
+    # A lone stationary kernel uses the key as is, so its draw is unchanged.
+    return [key] if n_parts == 1 else list(jax.random.split(key, n_parts))
+
+
+def _fitted_components(kernel: AbstractKernel | None) -> SpectralComponents:
+    components = _spectral_components(kernel) if kernel is not None else None
+    assert components is not None
+    return components
+
+
 def _cos_sin_features(
-    kernel: AbstractStationaryKernel,
+    kernel: AbstractKernel | None,
     omega: Float[Array, "F D"],
+    sizes: tuple[int, ...],
     X: Float[Array, "N D"],
 ) -> Float[Array, "N two_F"]:
-    """``sqrt(σ²/F) [cos(XWᵀ), sin(XWᵀ)]`` with ``W = omega / lengthscale``."""
+    """``sqrt(c_j σ_j²/F_j) [cos(XW_jᵀ), sin(XW_jᵀ)]`` per part, concatenated.
+
+    ``W_j`` is part ``j``'s rows of ``omega`` over its lengthscale.
+    """
     if X.shape[-1] != omega.shape[-1]:
         raise ValueError(
             f"The map was fitted on {omega.shape[-1]}-dimensional inputs, got "
             f"{X.shape[-1]}."
         )
-    W = omega / kernel._lengthscale_vector(omega.shape[-1])
-    n_features = omega.shape[0]
-    Phi = jax.vmap(lambda x: rff_forward(W.T, 1.0, n_features, x))(X)
-    return jnp.sqrt(kernel.variance) * Phi
+    d = omega.shape[-1]
+    blocks = []
+    start = 0
+    for (c, k), size in zip(_fitted_components(kernel), sizes, strict=True):
+        W = omega[start : start + size] / k._lengthscale_vector(d)
+        start += size
+        Phi = jax.vmap(lambda x, W=W, size=size: rff_forward(W.T, 1.0, size, x))(X)
+        blocks.append(jnp.sqrt(c * k.variance) * Phi)
+    return blocks[0] if len(blocks) == 1 else jnp.concatenate(blocks, axis=-1)
 
 
 class RandomFourierFeatures(AbstractFeatureMap):
@@ -68,11 +106,16 @@ class RandomFourierFeatures(AbstractFeatureMap):
     ``2 * n_features`` columns. The arithmetic is
     ``geonnax.randfeat.rff_forward``.
 
+    Accepts a `Scaled` or `Sum` of stationary kernels (see the module
+    docstring for how the frequencies are shared between the parts).
+
     Attributes:
         n_features: Number of frequencies ``F``.
         key: PRNG key for the frequency draw.
         kernel: The fitted kernel, ``None`` before `fit`.
-        omega: Unit-lengthscale frequencies ``(F, D)``, ``None`` before `fit`.
+        omega: Unit-lengthscale frequencies ``(F, D)``, the parts' blocks
+            stacked in order, ``None`` before `fit`.
+        sizes: Frequencies per stationary part, ``None`` before `fit`.
 
     Examples:
         >>> import jax
@@ -87,8 +130,9 @@ class RandomFourierFeatures(AbstractFeatureMap):
 
     n_features: int = eqx.field(static=True)
     key: PRNGKeyArray
-    kernel: AbstractStationaryKernel | None = None
+    kernel: AbstractKernel | None = None
     omega: Float[Array, "F D"] | None = None
+    sizes: tuple[int, ...] | None = eqx.field(default=None, static=True)
 
     def __check_init__(self) -> None:
         _check_positive("n_features", self.n_features)
@@ -102,15 +146,20 @@ class RandomFourierFeatures(AbstractFeatureMap):
             NotImplementedError: If the kernel has no spectral sampler.
             ValueError: If an ARD lengthscale does not match ``X``.
         """
-        kernel = _require_spectral(kernel, type(self).__name__)
+        components = _require_spectral(kernel, type(self).__name__)
         d = X.shape[-1]
-        kernel._lengthscale_vector(d)
-        omega = kernel.sample_unit_frequencies(self.key, (self.n_features, d), X.dtype)
-        return dataclasses.replace(self, kernel=kernel, omega=omega)
+        sizes = _split_features(self.n_features, len(components))
+        keys = _part_keys(self.key, len(components))
+        blocks = []
+        for (_, k), size, key in zip(components, sizes, keys, strict=True):
+            k._lengthscale_vector(d)
+            blocks.append(k.sample_unit_frequencies(key, (size, d), X.dtype))
+        omega = jnp.concatenate(blocks, axis=0)
+        return dataclasses.replace(self, kernel=kernel, omega=omega, sizes=sizes)
 
     def features(self, X: Float[Array, "N D"]) -> Float[Array, "N two_F"]:
-        assert self.kernel is not None and self.omega is not None
-        return _cos_sin_features(self.kernel, self.omega, X)
+        assert self.omega is not None and self.sizes is not None
+        return _cos_sin_features(self.kernel, self.omega, self.sizes, X)
 
 
 class OrthogonalRandomFeatures(AbstractFeatureMap):
@@ -129,7 +178,9 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
             when ``F`` is not a multiple of ``D``.
         key: PRNG key for the frequency draw.
         kernel: The fitted kernel, ``None`` before `fit`.
-        omega: Unit-lengthscale frequencies ``(F, D)``, ``None`` before `fit`.
+        omega: Unit-lengthscale frequencies ``(F, D)``, the parts' blocks
+            stacked in order, ``None`` before `fit`.
+        sizes: Frequencies per stationary part, ``None`` before `fit`.
 
     Examples:
         >>> import jax
@@ -145,8 +196,9 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
 
     n_features: int = eqx.field(static=True)
     key: PRNGKeyArray
-    kernel: AbstractStationaryKernel | None = None
+    kernel: AbstractKernel | None = None
     omega: Float[Array, "F D"] | None = None
+    sizes: tuple[int, ...] | None = eqx.field(default=None, static=True)
 
     def __check_init__(self) -> None:
         _check_positive("n_features", self.n_features)
@@ -160,23 +212,28 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
             NotImplementedError: If the kernel has no spectral sampler.
             ValueError: If an ARD lengthscale does not match ``X``.
         """
-        kernel = _require_spectral(kernel, type(self).__name__)
+        components = _require_spectral(kernel, type(self).__name__)
         d = X.shape[-1]
-        kernel._lengthscale_vector(d)
-        n_blocks = math.ceil(self.n_features / d)
-        key_dir, key_len = jax.random.split(self.key)
-        Q = orthogonal_blocks(d, n_blocks, key=key_dir).astype(X.dtype)
-        directions = Q / jnp.linalg.norm(Q, axis=0, keepdims=True)  # (D, B*D)
-        lengths = jnp.linalg.norm(
-            kernel.sample_unit_frequencies(key_len, (n_blocks * d, d), X.dtype),
-            axis=-1,
-        )
-        omega = (directions * lengths).T[: self.n_features]
-        return dataclasses.replace(self, kernel=kernel, omega=omega)
+        sizes = _split_features(self.n_features, len(components))
+        keys = _part_keys(self.key, len(components))
+        blocks = []
+        for (_, k), size, key in zip(components, sizes, keys, strict=True):
+            k._lengthscale_vector(d)
+            n_blocks = math.ceil(size / d)
+            key_dir, key_len = jax.random.split(key)
+            Q = orthogonal_blocks(d, n_blocks, key=key_dir).astype(X.dtype)
+            directions = Q / jnp.linalg.norm(Q, axis=0, keepdims=True)  # (D, B*D)
+            lengths = jnp.linalg.norm(
+                k.sample_unit_frequencies(key_len, (n_blocks * d, d), X.dtype),
+                axis=-1,
+            )
+            blocks.append((directions * lengths).T[:size])
+        omega = jnp.concatenate(blocks, axis=0)
+        return dataclasses.replace(self, kernel=kernel, omega=omega, sizes=sizes)
 
     def features(self, X: Float[Array, "N D"]) -> Float[Array, "N two_F"]:
-        assert self.kernel is not None and self.omega is not None
-        return _cos_sin_features(self.kernel, self.omega, X)
+        assert self.omega is not None and self.sizes is not None
+        return _cos_sin_features(self.kernel, self.omega, self.sizes, X)
 
 
 class FastFoodFeatures(AbstractFeatureMap):
@@ -198,7 +255,8 @@ class FastFoodFeatures(AbstractFeatureMap):
         n_features: Number of frequencies ``F``.
         key: PRNG key for the structured draw.
         kernel: The fitted kernel, ``None`` before `fit`.
-        params: The drawn `FastFoodParams`, ``None`` before `fit`.
+        params: The drawn `FastFoodParams` (a tuple of them, one per
+            stationary part, for a `Scaled` or `Sum`), ``None`` before `fit`.
 
     Examples:
         >>> import jax
@@ -212,8 +270,8 @@ class FastFoodFeatures(AbstractFeatureMap):
 
     n_features: int = eqx.field(static=True)
     key: PRNGKeyArray
-    kernel: AbstractStationaryKernel | None = None
-    params: FastFoodParams | None = None
+    kernel: AbstractKernel | None = None
+    params: FastFoodParams | tuple[FastFoodParams, ...] | None = None
 
     def __check_init__(self) -> None:
         _check_positive("n_features", self.n_features)
@@ -225,23 +283,37 @@ class FastFoodFeatures(AbstractFeatureMap):
             NotImplementedError: If the kernel has no spectral sampler.
             ValueError: If an ARD lengthscale does not match ``X``.
         """
-        kernel = _require_spectral(kernel, type(self).__name__)
+        components = _require_spectral(kernel, type(self).__name__)
         d = X.shape[-1]
-        kernel._lengthscale_vector(d)
-        key_ff, key_s = jax.random.split(self.key)
-        params = fastfood_params(d, self.n_features, kernel.lengthscale, key_ff)
-        shape = (params.n_stacks, params.d_padded, params.d_padded)
-        S = jnp.linalg.norm(
-            kernel.sample_unit_frequencies(key_s, shape, params.G.dtype), axis=-1
-        )
+        sizes = _split_features(self.n_features, len(components))
+        keys = _part_keys(self.key, len(components))
+        parts = []
+        for (_, k), size, key in zip(components, sizes, keys, strict=True):
+            k._lengthscale_vector(d)
+            key_ff, key_s = jax.random.split(key)
+            params = fastfood_params(d, size, k.lengthscale, key_ff)
+            shape = (params.n_stacks, params.d_padded, params.d_padded)
+            S = jnp.linalg.norm(
+                k.sample_unit_frequencies(key_s, shape, params.G.dtype), axis=-1
+            )
+            parts.append(dataclasses.replace(params, S=S))
         return dataclasses.replace(
-            self, kernel=kernel, params=dataclasses.replace(params, S=S)
+            self, kernel=kernel, params=parts[0] if len(parts) == 1 else tuple(parts)
         )
 
     def features(self, X: Float[Array, "N D"]) -> Float[Array, "N two_F"]:
-        assert self.kernel is not None and self.params is not None
-        params = dataclasses.replace(self.params, lengthscale=self.kernel.lengthscale)
-        return jnp.sqrt(self.kernel.variance) * fastfood_features(X, params)
+        assert self.params is not None
+        parts = self.params if isinstance(self.params, tuple) else (self.params,)
+        blocks = [
+            jnp.sqrt(c * k.variance)
+            * fastfood_features(
+                X, dataclasses.replace(params, lengthscale=k.lengthscale)
+            )
+            for (c, k), params in zip(
+                _fitted_components(self.kernel), parts, strict=True
+            )
+        ]
+        return blocks[0] if len(blocks) == 1 else jnp.concatenate(blocks, axis=-1)
 
 
 class NystromFeatures(AbstractFeatureMap):

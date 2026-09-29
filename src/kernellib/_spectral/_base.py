@@ -18,7 +18,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from kernellib._kernels import AbstractKernel, AbstractStationaryKernel
+from kernellib._kernels import AbstractKernel
+from kernellib._kernels._compose import SpectralComponents, _spectral_components
 
 
 __all__ = ["AbstractFeatureMap"]
@@ -83,10 +84,13 @@ class AbstractFeatureMap(eqx.Module):
         )
 
 
-def _require_spectral(kernel: AbstractKernel, name: str) -> AbstractStationaryKernel:
-    if not isinstance(kernel, AbstractStationaryKernel):
+def _require_spectral(kernel: AbstractKernel, name: str) -> SpectralComponents:
+    """The kernel's stationary parts ``((c_j, k_j), ...)``, or raise."""
+    components = _spectral_components(kernel)
+    if components is None:
         raise NotImplementedError(
-            f"{name} needs a stationary kernel with a spectral sampler; got "
-            f"{type(kernel).__name__}. NystromFeatures works for any kernel."
+            f"{name} needs a stationary kernel with a spectral sampler, or a "
+            f"Scaled or Sum of them; got {type(kernel).__name__}. "
+            "NystromFeatures works for any kernel."
         )
-    return kernel
+    return components

@@ -285,6 +285,11 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
         ell = self._lengthscale_vector(d)
         return self.sample_unit_frequencies(key, (n, d), dtype) / ell
 
+    @property
+    def spectral_variance(self) -> Float[Array, ""]:
+        r"""$k(0) = \sigma^2$: the total mass of the density over $(2\pi)^D$."""
+        return self.variance
+
     def _lengthscale_vector(self, d: int) -> Float[Array, " D"]:
         """The lengthscale broadcast to ``(d,)``, checking an ARD size."""
         if jnp.ndim(self.lengthscale) == 1 and jnp.size(self.lengthscale) != d:
