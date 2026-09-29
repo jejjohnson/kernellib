@@ -15,6 +15,7 @@ from kernellib._kernels._compose import (
     Sum,
     Warped,
 )
+from kernellib._kernels._feature import FeatureKernel, Modulated
 from kernellib._kernels._nonstationary import Linear, Polynomial
 from kernellib._kernels._stationary import (
     RBF,
@@ -35,8 +36,10 @@ __all__ = [
     "ActiveDims",
     "Constant",
     "Cosine",
+    "FeatureKernel",
     "Linear",
     "Matern",
+    "Modulated",
     "Periodic",
     "Periodised",
     "Polynomial",

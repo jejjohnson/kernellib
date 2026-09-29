@@ -67,6 +67,17 @@ gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
 
 ::: kernellib.Periodised
 
+## Feature kernels and modulation
+
+`FeatureKernel(phi)` is the inner product of features, rank `R` and kept
+low-rank by `to_operator`; with a fitted feature map it is that map's kernel
+approximation as a kernel. `Modulated(k, a)` scales a kernel by an
+input-dependent amplitude.
+
+::: kernellib.FeatureKernel
+
+::: kernellib.Modulated
+
 ## Bridge to gaussx
 
 ::: kernellib.to_operator
