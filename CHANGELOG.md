@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.11](https://github.com/jejjohnson/kernellib/compare/v0.0.10...v0.0.11) (2026-09-29)
+
+
+### Features
+
+* **dependence:** distance kernel, distance correlation and energy distance ([#74](https://github.com/jejjohnson/kernellib/issues/74)) ([0477606](https://github.com/jejjohnson/kernellib/commit/0477606c3d64336b51c8d74f09ffd7daae78a67b))
+* **dependence:** taylor_statistics for kernel taylor diagrams ([#75](https://github.com/jejjohnson/kernellib/issues/75)) ([df9578f](https://github.com/jejjohnson/kernellib/commit/df9578f07d93f969d748777ba0ee9fa1f839f2c1))
+
 ## [0.0.10](https://github.com/jejjohnson/kernellib/compare/v0.0.9...v0.0.10) (2026-09-29)
 
 
