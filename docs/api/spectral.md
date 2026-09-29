@@ -28,7 +28,7 @@ base class applies the hyperparameters.
 |---|---|---|
 | `RBF` | Gaussian | $\mathcal{N}(0, I) / \ell$ |
 | `Matern` | $(2\nu + \lVert\ell\omega\rVert^2)^{-(\nu + D/2)}$ | multivariate Student-t, $2\nu$ degrees of freedom |
-| `RationalQuadratic` | not available (needs a Bessel $K$ JAX lacks) | Gamma scale mixture of Gaussians |
+| `RationalQuadratic` | Gamma mixture of Gaussians, closed form in a Bessel $K_{\alpha - D/2}$ (infinite at $\omega = 0$ when $\alpha \le D/2$) | Gamma scale mixture of Gaussians |
 
 `Periodic` and `Cosine` are not `AbstractStationaryKernel` subclasses and have
 neither method.

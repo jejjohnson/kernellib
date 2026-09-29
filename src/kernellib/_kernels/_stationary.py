@@ -19,6 +19,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._kernels._base import AbstractPointwiseKernel, AbstractStationaryKernel
 from kernellib.functional import _stationary as _f
+from kernellib.functional._special import log_bessel_kv
 
 
 __all__ = [
@@ -225,6 +226,57 @@ class RationalQuadratic(AbstractStationaryKernel):
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
         return (1.0 + r2 / (2.0 * self.alpha)) ** (-self.alpha)
 
+    def unit_spectral_density(
+        self, omega_sq: Float[Array, ...], d: int
+    ) -> Float[Array, ...]:
+        r"""Density of the Gamma scale mixture of RBFs in ``d`` dimensions.
+
+        With $\tau \sim \mathrm{Gamma}(\alpha, \text{rate } \alpha)$ and
+        $\nu = \alpha - d/2$,
+
+        $$
+        s(\omega) = \mathbb{E}_\tau\!\left[(2\pi/\tau)^{d/2}
+            e^{-\|\omega\|^2 / (2\tau)}\right]
+        = (2\pi)^{d/2} \frac{2\alpha^\alpha}{\Gamma(\alpha)}
+            \left(\frac{\|\omega\|^2}{2\alpha}\right)^{\nu/2}
+            K_\nu\!\left(\sqrt{2\alpha}\,\|\omega\|\right),
+        $$
+
+        with $K_\nu$ the modified Bessel function of the second kind. At
+        $\omega = 0$ it tends to
+        $(2\pi\alpha)^{d/2}\, \Gamma(\nu) / \Gamma(\alpha)$ when
+        $\alpha > d/2$; for $\alpha \le d/2$ it diverges there (integrably)
+        and the value is ``inf``.
+        """
+        alpha = jnp.asarray(self.alpha)
+        omega_sq = jnp.asarray(omega_sq)
+        dtype = jnp.result_type(alpha, omega_sq, jnp.float32)
+        alpha = alpha.astype(dtype)
+        omega_sq = omega_sq.astype(dtype)
+        nu = alpha - d / 2.0
+        log_c = (
+            (d / 2.0) * jnp.log(2.0 * jnp.pi)
+            + alpha * jnp.log(alpha)
+            - jax.scipy.special.gammaln(alpha)
+        )
+        positive = omega_sq > 0.0
+        # Keep the unused branch finite so its gradient is not NaN.
+        safe_sq = jnp.where(positive, omega_sq, 1.0)
+        log_s = (
+            log_c
+            + jnp.log(2.0)
+            + 0.5 * nu * (jnp.log(safe_sq) - jnp.log(2.0 * alpha))
+            + log_bessel_kv(nu, jnp.sqrt(2.0 * alpha * safe_sq))
+        )
+        safe_nu = jnp.where(nu > 0.0, nu, 1.0)
+        log_s0 = (
+            (d / 2.0) * jnp.log(2.0 * jnp.pi * alpha)
+            + jax.scipy.special.gammaln(safe_nu)
+            - jax.scipy.special.gammaln(alpha)
+        )
+        at_zero = jnp.where(nu > 0.0, jnp.exp(log_s0), jnp.inf)
+        return jnp.where(positive, jnp.exp(log_s), at_zero)
+
     def sample_unit_frequencies(
         self,
         key: PRNGKeyArray,
@@ -234,9 +286,7 @@ class RationalQuadratic(AbstractStationaryKernel):
         """Frequencies of the Gamma scale mixture of RBFs.
 
         ``k`` is ``E[exp(-tau r^2 / 2)]`` with ``tau ~ Gamma(alpha, rate=alpha)``,
-        so a frequency is ``g * sqrt(tau)`` with ``g ~ N(0, I)``. The density
-        itself needs a modified Bessel function of the second kind, which JAX
-        does not provide, so `spectral_density` is not available.
+        so a frequency is ``g * sqrt(tau)`` with ``g ~ N(0, I)``.
         """
         dtype = _float_dtype(dtype)
         key_g, key_tau = jax.random.split(key)
