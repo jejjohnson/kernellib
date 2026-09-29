@@ -433,4 +433,4 @@ class Constant(AbstractPointwiseKernel):
 
     def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
         ones = jnp.ones((X.shape[0], 1), dtype=X.dtype)
-        return GramParts(factors=ones, weights=jnp.reshape(self.variance, (1,)))
+        return GramParts(factors=ones, weights=jnp.atleast_1d(self.variance))

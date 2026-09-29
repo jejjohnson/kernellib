@@ -55,7 +55,7 @@ class Linear(AbstractPointwiseKernel):
         weights = jnp.concatenate(
             [
                 jnp.full((d,), self.variance, dtype=dtype),
-                jnp.reshape(self.bias, (1,)).astype(dtype),
+                jnp.atleast_1d(self.bias).astype(dtype),
             ]
         )
         return GramParts(factors=factors, weights=weights)
