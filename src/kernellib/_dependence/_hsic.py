@@ -99,7 +99,9 @@ def cka(
     With `Linear` kernels it is the RV coefficient (Escoufier, 1973),
     $\|\Sigma_{xy}\|_F^2 / (\|\Sigma_{xx}\|_F \|\Sigma_{yy}\|_F)$, the
     multivariate $\rho^2$; with `Distance` kernels it is the squared distance
-    correlation.
+    correlation, except for a constant sample: there this ratio is
+    ``0 / 0 = NaN``, while `distance_correlation_squared` returns the
+    conventional zero.
 
     Examples:
         >>> import jax
