@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._kernels._base import AbstractKernel, AbstractStationaryKernel
+from kernellib._kernels._base import AbstractKernel, AbstractStationaryKernel, GramParts
 
 
 __all__ = [
@@ -185,6 +185,12 @@ class Sum(_SpectralComposite):
             out = out + k.diag(X)
         return out
 
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        parts = [k._gram_structure(X) for k in self.kernels]
+        if any(p is None for p in parts):
+            return None
+        return GramParts.merge(parts)  # ty: ignore[invalid-argument-type]
+
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
@@ -254,6 +260,10 @@ class Scaled(_SpectralComposite):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.scale * self.kernel.diag(X)
 
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        parts = self.kernel._gram_structure(X)
+        return None if parts is None else parts.scaled(self.scale)
+
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
@@ -298,6 +308,9 @@ class ActiveDims(AbstractKernel):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.kernel.diag(self._select(X))
 
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        return self.kernel._gram_structure(self._select(X))
+
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
@@ -329,6 +342,9 @@ class Warped(AbstractKernel):
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self.kernel.diag(jax.vmap(self.warp)(X))
+
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        return self.kernel._gram_structure(jax.vmap(self.warp)(X))
 
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]

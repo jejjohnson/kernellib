@@ -16,6 +16,8 @@ modelling layer above adds those.
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Sequence
+from typing import NamedTuple
 
 import equinox as eqx
 import jax
@@ -31,6 +33,51 @@ __all__ = [
     "AbstractPointwiseKernel",
     "AbstractStationaryKernel",
 ]
+
+
+class GramParts(NamedTuple):
+    r"""Structure of a Gram matrix ``K(X, X) = diag(δ) + U diag(w) Uᵀ``.
+
+    Reported by `AbstractKernel._gram_structure` for kernels whose Gram is
+    diagonal and/or low-rank; `to_operator` assembles it into a
+    `gaussx.LowRankUpdate` (or a `lineax.DiagonalLinearOperator`) instead of
+    a dense matrix. Either part may be ``None``.
+
+    Attributes:
+        diagonal: ``δ``, shape ``(N,)``.
+        factors: ``U``, shape ``(N, R)``.
+        weights: ``w``, shape ``(R,)``; non-negative for a valid kernel.
+    """
+
+    diagonal: Float[Array, " N"] | None = None
+    factors: Float[Array, "N R"] | None = None
+    weights: Float[Array, " R"] | None = None
+
+    def scaled(self, c: Float[Array, ""]) -> GramParts:
+        """The parts of ``c * K``."""
+        return GramParts(
+            None if self.diagonal is None else c * self.diagonal,
+            self.factors,
+            None if self.weights is None else c * self.weights,
+        )
+
+    @staticmethod
+    def merge(parts: Sequence[GramParts]) -> GramParts:
+        """The parts of a sum of Gram matrices."""
+        diagonals = [p.diagonal for p in parts if p.diagonal is not None]
+        low_rank = [
+            (p.factors, p.weights)
+            for p in parts
+            if p.factors is not None and p.weights is not None
+        ]
+        diagonal = None
+        for d in diagonals:
+            diagonal = d if diagonal is None else diagonal + d
+        if not low_rank:
+            return GramParts(diagonal)
+        factors = jnp.concatenate([f for f, _ in low_rank], axis=1)
+        weights = jnp.concatenate([w for _, w in low_rank])
+        return GramParts(diagonal, factors, weights)
 
 
 class AbstractKernel(eqx.Module):
@@ -55,6 +102,13 @@ class AbstractKernel(eqx.Module):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         """Diagonal of ``K(X, X)``. Default: extract from the full Gram."""
         return jnp.diag(self(X, X))
+
+    def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts | None:
+        """Diagonal / low-rank structure of ``K(X, X)``, or ``None`` if dense.
+
+        Private protocol consumed by `to_operator`; see `GramParts`.
+        """
+        return None
 
     @property
     def is_pointwise(self) -> bool:
