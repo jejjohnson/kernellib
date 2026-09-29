@@ -31,6 +31,7 @@ ESTIMATORS = [
     OrthogonalRandomFeatures(8, random_state=0),
     FastFoodFeatures(8, random_state=0),
     NystromFeatures(8, random_state=0),
+    NystromFeatures(8, selection="leverage", random_state=0),
     # One basis function per dimension keeps n_per_dim ** d small for the
     # wide inputs the checks use.
     LaplaceEigenfunctionFeatures(1),

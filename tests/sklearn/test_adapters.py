@@ -147,6 +147,23 @@ class TestRegressors:
 
 
 class TestTransformers:
+    def test_nystrom_forwards_leverage_selection(self):
+        X, _ = _data()
+        model = NystromFeatures(
+            16,
+            selection="leverage",
+            leverage_regularization=1e-2,
+            uniform_mixing=0.0,
+            random_state=0,
+        ).fit(X)
+        fm = model.feature_map_
+        assert (fm.selection, fm.leverage_regularization, fm.uniform_mixing) == (
+            "leverage",
+            1e-2,
+            0.0,
+        )
+        assert model.transform(X).shape == (80, 16)
+
     @pytest.mark.parametrize(
         ("transformer", "width"),
         [

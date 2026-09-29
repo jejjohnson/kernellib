@@ -233,8 +233,12 @@ def test_nonpositive_size_raises(make):
 
 
 def test_nystrom_config_errors():
-    with pytest.raises(ValueError, match="uniform"):
-        kl.NystromFeatures(2, jax.random.key(0), selection="leverage")
+    with pytest.raises(ValueError, match="'uniform' or 'leverage'"):
+        kl.NystromFeatures(2, jax.random.key(0), selection="greedy")
+    with pytest.raises(ValueError, match="uniform_mixing"):
+        kl.NystromFeatures(2, jax.random.key(0), uniform_mixing=1.5)
+    with pytest.raises(ValueError, match="leverage_regularization"):
+        kl.NystromFeatures(2, jax.random.key(0), leverage_regularization=0.0)
     with pytest.raises(ValueError, match="at least as many inputs"):
         kl.NystromFeatures(10, jax.random.key(0)).fit(kl.RBF(), _X(n=4))
 
@@ -267,3 +271,112 @@ def test_fit_returns_a_new_module():
     fitted = m.fit(kl.RBF(), _X())
     assert m.omega is None
     assert dataclasses.replace(fitted, kernel=None, omega=None).omega is None
+
+
+# ---------------------------------------------------------------------------
+# Leverage-score landmark selection (#34)
+# ---------------------------------------------------------------------------
+
+
+def _exact_leverage(K, lam):
+    n = K.shape[0]
+    return jnp.diag(K @ jnp.linalg.inv(K + lam * n * jnp.eye(n)))
+
+
+def test_leverage_scores_are_exact_with_a_full_pilot():
+    from kernellib._spectral._feature_maps import _ridge_leverage_scores
+
+    k, X, lam = kl.RBF(lengthscale=0.3), _X(n=300, d=2), 1e-3
+    exact = _exact_leverage(k(X, X), lam)
+    scores = _ridge_leverage_scores(k, X, jnp.arange(300), lam, 1e-12)
+    assert jnp.allclose(scores, exact, rtol=1e-6)
+    assert jnp.allclose(jnp.sum(scores), jnp.sum(exact), rtol=1e-6)  # d_eff
+
+
+def test_leverage_scores_approach_d_eff_as_the_pilot_grows():
+    from kernellib._spectral._feature_maps import _ridge_leverage_scores
+
+    k, X, lam = kl.RBF(lengthscale=0.3), _X(n=300, d=2), 1e-3
+    d_eff = jnp.sum(_exact_leverage(k(X, X), lam))
+    errors = []
+    for m0 in (40, 150, 300):
+        pilot = jax.random.choice(jax.random.key(1), 300, (m0,), replace=False)
+        scores = _ridge_leverage_scores(k, X, pilot, lam, 1e-10)
+        assert jnp.all(scores >= 0.0)
+        errors.append(float(jnp.abs(jnp.sum(scores) / d_eff - 1.0)))
+    assert errors[0] > errors[1] > errors[2]
+    assert errors[2] < 1e-6
+
+
+def _clustered(n_blob=600, n_far=60):
+    k1, k2 = jax.random.split(jax.random.key(2))
+    return jnp.concatenate(
+        [
+            0.05 * jax.random.normal(k1, (n_blob, 2)),
+            3.0 * jax.random.normal(k2, (n_far, 2)),
+        ]
+    )
+
+
+def _trace_error(nys, kernel, X):
+    Phi = nys.fit(kernel, X)(X)
+    K = kernel(X, X)
+    return float(jnp.trace(K - Phi @ Phi.T) / jnp.trace(K))
+
+
+@pytest.mark.slow
+def test_leverage_beats_uniform_above_the_effective_dimension():
+    X, k, lam = _clustered(), kl.RBF(lengthscale=0.3), 1e-3
+    d_eff = float(jnp.sum(_exact_leverage(k(X, X), lam)))
+    m = int(2 * d_eff)
+
+    def mean_error(**kwargs):
+        return sum(
+            _trace_error(kl.NystromFeatures(m, jax.random.key(s), **kwargs), k, X)
+            for s in range(4)
+        )
+
+    uniform = mean_error()
+    leverage = mean_error(
+        selection="leverage", leverage_regularization=lam, uniform_mixing=0.0
+    )
+    assert leverage < 0.2 * uniform
+
+
+@pytest.mark.slow
+def test_mixing_keeps_leverage_no_worse_than_uniform_below_it():
+    # Below d_eff, pure leverage sends the landmarks to the isolated far
+    # points and leaves the dense blob uncovered; the default mixing does not.
+    X, k, lam = _clustered(), kl.RBF(lengthscale=0.3), 1e-4
+    m = 15
+
+    def mean_error(**kwargs):
+        return sum(
+            _trace_error(kl.NystromFeatures(m, jax.random.key(s), **kwargs), k, X)
+            for s in range(4)
+        )
+
+    uniform = mean_error()
+    pure = mean_error(
+        selection="leverage", leverage_regularization=lam, uniform_mixing=0.0
+    )
+    mixed = mean_error(selection="leverage", leverage_regularization=lam)
+    assert pure > 2 * uniform
+    assert mixed <= 1.1 * uniform
+
+
+def test_leverage_landmarks_are_distinct_inputs_and_the_map_jits():
+    X = _X(n=50, d=2)
+    nys = kl.NystromFeatures(10, jax.random.key(0), selection="leverage").fit(
+        kl.RBF(lengthscale=0.5), X
+    )
+    rows = {tuple(map(float, z)) for z in nys.landmarks}
+    assert len(rows) == 10
+    assert rows <= {tuple(map(float, x)) for x in X}
+
+    @eqx.filter_jit
+    def loss(m):
+        return jnp.sum(m(X))
+
+    g = eqx.filter_grad(loss)(nys)
+    assert jnp.isfinite(g.kernel.lengthscale)
