@@ -73,6 +73,10 @@ precond = kl.falkon_preconditioner(K_mm, regularization=lam)
 K_nm = kl.ImplicitCrossKernelOperator(kernel_fn, X_train, Z)
 alpha = kl.falkon_solve(K_nm, y_train, precond, regularization=lam)
 y_pred = kl.falkon_predict(kernel_fn, Z, alpha, X_test)
+
+# CG steps taken and whether the tolerance was reached
+alpha, info = kl.falkon_solve(K_nm, y_train, precond, lam, return_info=True)
+info.n_iter, info.converged
 ```
 
 ::: kernellib.falkon_preconditioner
@@ -82,6 +86,8 @@ y_pred = kl.falkon_predict(kernel_fn, Z, alpha, X_test)
 ::: kernellib.falkon_predict
 
 ::: kernellib.FalkonPreconditioner
+
+::: kernellib.FalkonInfo
 
 ## EigenPro
 

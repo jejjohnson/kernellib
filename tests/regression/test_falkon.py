@@ -244,6 +244,63 @@ def test_a_small_budget_already_reaches_the_solution() -> None:
     assert error(plain) > 100 * error(alpha)
 
 
+def test_info_reports_early_convergence() -> None:
+    n, m, lam = 200, 30, 1e-3
+    X, _, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = kernellib.falkon_preconditioner(K_mm, lam)
+
+    alpha, info = kernellib.falkon_solve(
+        lx.MatrixLinearOperator(K_nm), y, pre, lam, max_iter=100, return_info=True
+    )
+
+    assert isinstance(info, kernellib.FalkonInfo)
+    assert bool(info.converged)
+    assert 0 < int(info.n_iter) < 100
+    plain = kernellib.falkon_solve(
+        lx.MatrixLinearOperator(K_nm), y, pre, lam, max_iter=100
+    )
+    assert jnp.array_equal(alpha, plain)
+
+
+def test_info_reports_an_exhausted_budget() -> None:
+    n, m, lam = 200, 30, 1e-8
+    X, _, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = kernellib.falkon_preconditioner(K_mm, lam)
+
+    _, info = jax.jit(
+        lambda y: kernellib.falkon_solve(
+            lx.MatrixLinearOperator(K_nm), y, pre, lam, max_iter=5, return_info=True
+        )
+    )(y)
+
+    assert not bool(info.converged)
+    assert int(info.n_iter) == 5
+
+
+def test_estimator_reports_per_column_iterations() -> None:
+    X = jr.normal(jr.key(0), (200, 2))
+    y = _targets(X)
+    # A zero column converges at once; the signal column needs several steps.
+    Y = jnp.stack([y, jnp.zeros_like(y)], axis=1)
+    model = kernellib.Falkon(
+        kernellib.RBF(), n_inducing=30, regularization=1e-3, max_iter=100
+    ).fit(X, Y, key=jr.key(1))
+
+    assert model.n_iter.shape == (2,)
+    assert model.converged.shape == (2,)
+    assert bool(jnp.all(model.converged))
+    assert int(model.n_iter[1]) == 0 < int(model.n_iter[0])
+    single = kernellib.Falkon(
+        kernellib.RBF(), n_inducing=30, regularization=1e-3, max_iter=100
+    ).fit(X, y, key=jr.key(1))
+    assert single.n_iter.shape == ()
+    # The vmapped two-column solve rounds differently from the lone column,
+    # which can move the stopping step by one (it does on CI hardware).
+    assert abs(int(single.n_iter) - int(model.n_iter[0])) <= 2
+
+
 def test_solve_is_jittable() -> None:
     n, m, lam = 100, 20, 1e-3
     X, _, K_nm, K_mm = _krr_problem(n, m)
