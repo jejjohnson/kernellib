@@ -78,6 +78,17 @@ input-dependent amplitude.
 
 ::: kernellib.Modulated
 
+## Approximations as kernels
+
+`nystrom_kernel(k, Z)` is the Nyström kernel $k(x, Z) K_{ZZ}^{-1} k(Z, x')$
+as a (low-rank) kernel, and `Residual(k, approx)` what an approximation
+misses; with a Nyström approximation that is the GP covariance given the
+values at the landmarks.
+
+::: kernellib.nystrom_kernel
+
+::: kernellib.Residual
+
 ## Bridge to gaussx
 
 ::: kernellib.to_operator

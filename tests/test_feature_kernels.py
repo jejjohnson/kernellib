@@ -91,3 +91,60 @@ def test_gradients_reach_neural_features_and_amplitudes():
     assert all(jnp.all(jnp.isfinite(leaf)) for leaf in leaves)
     assert jnp.any(g.amplitude.layers[0].weight != 0.0)
     assert jnp.any(g.kernel.kernels[0].features.layers[0].weight != 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Nyström and residual kernels (#59)
+# ---------------------------------------------------------------------------
+
+Z = X[:6]
+
+
+def test_nystrom_kernel_matches_the_nystrom_operator():
+    k = kl.RBF(lengthscale=0.8)
+    kz = kl.nystrom_kernel(k, Z, jitter=1e-10)
+    expected = kl.nystrom_operator(k(X, Z), kl.to_operator(k, Z)).as_matrix()
+    assert jnp.allclose(kz(X, X), expected, atol=1e-6)
+
+
+def test_from_landmarks_equals_a_fit_with_those_landmarks():
+    k = kl.Matern(nu=2.5)
+    given = kl.NystromFeatures.from_landmarks(k, Z)
+    fitted = kl.NystromFeatures(6, jax.random.key(0)).fit(k, X)
+    fitted = eqx.tree_at(lambda m: m.landmarks, fitted, Z)
+    assert jnp.allclose(given(X), fitted(X))
+
+
+def test_nystrom_residual_is_psd_and_vanishes_on_the_landmarks():
+    k = kl.RBF(lengthscale=0.8)
+    r = kl.Residual(k, kl.nystrom_kernel(k, Z))
+    R = r(X, X)
+    assert jnp.linalg.eigvalsh(R).min() > -1e-6
+    assert jnp.all(jnp.abs(r.diag(Z)) < 1e-5)
+    assert jnp.allclose(r.diag(X), jnp.diag(R), atol=1e-10)
+    assert jnp.allclose(R[3, 9], r.pairwise(X[3], X[9]), atol=1e-10)
+
+
+def test_residual_diag_never_forms_the_gram():
+    n = 2048
+    Xn = jax.random.normal(jax.random.key(5), (n, 2))
+    k = kl.RBF()
+    r = kl.Residual(k, kl.nystrom_kernel(k, Xn[:32]))
+    assert f"{n},{n}" not in str(jax.make_jaxpr(r.diag)(Xn))
+
+
+def test_nystrom_kernel_plus_noise_is_low_rank_with_dense_logdet():
+    k = kl.nystrom_kernel(kl.RBF(lengthscale=0.8), Z) + kl.White(0.1)
+    op = kl.to_operator(k, X)
+    assert isinstance(op, gx.LowRankUpdate)
+    dense = k(X, X)
+    assert jnp.allclose(gx.logdet(op), jnp.linalg.slogdet(dense)[1], rtol=1e-8)
+
+
+def test_nystrom_kernel_hyperparameters_are_differentiable():
+    def loss(ell):
+        k = kl.nystrom_kernel(kl.RBF(lengthscale=ell), Z) + kl.White(0.1)
+        return gx.logdet(kl.to_operator(k, X))
+
+    g = jax.grad(loss)(jnp.array(0.8))
+    assert jnp.isfinite(g) and g != 0.0
