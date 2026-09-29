@@ -5,16 +5,23 @@ Arrays or operators in, scalar or operator out. `centering_operator`,
 ``gaussx._kernels._kernel_approx`` unchanged; the unbiased HSIC estimator and
 `cka` are new. Kernel-and-data versions (``kernellib.hsic(kx, ky, X, Y)``)
 build on these.
+
+Low-rank operands -- a `gaussx.LowRankUpdate` on a diagonal base, which is
+what `nystrom_operator`, `rff_operator` and ``feature_map.operator(X)``
+return -- stay low-rank: `center_kernel` returns one, and `hsic` / `cka` on
+two of them cost ``O(N R_x R_y)`` with no ``N x N`` intermediate.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeGuard
 
 import gaussx as gx
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
+
+from kernellib._einx import einsum, reduce
 
 
 __all__ = [
@@ -53,17 +60,32 @@ def centering_operator(n: int) -> gx.LowRankUpdate:
 
 def center_kernel(
     K: lx.AbstractLinearOperator,
-) -> lx.MatrixLinearOperator:
+) -> lx.MatrixLinearOperator | gx.LowRankUpdate:
     r"""Center a kernel matrix: ``H K H``.
 
     Computes the centered Gram matrix where ``H = I - (1/n) 11^T``.
     Used in kernel PCA, HSIC, and other centered kernel methods.
 
+    A `gaussx.LowRankUpdate` ``K = D_0 + U \operatorname{diag}(d) V^\top``
+    on a diagonal base ``D_0`` (the Nyström, RFF and feature-map operators,
+    with or without a noise diagonal) is centered without forming ``K``:
+
+    $$
+    H K H = D_0 + (HU) \operatorname{diag}(d) (HV)^\top
+        - \tfrac{1}{n}\left(\delta \mathbf{1}^\top + \mathbf{1} \delta^\top\right)
+        + \tfrac{\mathbf{1}^\top \delta}{n^2} \mathbf{1}\mathbf{1}^\top,
+    $$
+
+    with $\delta = \operatorname{diag}(D_0)$ and $HU$ the column-centred
+    factor. The result is a `gaussx.LowRankUpdate` of rank ``k + 3`` on the
+    same base, ``O(N k)`` to build. Any other operator is materialised.
+
     Args:
         K: Kernel (Gram) matrix operator, shape ``(n, n)``.
 
     Returns:
-        Centered kernel operator, shape ``(n, n)``.
+        Centered kernel operator, shape ``(n, n)``: a `gaussx.LowRankUpdate`
+        for a low-rank input on a diagonal base, a dense operator otherwise.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -73,16 +95,49 @@ def center_kernel(
         >>> Kc = center_kernel(K).as_matrix()
         >>> bool(jnp.allclose(Kc.sum(axis=0), 0.0))
         True
+
+        A low-rank operator stays low-rank:
+
+        >>> import gaussx as gx
+        >>> Phi = jnp.arange(8.0).reshape(4, 2)
+        >>> K = gx.LowRankUpdate(lx.DiagonalLinearOperator(jnp.zeros(4)), Phi)
+        >>> type(center_kernel(K)).__name__
+        'LowRankUpdate'
     """
+    tags = frozenset()
+    if lx.is_symmetric(K):
+        tags = frozenset({lx.symmetric_tag})
+    if _is_diagonal_low_rank(K):
+        return _center_low_rank(K, tags)
     K_mat = K.as_matrix()
     row_mean = jnp.mean(K_mat, axis=1, keepdims=True)
     col_mean = jnp.mean(K_mat, axis=0, keepdims=True)
     total_mean = jnp.mean(K_mat)
     K_centered = K_mat - row_mean - col_mean + total_mean
-    tags = frozenset()
-    if lx.is_symmetric(K):
-        tags = frozenset({lx.symmetric_tag})
     return lx.MatrixLinearOperator(K_centered, tags)
+
+
+def _is_diagonal_low_rank(
+    K: lx.AbstractLinearOperator,
+) -> TypeGuard[gx.LowRankUpdate]:
+    return isinstance(K, gx.LowRankUpdate) and isinstance(
+        K.base, lx.DiagonalLinearOperator
+    )
+
+
+def _center_low_rank(K: gx.LowRankUpdate, tags: frozenset) -> gx.LowRankUpdate:
+    """``H K H`` for ``K = D_0 + U diag(d) V^T`` as a rank ``k + 3`` update."""
+    delta = lx.diagonal(K.base)
+    n = delta.shape[0]
+    dtype = jnp.result_type(delta, K.U, K.d, K.V)
+    ones = jnp.ones((n, 1), dtype=dtype)
+    delta_col = delta[:, None].astype(dtype)
+    # H D_0 H = D_0 - (δ1ᵀ + 1δᵀ)/n + (1ᵀδ/n²) 11ᵀ: three rank-one terms.
+    U = jnp.concatenate([K.U - jnp.mean(K.U, axis=0), delta_col, ones, ones], axis=1)
+    V = jnp.concatenate([K.V - jnp.mean(K.V, axis=0), ones, delta_col, ones], axis=1)
+    correction = jnp.stack([-1.0 / n, -1.0 / n, jnp.sum(delta) / n**2]).astype(dtype)
+    d = jnp.concatenate([K.d.astype(dtype), correction])
+    return gx.LowRankUpdate(base=K.base, U=U, d=d, V=V, tags=tags)
 
 
 def hsic(
@@ -116,6 +171,11 @@ def hsic(
     samples, and it needs ``n >= 4``. Like the closed form it implements, it
     assumes symmetric kernel matrices, which any kernel produces.
 
+    When both operands are `gaussx.LowRankUpdate` on a diagonal base (e.g.
+    ``feature_map.operator(X)``), both estimators run on the factors in
+    ``O(N R_f R_q)`` and never form an ``N x N`` matrix. The diagonal base
+    drops out of the unbiased estimator, which zeroes the diagonal.
+
     Args:
         K_f: First kernel matrix, shape ``(n, n)``.
         K_q: Second kernel matrix, shape ``(n, n)``.
@@ -141,9 +201,14 @@ def hsic(
     if estimator == "biased":
         K_f_centered = center_kernel(K_f)
         K_q_centered = center_kernel(K_q)
-        n = K_f_centered.as_matrix().shape[0]
+        n = K_f_centered.in_size()
         return gx.trace_product(K_f_centered, K_q_centered) / (n * n)
     if estimator == "unbiased":
+        if _is_diagonal_low_rank(K_f) and _is_diagonal_low_rank(K_q):
+            return _hsic_unbiased_low_rank(
+                (K_f.U, K_f.d, K_f.V),
+                (K_q.U, K_q.d, K_q.V),
+            )
         return _hsic_unbiased(K_f.as_matrix(), K_q.as_matrix())
     raise ValueError(f"estimator must be 'biased' or 'unbiased', got {estimator!r}.")
 
@@ -162,6 +227,57 @@ def _hsic_unbiased(K: Float[Array, "n n"], L: Float[Array, "n n"]) -> Float[Arra
     return (trace_term + ones_term - cross_term) / (n * (n - 3))
 
 
+def _hsic_features(
+    Phi_x: Float[Array, "N Rx"],
+    Phi_y: Float[Array, "N Ry"],
+    estimator: Literal["biased", "unbiased"],
+) -> Float[Array, ""]:
+    """HSIC of ``K = Φx Φxᵀ`` and ``L = Φy Φyᵀ`` without forming them."""
+    n = Phi_x.shape[0]
+    if estimator == "biased":
+        Cx = Phi_x - jnp.mean(Phi_x, axis=0)
+        Cy = Phi_y - jnp.mean(Phi_y, axis=0)
+        return _frob_sq(einsum(Cx, Cy, "n a, n b -> a b")) / (n * n)
+    ones_x = jnp.ones(Phi_x.shape[1], dtype=Phi_x.dtype)
+    ones_y = jnp.ones(Phi_y.shape[1], dtype=Phi_y.dtype)
+    return _hsic_unbiased_low_rank((Phi_x, ones_x, Phi_x), (Phi_y, ones_y, Phi_y))
+
+
+LowRankFactors = tuple[Float[Array, "N R"], Float[Array, " R"], Float[Array, "N R"]]
+
+
+def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array, ""]:
+    """Song et al. (2012) unbiased HSIC of ``U diag(d) Vᵀ`` factors.
+
+    ``K~ = K - diag(K)``, so a diagonal base never contributes, and every
+    term is a product of the factors minus a diagonal correction:
+    ``O(N R_K R_L)``.
+    """
+    (Uk, dk, Vk), (Ul, dl, Vl) = K, L
+    n = Uk.shape[0]
+    if n < 4:
+        raise ValueError(f"The unbiased HSIC estimator needs n >= 4, got n={n}.")
+    # einx contracts an axis over exactly two operands, so fold d in first.
+    diag_k = einsum(Uk * dk, Vk, "n a, n a -> n")
+    diag_l = einsum(Ul * dl, Vl, "n b, n b -> n")
+    # sum_ij K_ij L_ij = tr(Kᵀ L) = sum_ab dk_a dl_b (Ukᵀ Ul)_ab (Vlᵀ Vk)_ba.
+    frob = einsum(
+        einsum(Uk * dk, Ul * dl, "n a, n b -> a b"),
+        einsum(Vk, Vl, "n a, n b -> a b"),
+        "a b, a b -> ",
+    )
+    trace_term = frob - jnp.sum(diag_k * diag_l)
+    K1 = einsum(Uk, dk * reduce(Vk, "n a -> a", "sum"), "n a, a -> n") - diag_k
+    L1 = einsum(Ul, dl * reduce(Vl, "n b -> b", "sum"), "n b, b -> n") - diag_l
+    ones_term = jnp.sum(K1) * jnp.sum(L1) / ((n - 1) * (n - 2))
+    cross_term = 2.0 / (n - 2) * jnp.sum(K1 * L1)
+    return (trace_term + ones_term - cross_term) / (n * (n - 3))
+
+
+def _frob_sq(A: Float[Array, "a b"]) -> Float[Array, ""]:
+    return jnp.sum(A * A)
+
+
 def cka(
     K_f: lx.AbstractLinearOperator,
     K_q: lx.AbstractLinearOperator,
@@ -178,7 +294,8 @@ def cka(
     With the biased estimator and PSD kernels the value lies in ``[0, 1]``
     and is invariant to rescaling either kernel. The unbiased estimator gives
     debiased CKA; its self-HSIC terms can be non-positive for very small
-    samples, in which case the result is not finite.
+    samples, in which case the result is not finite. Low-rank operands on a
+    diagonal base take the ``O(N R_f R_q)`` path of `hsic`.
 
     Args:
         K_f: First kernel matrix, shape ``(n, n)``.

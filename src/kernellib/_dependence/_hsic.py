@@ -20,6 +20,7 @@ from kernellib._dependence._features import _fit_pair
 from kernellib._kernels import AbstractKernel
 from kernellib._operators._bridge import to_operator
 from kernellib._spectral import AbstractFeatureMap
+from kernellib.functional._statistics import _frob_sq, _hsic_features
 
 
 __all__ = ["cka", "hsic", "kernel_alignment"]
@@ -142,33 +143,6 @@ def kernel_alignment(
     Phi_x, Phi_y = _fit_pair(approx, kernel_x, X, kernel_y, Y)
     kl_ = _frob_sq(Phi_x.T @ Phi_y)
     return kl_ / jnp.sqrt(_frob_sq(Phi_x.T @ Phi_x) * _frob_sq(Phi_y.T @ Phi_y))
-
-
-def _hsic_features(
-    Phi_x: Float[Array, "N Rx"], Phi_y: Float[Array, "N Ry"], estimator: Estimator
-) -> Float[Array, ""]:
-    """HSIC of ``K = Φx Φxᵀ`` and ``L = Φy Φyᵀ`` without forming them."""
-    n = Phi_x.shape[0]
-    if estimator == "biased":
-        Cx = Phi_x - jnp.mean(Phi_x, axis=0)
-        Cy = Phi_y - jnp.mean(Phi_y, axis=0)
-        return _frob_sq(Cx.T @ Cy) / (n * n)
-    if n < 4:
-        raise ValueError(f"The unbiased HSIC estimator needs n >= 4, got n={n}.")
-    # K~ = K - diag(K): every term of the Song et al. estimator is a product
-    # of low-rank factors minus a diagonal correction.
-    dK = jnp.sum(Phi_x**2, axis=1)
-    dL = jnp.sum(Phi_y**2, axis=1)
-    trace_term = _frob_sq(Phi_x.T @ Phi_y) - jnp.sum(dK * dL)
-    K1 = Phi_x @ jnp.sum(Phi_x, axis=0) - dK
-    L1 = Phi_y @ jnp.sum(Phi_y, axis=0) - dL
-    ones_term = jnp.sum(K1) * jnp.sum(L1) / ((n - 1) * (n - 2))
-    cross_term = 2.0 / (n - 2) * jnp.sum(K1 * L1)
-    return (trace_term + ones_term - cross_term) / (n * (n - 3))
-
-
-def _frob_sq(A: Float[Array, "a b"]) -> Float[Array, ""]:
-    return jnp.sum(A * A)
 
 
 def _check_paired(X: Array, Y: Array) -> None:
