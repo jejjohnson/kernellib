@@ -13,6 +13,19 @@ The statistics (`centering_operator`, `center_kernel`, `hsic`, `cka`,
 an operator. `hsic` and `cka` offer the biased estimator (default) and the
 unbiased estimator of Song et al. (2012).
 
+Low-rank operators stay low-rank. For a `gaussx.LowRankUpdate` on a diagonal
+base (what `nystrom_operator`, `rff_operator` and `feature_map.operator(X)`
+return, with or without a noise diagonal), `center_kernel` returns a
+`LowRankUpdate` of rank ``R + 3``. `hsic` and `cka` on two such operators
+cost ``O(N R_x R_y)`` and never form an ``N x N`` matrix. Other operators are
+materialised.
+
+```python
+K = feature_map_x.operator(X)  # gx.LowRankUpdate
+L = feature_map_y.operator(Y)
+kl.functional.hsic(K, L)  # O(N R_x R_y)
+```
+
 ::: kernellib.functional
     options:
       show_root_heading: false

@@ -222,3 +222,82 @@ class TestCKA:
         k1, k2 = jr.split(jr.key(7))
         K, L = _op(_gram(k1, 10)), _op(_gram(k2, 10))
         assert jnp.allclose(cka(K, L), cka(L, K), rtol=1e-12)
+
+
+class TestLowRank:
+    """Low-rank operands stay low-rank through centering and HSIC (#37)."""
+
+    @staticmethod
+    def _operator(Phi, noise=None):
+        import gaussx as gx
+
+        n = Phi.shape[0]
+        diag = jnp.zeros(n) if noise is None else noise
+        return gx.LowRankUpdate(
+            lx.DiagonalLinearOperator(diag),
+            Phi,
+            tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
+        )
+
+    @staticmethod
+    def _factors(n=40, rx=5, ry=7):
+        kx, ky, kn = jr.split(jr.key(3), 3)
+        Phi_x = jr.normal(kx, (n, rx))
+        Phi_y = jnp.tanh(Phi_x[:, :1]) + 0.5 * jr.normal(ky, (n, ry))
+        noise = jr.uniform(kn, (n,), minval=0.1, maxval=1.0)
+        return Phi_x, Phi_y, noise
+
+    @pytest.mark.parametrize("with_noise", [False, True])
+    def test_center_kernel_stays_low_rank(self, with_noise):
+        import gaussx as gx
+
+        Phi, _, noise = self._factors()
+        K = self._operator(Phi, noise if with_noise else None)
+        n = Phi.shape[0]
+        H = jnp.eye(n) - 1.0 / n
+
+        K_c = center_kernel(K)
+
+        assert isinstance(K_c, gx.LowRankUpdate)
+        assert lx.is_symmetric(K_c)
+        assert jnp.allclose(K_c.as_matrix(), H @ K.as_matrix() @ H, atol=1e-12)
+
+    @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+    @pytest.mark.parametrize("with_noise", [False, True])
+    def test_hsic_and_cka_match_dense(self, estimator, with_noise):
+        Phi_x, Phi_y, noise = self._factors()
+        K = self._operator(Phi_x, noise if with_noise else None)
+        L = self._operator(Phi_y)
+        K_dense = lx.MatrixLinearOperator(K.as_matrix(), lx.symmetric_tag)
+        L_dense = lx.MatrixLinearOperator(L.as_matrix(), lx.symmetric_tag)
+
+        for fn in (hsic, cka):
+            got = fn(K, L, estimator=estimator)
+            want = fn(K_dense, L_dense, estimator=estimator)
+            assert jnp.allclose(got, want, rtol=1e-10), fn.__name__
+
+    def test_mixed_low_rank_and_dense(self):
+        Phi_x, Phi_y, _ = self._factors()
+        K = self._operator(Phi_x)
+        L_dense = lx.MatrixLinearOperator(Phi_y @ Phi_y.T, lx.symmetric_tag)
+        K_dense = lx.MatrixLinearOperator(K.as_matrix(), lx.symmetric_tag)
+        for estimator in ("biased", "unbiased"):
+            assert jnp.allclose(
+                hsic(K, L_dense, estimator=estimator),
+                hsic(K_dense, L_dense, estimator=estimator),
+                rtol=1e-10,
+            )
+
+    @pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+    def test_no_n_by_n_intermediate(self, estimator):
+        n = 512
+        Phi_x, Phi_y, noise = self._factors(n=n)
+
+        def f(Phi_x, Phi_y, noise):
+            K = self._operator(Phi_x, noise)
+            L = self._operator(Phi_y)
+            return cka(K, L, estimator=estimator)
+
+        # The printed jaxpr includes nested (jitted) sub-jaxprs.
+        jaxpr = str(jax.make_jaxpr(f)(Phi_x, Phi_y, noise))
+        assert f"[{n},{n}]" not in jaxpr
