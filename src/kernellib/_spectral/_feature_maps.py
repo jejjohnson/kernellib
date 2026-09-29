@@ -367,7 +367,7 @@ class NystromFeatures(AbstractFeatureMap):
             mixed into the leverage-score distribution
             (``selection="leverage"`` only).
         jitter: Relative diagonal jitter on $K_{ZZ}$, scaled by its mean
-            diagonal.
+            diagonal (or by one, if that is zero).
         kernel: The fitted kernel, ``None`` before `fit`.
         landmarks: The chosen ``(M, D)`` landmarks, ``None`` before `fit`.
 
@@ -481,7 +481,10 @@ def _nystrom_features(
 ) -> Float[Array, "N M"]:
     """``L^{-1} k(Z, X)``, transposed, with ``K_ZZ + jitter I = L Lᵀ``."""
     K_zz = kernel(Z, Z)
-    eps = jitter * jnp.mean(jnp.diag(K_zz))
+    # Relative to the mean diagonal, with an absolute floor when that is zero
+    # (e.g. a `Distance` kernel whose only landmark is the origin).
+    scale = jnp.mean(jnp.diag(K_zz))
+    eps = jitter * jnp.where(scale > 0, scale, 1.0)
     L = jnp.linalg.cholesky(K_zz + eps * jnp.eye(Z.shape[0], dtype=K_zz.dtype))
     return jsl.solve_triangular(L, kernel(Z, X), lower=True).T
 
