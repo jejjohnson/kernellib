@@ -16,7 +16,7 @@ modelling layer above adds those.
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
 import equinox as eqx
@@ -115,6 +115,61 @@ class AbstractKernel(eqx.Module):
         """Whether ``pairwise`` is available (and so the implicit operators)."""
         return False
 
+    @property
+    def is_stationary(self) -> bool:
+        """Whether ``k(x, x')`` depends on ``x - x'`` only.
+
+        Composites answer from their parts: a `Sum` or `Product` of
+        stationary kernels is stationary, `Warped` only for a `Shift` or
+        `Stretch` warp.
+        """
+        return False
+
+    def elwise(
+        self, X1: Float[Array, "N D"], X2: Float[Array, "N D"]
+    ) -> Float[Array, " N"]:
+        """The kernel on paired rows, ``[k(X1[i], X2[i])]_i``, in ``O(N)``.
+
+        Also works for Gram-only kernels (one ``1 x 1`` Gram per pair).
+        """
+        return jax.vmap(lambda x, y: self(x[None], y[None])[0, 0])(X1, X2)
+
+    def stretch(self, scale: float | Float[Array, ...]) -> AbstractKernel:
+        """``k(x / scale, x' / scale)``, a `Warped` with a `Stretch` warp.
+
+        For a stationary kernel this multiplies the lengthscale by
+        ``scale`` (scalar or per dimension); ``scale`` is differentiable.
+        """
+        from kernellib._kernels._compose import Stretch, Warped
+
+        return Warped(self, Stretch(scale))
+
+    def shift(self, offset: float | Float[Array, ...]) -> AbstractKernel:
+        """``k(x - offset, x' - offset)``; a stationary kernel is returned as is."""
+        from kernellib._kernels._compose import Shift, Warped
+
+        if self.is_stationary:
+            return self
+        return Warped(self, Shift(offset))
+
+    def transform(self, warp: Callable) -> AbstractKernel:
+        """``k(w(x), w(x'))``: a `Warped` kernel."""
+        from kernellib._kernels._compose import Warped
+
+        return Warped(self, warp)
+
+    def select(self, dims: Sequence[int]) -> AbstractKernel:
+        """The kernel on input columns ``dims``: an `ActiveDims` kernel."""
+        from kernellib._kernels._compose import ActiveDims
+
+        return ActiveDims(self, tuple(dims))
+
+    def periodic(self, period: float | Float[Array, ...]) -> AbstractKernel:
+        """The kernel on inputs wrapped onto circles: a `Periodised` kernel."""
+        from kernellib._kernels._compose import Periodised
+
+        return Periodised(self, period)
+
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
@@ -178,6 +233,11 @@ class AbstractPointwiseKernel(AbstractKernel):
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return jax.vmap(lambda x: self.pairwise(x, x))(X)
 
+    def elwise(
+        self, X1: Float[Array, "N D"], X2: Float[Array, "N D"]
+    ) -> Float[Array, " N"]:
+        return jax.vmap(self.pairwise)(X1, X2)
+
     @property
     def is_pointwise(self) -> bool:
         return True
@@ -196,6 +256,10 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
 
     lengthscale: eqx.AbstractVar[Float[Array, ""] | Float[Array, " D"]]
     variance: eqx.AbstractVar[Float[Array, ""]]
+
+    @property
+    def is_stationary(self) -> bool:
+        return True
 
     @abstractmethod
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
