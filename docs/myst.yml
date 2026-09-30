@@ -37,6 +37,23 @@ project:
         - file: notebooks/matrix_free_gp.ipynb
         - file: notebooks/sklearn_workflows.ipynb
         - file: notebooks/graph_embeddings.ipynb
+    - title: Roadmap
+      children:
+        - file: roadmap/roadmap.md
+        - file: roadmap/roadmap-examples.md
+        - title: By repository
+          children:
+            - file: roadmap/roadmap-gaussx.md
+            - file: roadmap/roadmap-kernellib.md
+            - file: roadmap/roadmap-pyrox.md
+            - file: roadmap/roadmap-manipy.md
+            - file: roadmap/roadmap-plumax.md
+        - title: Projects
+          children:
+            - file: roadmap/project-manifold.md
+            - file: roadmap/project-rnla.md
+            - file: roadmap/project-inla.md
+            - file: roadmap/project-fairkl.md
     - title: Project
       children:
         - file: contributing.md
