@@ -12,7 +12,8 @@ with adjacency $W$, degree matrix $D$ and Laplacian $L = D - W$:
   potential (itself a graph Laplacian) pulls chosen pairs together, e.g.
   points sharing a label (semi-supervised) or spatial neighbours in an image
   (Cahill, Czaja & Messinger, 2014).
-- **Locality preserving projections** (He & Niyogi, 2003) restrict $y = X a$ to
+- **Locality preserving projections** (He & Niyogi, 2003; in
+  `_projections.py`) restrict $y = X a$ to
   be linear in the inputs, so new points can be embedded:
   $X^\top L X a = \lambda X^\top D X a$.
 
@@ -31,21 +32,17 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 from jaxtyping import Array, Float, Int
 
-from kernellib._decomposition._graph import adjacency_matrix, graph_laplacian
-from kernellib._decomposition._neighbors import (
-    Backend,
-    KNNGraph,
-    nearest_neighbors,
-)
 from kernellib._einx import rearrange
+from kernellib._graph._construct import adjacency_matrix
+from kernellib._graph._eigpairs import _smallest_sparse, _sparse_adjacency
+from kernellib._graph._laplacian import graph_laplacian
+from kernellib._graph._neighbors import Backend, KNNGraph, nearest_neighbors
 
 
 __all__ = [
     "LaplacianEigenmaps",
-    "LocalityPreservingProjections",
     "SchrodingerEigenmaps",
     "barrier_potential",
     "label_potential",
@@ -245,55 +242,6 @@ def _check_constraint(constraint: str) -> None:
         )
 
 
-# -- sparse (ARPACK) path ----------------------------------------------------
-
-
-def _sparse_adjacency(
-    graph: KNNGraph, weighting: str, bandwidth: float | None
-) -> sp.csr_matrix:
-    idx = np.asarray(graph.indices)
-    dist = np.asarray(graph.distances)
-    n, k = idx.shape
-    if weighting == "heat":
-        sigma = float(np.median(dist)) if bandwidth is None else float(bandwidth)
-        sigma = sigma if sigma > 0 else 1.0
-        w = np.exp(-(dist**2) / (2.0 * sigma**2))
-    else:
-        w = np.ones_like(dist)
-    W = sp.csr_matrix((w.ravel(), (np.repeat(np.arange(n), k), idx.ravel())), (n, n))
-    W = W.maximum(W.T)
-    W.setdiag(0.0)
-    W.eliminate_zeros()
-    return W
-
-
-def _smallest_sparse(
-    A: sp.spmatrix,
-    degree: np.ndarray | None,
-    n_components: int,
-    drop_first: bool,
-    seed: int,
-) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
-    n = A.shape[0]
-    scale = (
-        np.ones(n)
-        if degree is None
-        else 1.0 / np.sqrt(np.where(degree > 0, degree, 1.0))
-    )
-    S = sp.diags(scale) @ A @ sp.diags(scale)
-    # Smallest eigenvalues of S are the largest of c I - S, with c a
-    # Gershgorin bound on S's spectrum; ARPACK converges fast on those.
-    c = float(np.max(np.abs(S).sum(axis=1)))
-    k = n_components + int(drop_first)
-    v0 = np.random.default_rng(seed).uniform(size=n)
-    mu, U = spla.eigsh(c * sp.identity(n) - S, k=k, which="LA", v0=v0)
-    order = np.argsort(c - mu)
-    lam, U = (c - mu)[order], U[:, order]
-    start = int(drop_first)
-    Y = scale[:, None] * U[:, start:]
-    return jnp.asarray(lam[start:]), jnp.asarray(Y)
-
-
 # -- estimators --------------------------------------------------------------
 
 
@@ -487,89 +435,6 @@ class SchrodingerEigenmaps(_GraphEmbedding):
                 drop_first=self.drop_first,
             )
         return dataclasses.replace(self, embedding=Y, eigenvalues=lam, graph=graph)
-
-
-class LocalityPreservingProjections(_GraphEmbedding):
-    r"""Locality preserving projections (He & Niyogi, 2003).
-
-    A linear Laplacian eigenmap: find $A$ (``D x n``) minimising
-    $\sum_{ij} W_{ij}\|A^\top x_i - A^\top x_j\|^2$ subject to
-    $A^\top \bar X^\top D \bar X A = I$, i.e. the smallest solutions of
-    $\bar X^\top L \bar X a = \lambda \bar X^\top D \bar X a$, with $\bar X$ the
-    inputs centred at their degree-weighted mean. Unlike the eigenmaps it
-    embeds new points: `transform` is $(x - \mu) A$. The graph settings
-    (``n_components``, ``n_neighbors``, ``weighting``, ``bandwidth``,
-    ``neighbors_backend``, ``random_state``) are as in `LaplacianEigenmaps`.
-
-    Attributes:
-        regularization: Ridge on $\bar X^\top D \bar X$, relative to its mean
-            eigenvalue.
-        projection: ``(D, n_components)``, ``None`` before `fit`.
-        mean: ``(D,)``, ``None`` before `fit`.
-        eigenvalues: ``(n_components,)``, ``None`` before `fit`.
-
-    Examples:
-        >>> import jax
-        >>> import jax.numpy as jnp
-        >>> import kernellib as kl
-        >>> X = jax.random.normal(jax.random.key(0), (100, 5))
-        >>> lpp = kl.LocalityPreservingProjections(n_components=2).fit(X)
-        >>> lpp.transform(X[:3]).shape
-        (3, 2)
-    """
-
-    n_components: int = eqx.field(default=2, static=True)
-    n_neighbors: int = eqx.field(default=10, static=True)
-    weighting: Literal["heat", "connectivity"] = eqx.field(default="heat", static=True)
-    bandwidth: float | None = None
-    regularization: float = 1e-8
-    neighbors_backend: Backend = eqx.field(default="exact", static=True)
-    random_state: int | None = eqx.field(default=None, static=True)
-    projection: Float[Array, "D n"] | None = None
-    mean: Float[Array, " D"] | None = None
-    eigenvalues: Float[Array, " n"] | None = None
-
-    def __check_init__(self) -> None:
-        _check_common(self)
-
-    def fit(self, X: Float[Array, "N D"]) -> LocalityPreservingProjections:
-        """Learn the projection from ``X``.
-
-        Raises:
-            ValueError: If ``n_components`` exceeds the input dimension.
-        """
-        d = X.shape[1]
-        if self.n_components > d:
-            raise ValueError(
-                f"n_components={self.n_components} exceeds the input dimension {d}."
-            )
-        W = adjacency_matrix(
-            self._graph(X), weighting=self.weighting, bandwidth=self.bandwidth
-        )
-        degree = jnp.sum(W, axis=1)
-        mu = degree @ X / jnp.sum(degree)
-        Xc = X - mu
-        A = Xc.T @ graph_laplacian(W) @ Xc
-        B = (Xc * degree[:, None]).T @ Xc
-        B = B + self.regularization * jnp.trace(B) / d * jnp.eye(d, dtype=B.dtype)
-        # B = C Cᵀ turns the generalised problem into C⁻¹ A C⁻ᵀ u = λ u.
-        C = jnp.linalg.cholesky(B)
-        Ci = jnp.linalg.inv(C)
-        lam, U = jnp.linalg.eigh(Ci @ A @ Ci.T)
-        P = Ci.T @ U[:, : self.n_components]
-        return dataclasses.replace(
-            self, projection=P, mean=mu, eigenvalues=lam[: self.n_components]
-        )
-
-    def transform(self, X: Float[Array, "M D"]) -> Float[Array, "M n"]:
-        """Project new points.
-
-        Raises:
-            RuntimeError: If not fitted.
-        """
-        if self.projection is None or self.mean is None:
-            raise RuntimeError("LocalityPreservingProjections is not fitted.")
-        return (X - self.mean) @ self.projection
 
 
 def _check_common(model: eqx.Module) -> None:

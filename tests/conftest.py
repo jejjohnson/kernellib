@@ -26,11 +26,11 @@ def getkey() -> eqxi.GetKey:
 _SLOW_DOCTESTS = frozenset(
     {
         "kernellib._decomposition._eigenmaps.LaplacianEigenmaps",
-        "kernellib._decomposition._eigenmaps.LocalityPreservingProjections",
+        "kernellib._decomposition._projections.LocalityPreservingProjections",
         "kernellib._decomposition._eigenmaps.SchrodingerEigenmaps",
         "kernellib._decomposition._eigenmaps.laplacian_eigenmap",
         "kernellib._decomposition._eigenmaps.schrodinger_eigenmap",
-        "kernellib._decomposition._graph.adjacency_matrix",
+        "kernellib._graph._construct.adjacency_matrix",
         "kernellib._decomposition._kpca.KernelPCA",
         "kernellib._dependence._distance.distance_correlation_squared",
         "kernellib._dependence._distance.energy_distance",
