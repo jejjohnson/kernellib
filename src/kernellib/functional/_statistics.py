@@ -366,14 +366,16 @@ def _cka_ratio(
     """``cross / sqrt(self_x * self_y)``, and 0 with a 0 gradient where either
 
     self term is not positive. A double ``where`` keeps ``sqrt`` away from 0
-    (its slope is infinite there); NaN compares False, so it propagates.
+    (its slope is infinite there). A NaN in any term propagates.
     The biased ratio is clipped to ``[0, 1]``, where it lies in exact
     arithmetic.
     """
     denom = self_x * self_y
     # Test each term: two slightly negative (unbiased) estimates would give a
-    # positive product. NaN compares False either way, so it propagates.
-    degenerate = (self_x <= 0) | (self_y <= 0)
+    # positive product. A NaN anywhere is never "degenerate", so it reaches
+    # the ratio and propagates, even when the other side is constant.
+    has_nan = jnp.isnan(cross) | jnp.isnan(self_x) | jnp.isnan(self_y)
+    degenerate = ((self_x <= 0) | (self_y <= 0)) & ~has_nan
     ratio = jnp.where(
         degenerate, 0.0, cross / jnp.sqrt(jnp.where(degenerate, 1.0, denom))
     )

@@ -402,5 +402,20 @@ def test_cka_ratio_is_zero_when_either_self_term_is_not_positive(
     assert all(float(g) == 0.0 for g in grad)
 
 
-def test_cka_ratio_propagates_nan():
-    assert jnp.isnan(_stats._cka_ratio(jnp.asarray(0.3), jnp.nan, 0.5, "unbiased"))
+@pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+@pytest.mark.parametrize(
+    ("cross", "self_x", "self_y"),
+    [
+        (0.3, jnp.nan, 0.5),
+        (0.3, 0.0, jnp.nan),
+        (jnp.nan, 0.0, 0.5),
+        (jnp.nan, -1e-10, 0.0),
+    ],
+)
+def test_cka_ratio_propagates_nan(estimator, cross, self_x, self_y):
+    # A NaN must never be masked by the degenerate-input zero (e.g. one side
+    # constant, the other NaN).
+    got = _stats._cka_ratio(
+        jnp.asarray(cross), jnp.asarray(self_x), jnp.asarray(self_y), estimator
+    )
+    assert jnp.isnan(got)

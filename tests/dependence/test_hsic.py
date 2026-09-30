@@ -217,3 +217,9 @@ def test_cka_nan_still_propagates():
     X, Y = _pair()
     X = X.at[0, 0].set(jnp.nan)
     assert jnp.isnan(kl.cka(KX, KY, X, Y))
+
+
+def test_cka_nan_is_not_masked_by_a_constant_partner():
+    X, Y = _pair()
+    X = X.at[0, 0].set(jnp.nan)
+    assert jnp.isnan(kl.cka(KX, KY, X, jnp.zeros_like(Y)))
