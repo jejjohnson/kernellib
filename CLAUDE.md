@@ -96,6 +96,7 @@ Dependency direction is strictly one-way, layer 0 → 1 → 2.
 | `tests/` | Test suite |
 | `design_docs/` | Committed design references |
 | `docs/guide/` | Hand-written guide pages |
+| `docs/roadmap/` | Cross-repo roadmap (per-repo plans, projects, examples); basenames prefixed `roadmap-` / `project-` to keep flat URLs unique |
 | `docs/api/` | mkdocstrings API reference, one page per module |
 | `docs/notebooks/` | Executed example notebooks (outputs committed) |
 | `scripts/` | Build tooling, incl. `build_docs.py` (the two-tool docs pipeline) |
@@ -120,7 +121,7 @@ The docs are built by **two tools** and deployed as one site — see
 
 | Half | Tool | Source | Deployed at |
 |---|---|---|---|
-| Prose — home, guides, notebooks | mystmd | `docs/*.md`, `docs/guide/`, `docs/notebooks/` | `/` |
+| Prose — home, guides, notebooks, roadmap | mystmd | `docs/*.md`, `docs/guide/`, `docs/notebooks/`, `docs/roadmap/` | `/` |
 | API reference | MkDocs + mkdocstrings | `docs/api/` | `/reference/` |
 
 ```bash

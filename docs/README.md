@@ -4,7 +4,7 @@ This project's documentation is built by **two tools**, deployed as one site.
 
 | Half | Tool | Source | Deployed at |
 |---|---|---|---|
-| Prose — home, guides, notebooks | [mystmd](https://mystmd.org) | `docs/*.md`, `docs/guide/`, `docs/notebooks/` | `/` |
+| Prose — home, guides, notebooks, roadmap | [mystmd](https://mystmd.org) | `docs/*.md`, `docs/guide/`, `docs/notebooks/`, `docs/roadmap/` | `/` |
 | API reference | MkDocs + mkdocstrings | `docs/api/` | `/reference/` |
 
 Build both and assemble them with:
