@@ -62,7 +62,7 @@ The project's answers to #155's open questions:
 | Repo | Phases |
 |---|---|
 | gaussx | [G1, G3–G10](roadmap-gaussx.md) (Part A): static-pattern `SparseOperator`, structured selected inverses, sparse Cholesky + Takahashi, `pseudo_logdet`, GMRF distributions, precision builders / SPDE / FEM, precision-form Laplace, θ-designs, VB correction; G16 (XDiag) as the fallback for fields too large to factor |
-| kernellib | [K6](roadmap-kernellib.md): null spaces, structure matrices, mesh graphs, the graph-Matérn ↔ SPDE test; built on K2–K4 |
+| kernellib | [K6](roadmap-kernellib.md): null spaces, structure matrices, mesh graphs, the graph-Matérn ↔ SPDE test; built on K2–K4. K2's `graph_from_edges` takes areal contiguity from city2graph or libpysal, and K15's proximity graphs give ICARs on irregular point sites |
 | pyrox | [P6–P10](roadmap-pyrox.md): the new `pyrox-lgm` package (components, PC priors, `inla()`), and the retarget of pyrox-gp's `spde_fem.md` |
 
 The structure-dispatch table that organises the gaussx work is in
