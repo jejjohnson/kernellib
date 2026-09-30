@@ -205,3 +205,13 @@ def test_concrete_array_zero_weight_needs_no_target():
     plain = kl.KernelPCA(K, n_components=3).fit(X)
     zero = kl.KernelPCA(K, n_components=3, target_weight=jnp.asarray(0.0)).fit(X)
     assert bool(jnp.all(plain.embedding == zero.embedding))
+
+
+def test_default_pre_image_bandwidth_survives_duplicated_samples():
+    # 26 of 30 points are one repeated sample: 325 of the 435 embedding
+    # distances are 0, so the median heuristic alone would give RBF(0) -> NaN.
+    X, _ = _data(n=30)
+    X = X.at[5:].set(X[0])
+    m = kl.KernelPCA(K, n_components=2, fit_inverse_transform=True).fit(X)
+    assert float(kl.estimate_lengthscale(m.embedding)) == 0.0  # the case at hand
+    assert bool(jnp.all(jnp.isfinite(m.inverse_transform(m.embedding))))

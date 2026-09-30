@@ -89,7 +89,8 @@ class KernelPCA(eqx.Module):
         fit_inverse_transform: Also fit the pre-image map, for
             `inverse_transform`.
         inverse_kernel: Kernel on the embedding for the pre-image `KRR`;
-            ``None`` means an `RBF` with the median-heuristic lengthscale.
+            ``None`` means an `RBF` with the median-heuristic lengthscale
+            (the mean distance, or ``1``, if the median is ``0``).
         inverse_regularization: Ridge of the pre-image `KRR`.
         inverse_model: The fitted pre-image `KRR`.
 
@@ -174,7 +175,12 @@ class KernelPCA(eqx.Module):
     def _fit_pre_image(self, Z: Float[Array, "N n"], X: Float[Array, "N D"]) -> KRR:
         kernel = self.inverse_kernel
         if kernel is None:
-            kernel = RBF(lengthscale=estimate_lengthscale(Z))
+            # Median distance, falling back to the mean and then 1: with
+            # duplicated samples the median can be 0, and RBF(0) gives NaN.
+            median = estimate_lengthscale(Z)
+            mean = estimate_lengthscale(Z, "mean")
+            lengthscale = jnp.where(median > 0, median, jnp.where(mean > 0, mean, 1.0))
+            kernel = RBF(lengthscale=lengthscale)
         return KRR(kernel, regularization=self.inverse_regularization).fit(Z, X)
 
     def _fit_supervised(
