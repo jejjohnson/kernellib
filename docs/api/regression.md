@@ -49,9 +49,41 @@ model = kl.EigenPro(
 | `Falkon` | the Nyström system on ``M`` centres | $O(N M t + M^3)$ | $O(M^2)$ |
 | `EigenPro` | $K\alpha = y$, early-stopped by ``epochs`` | $O(N^2 \cdot \text{epochs})$ | $O(B N + m^2)$ |
 
+## Penalised KRR: fairness and graph smoothness
+
+`KRR.fit` takes an optional penalty operator $M$ and a mask of labelled
+points, and minimises
+$\frac1l\|J(y - K\alpha)\|^2 + \lambda\,\alpha^\top K\alpha
++ \mu\,\alpha^\top K M K\alpha$ in closed form
+(``penalty_weight`` is $\mu$):
+
+```python
+# Fair KRR: predictions (nearly) independent of protected attributes S
+fair = kl.KRR(kl.RBF(1.0), 1e-3, penalty_weight=30.0).fit(
+    X,
+    y,
+    penalty=kl.hsic_penalty(kl.Linear(), S),  # rank P: P + 1 KRR solves
+)
+
+# Laplacian-regularised least squares: a few labels, many unlabelled points
+W = kl.adjacency_matrix(kl.nearest_neighbors(X_all, 10))
+laprls = kl.KRR(kl.RBF(0.3), 1e-4, penalty_weight=100.0).fit(
+    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(W)
+)
+```
+
+A pure low-rank penalty (`hsic_penalty` with a `Linear` kernel or
+``approx``) and no mask is solved by Woodbury through ``solver``, so any
+strategy applies. Anything else is solved by dense LU, or matrix-free by
+GMRES with ``implicit=True``.
+
 ::: kernellib.AbstractEstimator
 
 ::: kernellib.KRR
+
+::: kernellib.hsic_penalty
+
+::: kernellib.laplacian_penalty
 
 ::: kernellib.Falkon
 

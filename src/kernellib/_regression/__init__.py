@@ -22,6 +22,7 @@ from kernellib._regression._falkon import (
     falkon_solve,
 )
 from kernellib._regression._krr import KRR
+from kernellib._regression._penalties import hsic_penalty, laplacian_penalty
 
 
 __all__ = [
@@ -38,4 +39,6 @@ __all__ = [
     "falkon_preconditioner",
     "falkon_predict",
     "falkon_solve",
+    "hsic_penalty",
+    "laplacian_penalty",
 ]

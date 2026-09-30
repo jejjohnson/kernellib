@@ -122,6 +122,8 @@ from kernellib._regression import (
     falkon_preconditioner,
     falkon_predict,
     falkon_solve,
+    hsic_penalty,
+    laplacian_penalty,
 )
 from kernellib._spectral import (
     AbstractFeatureMap,
@@ -220,10 +222,12 @@ __all__ = [
     "graph_laplacian",
     "hadamard_transform",
     "hsic",
+    "hsic_penalty",
     "implicit_cross_kernel",
     "kernel_alignment",
     "label_potential",
     "laplacian_eigenmap",
+    "laplacian_penalty",
     "lengthscale_grid",
     "lengthscale_to_gamma",
     "mmd_squared",
