@@ -39,6 +39,7 @@ from kernellib._decomposition import (
     spatial_spectral_potential,
 )
 from kernellib._dependence import (
+    CKAAccumulator,
     PermutationTestResult,
     TaylorStatistics,
     cka,
@@ -143,6 +144,7 @@ __all__ = [
     "AbstractPointwiseKernel",
     "AbstractStationaryKernel",
     "ActiveDims",
+    "CKAAccumulator",
     "Constant",
     "Cosine",
     "Derivative",

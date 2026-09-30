@@ -20,7 +20,7 @@ from kernellib._dependence._features import _fit_pair
 from kernellib._kernels import AbstractKernel, Distance
 from kernellib._operators._bridge import to_operator
 from kernellib._spectral import AbstractFeatureMap
-from kernellib.functional._statistics import _frob_sq, _hsic_features
+from kernellib.functional._statistics import _cka_ratio, _frob_sq, _hsic_features
 
 
 __all__ = ["cka", "hsic", "kernel_alignment"]
@@ -94,14 +94,15 @@ def cka(
     \sqrt{\mathrm{HSIC}(x, x)\,\mathrm{HSIC}(y, y)}$.
 
     Same arguments as `hsic`. With the biased estimator the value lies in
-    ``[0, 1]`` and is invariant to rescaling either kernel.
+    ``[0, 1]`` and is invariant to rescaling either kernel. When either
+    self-HSIC is not positive (a constant sample), the value is ``0`` with a
+    zero gradient, so CKA is safe as a training penalty; see
+    `kernellib.functional.cka`.
 
     With `Linear` kernels it is the RV coefficient (Escoufier, 1973),
     $\|\Sigma_{xy}\|_F^2 / (\|\Sigma_{xx}\|_F \|\Sigma_{yy}\|_F)$, the
     multivariate $\rho^2$; with `Distance` kernels it is the squared distance
-    correlation, except for a constant sample: there this ratio is
-    ``0 / 0 = NaN``, while `distance_correlation_squared` returns the
-    conventional zero.
+    correlation, including the conventional zero for a constant sample.
 
     Examples:
         >>> import jax
@@ -122,7 +123,7 @@ def cka(
         True
     """
     xy, xx, yy = _cka_parts(kernel_x, kernel_y, X, Y, estimator, approx)
-    return xy / jnp.sqrt(xx * yy)
+    return _cka_ratio(xy, xx, yy, estimator)
 
 
 def _cka_parts(

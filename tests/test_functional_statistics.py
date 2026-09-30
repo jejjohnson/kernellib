@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from kernellib.functional import (
+    _statistics as _stats,
     center_kernel,
     centering_operator,
     cka,
@@ -307,3 +308,76 @@ class TestLowRank:
         # The printed jaxpr includes nested (jitted) sub-jaxprs.
         jaxpr = str(jax.make_jaxpr(f)(Phi_x, Phi_y, noise))
         assert f"[{n},{n}]" not in jaxpr
+
+
+# --- #94: float32 precision of the unbiased HSIC ------------------------------
+
+
+def _near_constant_grams(scale):
+    """float64 RBF Grams of a near-constant sample and a normal one."""
+    rng = np.random.default_rng(0)
+    q, noise = rng.normal(size=(64, 1)), rng.normal(size=(64, 1))
+
+    def rbf(x):
+        return np.exp(-((x[:, None, 0] - x[None, :, 0]) ** 2) / 2)
+
+    return rbf(scale * noise), rbf(q), scale * noise, q
+
+
+@pytest.mark.parametrize("scale", [1e-1, 1e-2, 1e-3])
+def test_unbiased_hsic_float32_near_constant_gram(scale):
+    K, L, _, _ = _near_constant_grams(scale)
+    ref = float(
+        hsic(
+            lx.MatrixLinearOperator(jnp.asarray(K), lx.symmetric_tag),
+            lx.MatrixLinearOperator(jnp.asarray(L), lx.symmetric_tag),
+            estimator="unbiased",
+        )
+    )
+    got = float(
+        hsic(
+            lx.MatrixLinearOperator(jnp.asarray(K, jnp.float32), lx.symmetric_tag),
+            lx.MatrixLinearOperator(jnp.asarray(L, jnp.float32), lx.symmetric_tag),
+            estimator="unbiased",
+        )
+    )
+    assert abs(got - ref) <= 1e-3 * abs(ref)
+
+
+@pytest.mark.parametrize("scale", [1e-1, 1e-2, 1e-3])
+def test_unbiased_hsic_float32_low_rank_common_mode(scale):
+    # Features with a large constant column: Φ Φᵀ = 11ᵀ + scale² G Gᵀ, the
+    # low-rank analogue of a near-constant Gram. The feature path must not
+    # cancel the common mode away.
+    rng = np.random.default_rng(1)
+    G, W = rng.normal(size=(64, 3)), rng.normal(size=(64, 4))
+    Phi_x = np.concatenate([np.ones((64, 1)), scale * G], axis=1)
+    Phi_y = np.concatenate([np.ones((64, 1)), W], axis=1)
+    ref = float(
+        _stats._hsic_features(jnp.asarray(Phi_x), jnp.asarray(Phi_y), "unbiased")
+    )
+    got = float(
+        _stats._hsic_features(
+            jnp.asarray(Phi_x, jnp.float32), jnp.asarray(Phi_y, jnp.float32), "unbiased"
+        )
+    )
+    dense = float(
+        _stats._hsic_unbiased(
+            jnp.asarray(Phi_x @ Phi_x.T), jnp.asarray(Phi_y @ Phi_y.T)
+        )
+    )
+    assert abs(ref - dense) <= 1e-10 * abs(dense)
+    assert abs(got - ref) <= 1e-3 * abs(ref)
+
+
+def test_unbiased_hsic_is_invariant_to_double_centring():
+    rng = np.random.default_rng(2)
+    U, W = rng.normal(size=(50, 5)), rng.normal(size=(50, 4))
+    K, L = U @ U.T, W @ W.T
+    H = np.eye(50) - 1 / 50
+    a = rng.normal(size=50)
+    base = float(_stats._hsic_unbiased(jnp.asarray(K), jnp.asarray(L)))
+    for K2 in (H @ K @ H, K + a[:, None] + a[None, :]):
+        assert abs(
+            float(_stats._hsic_unbiased(jnp.asarray(K2), jnp.asarray(L))) - base
+        ) <= 1e-10 * abs(base)

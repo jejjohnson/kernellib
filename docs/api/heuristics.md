@@ -11,6 +11,7 @@ ell = kl.estimate_lengthscale(X)  # median heuristic
 ell = kl.estimate_lengthscale(X, "median", percent=0.1)  # local: 10% neighbour
 ell = kl.estimate_lengthscale(X, subsample=2000, key=key)  # O(n^2) -> O(2000^2)
 ell = kl.estimate_lengthscale(X, "silverman", ard=True)  # one per dimension
+ell = kl.estimate_lengthscale(X, "gaussian")  # closed form, O(n d), smooth in X
 k = kl.RBF(lengthscale=ell)
 
 grid = kl.lengthscale_grid(ell, decades=2.0, n_points=20)

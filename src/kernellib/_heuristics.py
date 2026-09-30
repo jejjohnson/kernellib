@@ -20,6 +20,7 @@ from typing import Literal
 
 import jax
 import jax.numpy as jnp
+from jax.scipy.special import gammaln
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib.functional._distances import _pairwise_sq_dist
@@ -32,7 +33,7 @@ __all__ = [
     "lengthscale_to_gamma",
 ]
 
-Method = Literal["median", "mean", "silverman", "scott"]
+Method = Literal["median", "mean", "silverman", "scott", "gaussian"]
 
 
 def estimate_lengthscale(
@@ -56,13 +57,19 @@ def estimate_lengthscale(
       mean is over points; small ``percent`` gives local bandwidths.
     - ``"silverman"``: $\hat\sigma\,(n (d + 2) / 4)^{-1/(d + 4)}$.
     - ``"scott"``: $\hat\sigma\, n^{-1/(d + 4)}$.
+    - ``"gaussian"``: $2\hat\sigma\,\Gamma(\tfrac{d+1}{2})/\Gamma(\tfrac d2)$,
+      the expected distance between two independent draws from
+      $\mathcal N(\mu, \hat\sigma^2 I_d)$. It is a closed form: it needs
+      no pairwise distances (``O(n d)``), and it is a smooth function of the
+      data, unlike the median.
 
     $\hat\sigma$ is the mean per-dimension standard deviation (or each
     dimension's own with ``ard``).
 
     Args:
         X: Data, shape ``(N, D)``.
-        method: One of ``"median"``, ``"mean"``, ``"silverman"``, ``"scott"``.
+        method: One of ``"median"``, ``"mean"``, ``"silverman"``, ``"scott"``,
+            ``"gaussian"``.
         percent: For ``"median"`` / ``"mean"``, the neighbour fraction in
             ``(0, 1]``; ``None`` uses all pairwise distances.
         subsample: Use a random subset of this many points (the distance
@@ -90,9 +97,10 @@ def estimate_lengthscale(
         ... ).shape
         (3,)
     """
-    if method not in ("median", "mean", "silverman", "scott"):
+    if method not in ("median", "mean", "silverman", "scott", "gaussian"):
         raise ValueError(
-            f"method must be 'median', 'mean', 'silverman' or 'scott', got {method!r}."
+            "method must be 'median', 'mean', 'silverman', 'scott' or 'gaussian', "
+            f"got {method!r}."
         )
     if percent is not None and not 0.0 < percent <= 1.0:
         raise ValueError(f"percent must be in (0, 1], got {percent}.")
@@ -117,6 +125,9 @@ def _estimate(
     X: Float[Array, "N D"], method: Method, percent: float | None
 ) -> Float[Array, ""]:
     n, d = X.shape
+    if method == "gaussian":
+        sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))
+        return 2.0 * sigma * jnp.exp(gammaln((d + 1) / 2.0) - gammaln(d / 2.0))
     if method in ("silverman", "scott"):
         sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))
         if method == "silverman":

@@ -155,3 +155,64 @@ def test_linear_cka_is_the_rv_coefficient(dy):
     rv = jnp.sum(S_xy**2) / (jnp.linalg.norm(S_xx) * jnp.linalg.norm(S_yy))
     got = kl.cka(kl.Linear(), kl.Linear(), X, Y)
     assert jnp.allclose(got, rv, rtol=1e-10)
+
+
+# --- #93: CKA on degenerate inputs --------------------------------------------
+
+
+def _rbf32(f):
+    """An RBF Gram matrix computed entirely in float32 (the suite runs in x64)."""
+    d2 = (f[:, None, 0] - f[None, :, 0]) ** 2
+    return jnp.exp(-d2 / jnp.float32(2.0))
+
+
+@pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+@pytest.mark.parametrize("scale", [0.0, 1e-2, 1e-4, 1e-5])
+def test_cka_degenerate_input_is_finite(estimator, scale):
+    # A network output at init: constant or nearly so. Value and gradient must
+    # stay finite so the penalty never poisons an optimiser (#93).
+    q = jax.random.normal(jax.random.key(1), (64, 1))
+    noise = jax.random.normal(jax.random.key(2), (64, 1))
+    k = kl.RBF(lengthscale=1.0)
+
+    def top(f):
+        return kl.cka(k, k, f, q, estimator=estimator)
+
+    value, grad = jax.value_and_grad(top)(scale * noise)
+    assert jnp.isfinite(value) and bool(jnp.all(jnp.isfinite(grad)))
+    if estimator == "biased":
+        assert 0.0 <= float(value) <= 1.0
+
+    # The same through the functional API, in float32 end to end.
+    q32, noise32 = q.astype(jnp.float32), noise.astype(jnp.float32)
+    L32 = _op(_rbf32(q32))
+
+    def functional(f):
+        return F.cka(_op(_rbf32(f)), L32, estimator=estimator)
+
+    value, grad = jax.value_and_grad(functional)(jnp.float32(scale) * noise32)
+    assert jnp.isfinite(value) and bool(jnp.all(jnp.isfinite(grad)))
+    if estimator == "biased":
+        assert 0.0 <= float(value) <= 1.0
+
+
+@pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+def test_cka_constant_is_zero(estimator):
+    X, _ = _pair()
+    const = jnp.zeros((X.shape[0], 1))
+    value, grad = jax.value_and_grad(
+        lambda c: kl.cka(KX, KY, X, c, estimator=estimator)
+    )(const)
+    # Biased: exactly 0 (the self-HSIC is exactly 0). Unbiased: U-centring a
+    # constant matrix leaves rounding, so 0 up to rounding.
+    if estimator == "biased":
+        assert float(value) == 0.0
+    else:
+        assert abs(float(value)) < 1e-12
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_cka_nan_still_propagates():
+    X, Y = _pair()
+    X = X.at[0, 0].set(jnp.nan)
+    assert jnp.isnan(kl.cka(KX, KY, X, Y))

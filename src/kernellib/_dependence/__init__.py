@@ -12,10 +12,12 @@ from kernellib._dependence._distance import (
 from kernellib._dependence._hsic import cka, hsic, kernel_alignment
 from kernellib._dependence._mmd import mmd_squared
 from kernellib._dependence._permutation import PermutationTestResult, permutation_test
+from kernellib._dependence._streaming import CKAAccumulator
 from kernellib._dependence._taylor import TaylorStatistics, taylor_statistics
 
 
 __all__ = [
+    "CKAAccumulator",
     "PermutationTestResult",
     "TaylorStatistics",
     "cka",
