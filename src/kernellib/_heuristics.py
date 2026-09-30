@@ -18,11 +18,13 @@ from __future__ import annotations
 
 from typing import Literal
 
+import einx
 import jax
 import jax.numpy as jnp
 from jax.scipy.special import gammaln
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from kernellib._einx import reduce
 from kernellib.functional._distances import _pairwise_sq_dist
 
 
@@ -126,7 +128,9 @@ def _estimate(
 ) -> Float[Array, ""]:
     n, d = X.shape
     if method == "gaussian":
-        sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))
+        centred = einx.subtract("n d, d -> n d", X, reduce(X, "n d -> d", "mean"))
+        variance = reduce(centred**2, "n d -> d", "sum") / (n - 1)
+        sigma = jnp.mean(jnp.sqrt(variance))  # mean per-dimension std (ddof=1)
         return 2.0 * sigma * jnp.exp(gammaln((d + 1) / 2.0) - gammaln(d / 2.0))
     if method in ("silverman", "scott"):
         sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))

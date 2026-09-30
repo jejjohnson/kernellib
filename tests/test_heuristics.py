@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -158,16 +159,15 @@ def test_gaussian_is_the_mean_distance_of_gaussian_draws(d):
 
     k1, k2, k3 = jax.random.split(jax.random.key(d), 3)
     X = 3.0 + 2.5 * jax.random.normal(k1, (400, d))
-    sigma_hat = jnp.mean(jnp.std(X, axis=0, ddof=1))
+    centred = einx.subtract("n d, d -> n d", X, einx.mean("n d -> d", X))
+    sigma_hat = jnp.mean(jnp.sqrt(einx.sum("n d -> d", centred**2) / (X.shape[0] - 1)))
     # The method is the closed form at the sample scale...
     assert jnp.allclose(kl.estimate_lengthscale(X, "gaussian"), formula(sigma_hat))
     # ...and the closed form is E|x - x'| for Gaussian draws: check it against
     # a Monte Carlo mean, bounded by 4 of its own standard errors.
     s = 2.5
-    dists = jnp.linalg.norm(
-        s * (jax.random.normal(k2, (20000, d)) - jax.random.normal(k3, (20000, d))),
-        axis=1,
-    )
+    diffs = s * (jax.random.normal(k2, (20000, d)) - jax.random.normal(k3, (20000, d)))
+    dists = jnp.sqrt(einx.sum("m d -> m", diffs**2))
     se = jnp.std(dists) / jnp.sqrt(dists.size)
     assert abs(float(jnp.mean(dists) - formula(s))) < 4 * float(se)
 

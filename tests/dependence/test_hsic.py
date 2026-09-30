@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -162,7 +163,7 @@ def test_linear_cka_is_the_rv_coefficient(dy):
 
 def _rbf32(f):
     """An RBF Gram matrix computed entirely in float32 (the suite runs in x64)."""
-    d2 = (f[:, None, 0] - f[None, :, 0]) ** 2
+    d2 = einx.subtract("i, j -> i j", f[:, 0], f[:, 0]) ** 2
     return jnp.exp(-d2 / jnp.float32(2.0))
 
 

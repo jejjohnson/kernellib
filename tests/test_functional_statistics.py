@@ -9,6 +9,7 @@ brute-force U-statistic rather than against a sampling bound.
 
 import itertools
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -319,7 +320,7 @@ def _near_constant_grams(scale):
     q, noise = rng.normal(size=(64, 1)), rng.normal(size=(64, 1))
 
     def rbf(x):
-        return np.exp(-((x[:, None, 0] - x[None, :, 0]) ** 2) / 2)
+        return np.exp(-(einx.subtract("i, j -> i j", x[:, 0], x[:, 0]) ** 2) / 2)
 
     return rbf(scale * noise), rbf(q), scale * noise, q
 
@@ -363,7 +364,8 @@ def test_unbiased_hsic_float32_low_rank_common_mode(scale):
     )
     dense = float(
         _stats._hsic_unbiased(
-            jnp.asarray(Phi_x @ Phi_x.T), jnp.asarray(Phi_y @ Phi_y.T)
+            jnp.asarray(einx.dot("i r, j r -> i j", Phi_x, Phi_x)),
+            jnp.asarray(einx.dot("i r, j r -> i j", Phi_y, Phi_y)),
         )
     )
     assert abs(ref - dense) <= 1e-10 * abs(dense)
@@ -373,11 +375,12 @@ def test_unbiased_hsic_float32_low_rank_common_mode(scale):
 def test_unbiased_hsic_is_invariant_to_double_centring():
     rng = np.random.default_rng(2)
     U, W = rng.normal(size=(50, 5)), rng.normal(size=(50, 4))
-    K, L = U @ U.T, W @ W.T
+    K = einx.dot("i r, j r -> i j", U, U)
+    L = einx.dot("i r, j r -> i j", W, W)
     H = np.eye(50) - 1 / 50
     a = rng.normal(size=50)
     base = float(_stats._hsic_unbiased(jnp.asarray(K), jnp.asarray(L)))
-    for K2 in (H @ K @ H, K + a[:, None] + a[None, :]):
+    for K2 in (H @ K @ H, K + einx.add("i, j -> i j", a, a)):
         assert abs(
             float(_stats._hsic_unbiased(jnp.asarray(K2), jnp.asarray(L))) - base
         ) <= 1e-10 * abs(base)

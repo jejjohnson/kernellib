@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeGuard
 
+import einx
 import gaussx as gx
 import jax.numpy as jnp
 import lineax as lx
@@ -245,7 +246,7 @@ def _u_centre(K: Float[Array, "n n"]) -> Float[Array, "n n"]:
     rows = reduce(K, "i j -> i", "sum") / (n - 2)
     cols = reduce(K, "i j -> j", "sum") / (n - 2)
     total = jnp.sum(K) / ((n - 1) * (n - 2))
-    return (K - rows[:, None] - cols[None, :] + total) * off
+    return (K + total - einx.add("i, j -> i j", rows, cols)) * off
 
 
 def _hsic_features(
@@ -281,8 +282,7 @@ def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array
     # Centre the factors, i.e. K -> H K H. The estimator is invariant to it
     # (it only adds row and column constants off the diagonal), and it removes
     # the common mode that the sums below would otherwise cancel in float32.
-    Uk, Vk = Uk - jnp.mean(Uk, axis=0), Vk - jnp.mean(Vk, axis=0)
-    Ul, Vl = Ul - jnp.mean(Ul, axis=0), Vl - jnp.mean(Vl, axis=0)
+    Uk, Vk, Ul, Vl = (_centre_columns(F) for F in (Uk, Vk, Ul, Vl))
     # einx contracts an axis over exactly two operands, so fold d in first.
     diag_k = einsum(Uk * dk, Vk, "n a, n a -> n")
     diag_l = einsum(Ul * dl, Vl, "n b, n b -> n")
@@ -298,6 +298,11 @@ def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array
     ones_term = jnp.sum(K1) * jnp.sum(L1) / ((n - 1) * (n - 2))
     cross_term = 2.0 / (n - 2) * jnp.sum(K1 * L1)
     return (trace_term + ones_term - cross_term) / (n * (n - 3))
+
+
+def _centre_columns(F: Float[Array, "N R"]) -> Float[Array, "N R"]:
+    """Subtract each column's mean: ``H F``."""
+    return einx.subtract("n r, r -> n r", F, reduce(F, "n r -> r", "mean"))
 
 
 def _frob_sq(A: Float[Array, "a b"]) -> Float[Array, ""]:
