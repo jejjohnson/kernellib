@@ -151,3 +151,57 @@ def test_pre_image_matches_scikit_learn():
     expected = theirs.inverse_transform(theirs.transform(jax.device_get(X_test)))
     got = ours.inverse_transform(ours.transform(X_test))
     assert jnp.allclose(got, expected, atol=1e-6)
+
+
+def _rank3():
+    # A Linear kernel on 3-D inputs: the centred Gram has rank exactly 3.
+    k1, k2 = jax.random.split(jax.random.key(7))
+    X = jax.random.normal(k1, (30, 3))
+    T = X[:, :1] + 0.1 * jax.random.normal(k2, (30, 1))
+    return X, T
+
+
+def test_fair_kpca_never_selects_null_space_directions():
+    # With a strongly negative weight, a valid direction scores below 0; the
+    # zero-scored null-space directions must still not be chosen (Codex P1).
+    X, T = _rank3()
+    m = kl.KernelPCA(kl.Linear(), n_components=3, target_weight=-1e4).fit(X, target=T)
+    Kc = F.center_kernel(
+        lx.MatrixLinearOperator(einx.dot("n d, m d -> n m", X, X), lx.symmetric_tag)
+    )
+    Kc = Kc.as_matrix()
+    gram = einx.dot("n a, n b -> a b", m.alphas, Kc @ m.alphas)
+    assert jnp.allclose(gram, jnp.eye(3), atol=1e-8)
+    assert bool(jnp.all(einx.sum("n k -> k", m.embedding**2) > 1e-6))
+    assert float(m.eigenvalues[-1]) < 0.0  # the valid negative direction is kept
+
+
+def test_fair_kpca_approx_never_selects_null_space_directions():
+    X, T = _rank3()
+    m = kl.KernelPCA(
+        kl.Linear(),
+        n_components=3,
+        target_weight=-1e4,
+        approx=kl.NystromFeatures(10, jax.random.key(0), jitter=1e-12),
+    ).fit(X, target=T)
+    assert jnp.allclose(
+        einx.dot("r a, r b -> a b", m.components, m.components), jnp.eye(3), atol=1e-8
+    )
+    assert bool(jnp.all(einx.sum("n k -> k", m.embedding**2) > 1e-6))
+
+
+@pytest.mark.parametrize("approx", [False, True])
+def test_more_components_than_the_rank_raise(approx):
+    X, T = _rank3()
+    kw = {"approx": kl.NystromFeatures(10, jax.random.key(0))} if approx else {}
+    with pytest.raises(ValueError, match="exceeds the rank 3"):
+        kl.KernelPCA(kl.Linear(), n_components=4, target_weight=-1.0, **kw).fit(
+            X, target=T
+        )
+
+
+def test_concrete_array_zero_weight_needs_no_target():
+    X, _ = _data()
+    plain = kl.KernelPCA(K, n_components=3).fit(X)
+    zero = kl.KernelPCA(K, n_components=3, target_weight=jnp.asarray(0.0)).fit(X)
+    assert bool(jnp.all(plain.embedding == zero.embedding))

@@ -48,13 +48,14 @@ import dataclasses
 
 import einx
 import equinox as eqx
+import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+from jaxtyping import Array, Bool, Float
 
 from kernellib._einx import einsum, rearrange, reduce
 from kernellib._heuristics import estimate_lengthscale
 from kernellib._kernels import RBF, AbstractKernel, Linear
-from kernellib._regression._krr import KRR
+from kernellib._regression._krr import KRR, _is_concrete_zero
 from kernellib._spectral import AbstractFeatureMap
 from kernellib.functional._statistics import _double_centre, center_cross_kernel
 
@@ -144,9 +145,7 @@ class KernelPCA(eqx.Module):
                 feature map) supports, or ``target_weight`` is non-zero
                 without a ``target``.
         """
-        weight_is_zero = (
-            isinstance(self.target_weight, (int, float)) and self.target_weight == 0
-        )
+        weight_is_zero = _is_concrete_zero(self.target_weight)
         if target is None and not weight_is_zero:
             raise ValueError("target_weight is non-zero but no target was given.")
         if target is None or weight_is_zero:
@@ -193,8 +192,15 @@ class KernelPCA(eqx.Module):
                 )
             mu = reduce(Phi, "n r -> r", "mean")
             Pc = einx.subtract("n r, r -> n r", Phi, mu)
-            C = einsum(Pc, Pc, "n a, n b -> a b") / n + gamma * _quad(M, Pc)
-            rho, W = _top(C, k)
+            # Work in the eigenbasis V of Pc^T Pc, so that directions in Pc's
+            # null space (Z = Pc v = 0) are coordinate axes that can be ruled out.
+            gram = einsum(Pc, Pc, "n a, n b -> a b")
+            lam, V = jnp.linalg.eigh(_symmetrise(gram))
+            positive = _positive(lam, k, "the features")
+            PcV = einsum(Pc, V, "n r, r a -> n a")
+            C = jnp.diag(lam) / n + gamma * _quad(M, PcV)
+            rho, B = _top(_exclude(C, positive), k)
+            W = einsum(V, B, "r a, a k -> r k")
             Z = einsum(Pc, W, "n r, r k -> n k")
             return dataclasses.replace(
                 self,
@@ -213,11 +219,11 @@ class KernelPCA(eqx.Module):
         Kc = _double_centre(K)
         lam, U = jnp.linalg.eigh(_symmetrise(Kc))
         # Positive eigenpairs only: the constraint A^T K A = I lives there.
-        positive = lam > jnp.max(lam) * n * jnp.finfo(lam.dtype).eps
+        positive = _positive(lam, k, "the centred Gram matrix")
         w = jnp.where(positive, jnp.sqrt(jnp.where(positive, lam, 1.0)), 0.0)
         Uw = einx.multiply("n a, a -> n a", U, w)
         C = jnp.diag(w**2) / n + gamma * _quad(M, Uw)
-        rho, B = _top(C, k)
+        rho, B = _top(_exclude(C, positive), k)
         inv_w = jnp.where(positive, 1.0 / jnp.where(positive, w, 1.0), 0.0)
         Z = einsum(Uw, B, "n a, a k -> n k")
         return dataclasses.replace(
@@ -319,6 +325,32 @@ def _top(
     """The ``k`` largest eigenpairs of a symmetric matrix, descending."""
     rho, B = jnp.linalg.eigh(_symmetrise(C))
     return rho[::-1][:k], B[:, ::-1][:, :k]
+
+
+def _positive(lam: Float[Array, " r"], k: int, what: str) -> Bool[Array, " r"]:
+    """Eigenvalues above rounding; raises when fewer than ``k`` (if concrete)."""
+    positive = lam > jnp.max(lam) * lam.shape[0] * jnp.finfo(lam.dtype).eps
+    try:
+        rank = int(jnp.sum(positive))
+    except jax.errors.ConcretizationTypeError:  # traced: can't check
+        return positive
+    if k > rank:
+        raise ValueError(
+            f"n_components={k} exceeds the rank {rank} of {what}; supervised and "
+            "fair kernel PCA only have that many valid components."
+        )
+    return positive
+
+
+def _exclude(C: Float[Array, "r r"], keep: Bool[Array, " r"]) -> Float[Array, "r r"]:
+    """Push the directions outside ``keep`` below every valid eigenvalue.
+
+    Their rows and columns of ``C`` are zero, so without this their zero
+    eigenvalues would outrank valid directions with negative eigenvalues
+    (``gamma < 0``). The valid eigenpairs are unchanged.
+    """
+    shift = 1.0 + jnp.sum(jnp.abs(C))
+    return C - jnp.diag(jnp.where(keep, 0.0, shift))
 
 
 def _symmetrise(A: Float[Array, "n n"]) -> Float[Array, "n n"]:
