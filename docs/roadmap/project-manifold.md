@@ -42,10 +42,10 @@ This project covers what is left.
 
 From the [examples gallery](roadmap-examples.md):
 
-- [hyperspectral classification and cross-sensor transfer](#ex-hsi);
-- [a GP on a river or road network](#ex-graph-gp);
-- [a GPLVM started on the data manifold](#ex-gplvm);
-- [disease mapping with BYM2](#ex-bym2) (the spatial priors).
+- [hyperspectral classification and cross-sensor transfer](roadmap-examples.md#ex-hsi);
+- [a GP on a river or road network](roadmap-examples.md#ex-graph-gp);
+- [a GPLVM started on the data manifold](roadmap-examples.md#ex-gplvm);
+- [disease mapping with BYM2](roadmap-examples.md#ex-bym2) (the spatial priors).
 
 ## Old code: what not to port
 

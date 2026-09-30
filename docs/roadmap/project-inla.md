@@ -72,10 +72,10 @@ The structure-dispatch table that organises the gaussx work is in
 
 From the [examples gallery](roadmap-examples.md):
 
-- [disease mapping with BYM2](#ex-bym2);
-- [gap-filling sea-surface temperature](#ex-sst);
-- [probability of detection for methane plumes](#ex-pod);
-- [uncertainty on a 2M-node global mesh](#ex-mesh).
+- [disease mapping with BYM2](roadmap-examples.md#ex-bym2);
+- [gap-filling sea-surface temperature](roadmap-examples.md#ex-sst);
+- [probability of detection for methane plumes](roadmap-examples.md#ex-pod);
+- [uncertainty on a 2M-node global mesh](roadmap-examples.md#ex-mesh).
 
 ## Use cases
 

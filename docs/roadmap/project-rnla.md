@@ -51,10 +51,10 @@ The plan answers #156's three open questions:
 
 From the [examples gallery](roadmap-examples.md):
 
-- [kernel regression and GPs at scale](#ex-scale);
-- [tall nonlinear least squares](#ex-lsq);
-- [background covariances and EOFs](#ex-eofs);
-- [uncertainty on a 2M-node global mesh](#ex-mesh) (the fallback for fields too large to factor).
+- [kernel regression and GPs at scale](roadmap-examples.md#ex-scale);
+- [tall nonlinear least squares](roadmap-examples.md#ex-lsq);
+- [background covariances and EOFs](roadmap-examples.md#ex-eofs);
+- [uncertainty on a 2M-node global mesh](roadmap-examples.md#ex-mesh) (the fallback for fields too large to factor).
 
 **Repos not touched:**
 

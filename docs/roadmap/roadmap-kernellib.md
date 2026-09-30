@@ -36,7 +36,7 @@ The baseline is kernellib 0.0.11.
 | K7 | `hadamard_transform` moves to gaussx; the public name stays | RandNLA | G11 |
 | K8 | `select_landmarks` (uniform / leverage / rpcholesky / greedy), used by `NystromFeatures`, `Falkon`, `EigenPro` | RandNLA | G14 |
 | K9 | Preconditioned `KRR` (`preconditioner="nystrom" \| "rpcholesky"`) | RandNLA | G13, G14 |
-| K10 | `KernelPCA(eigen_solver="randomized")` | RandNLA | G12 |
+| K10 | `KernelPCA(eigen_solver="randomized")` via `gx.randomized_eigh` on `HKH` | RandNLA | G12 |
 | K11 | Docs: API pages, notebooks, `architecture.md` updates | all | K5, K6, K8–K10, K12–K14 |
 | K12 | Dependence-measure numerics: gradient-safe `cka` ([#93](https://github.com/jejjohnson/kernellib/issues/93)), U-centred unbiased HSIC ([#94](https://github.com/jejjohnson/kernellib/issues/94)), `CKAAccumulator` (mini-batch CKA), `estimate_lengthscale(method="gaussian")` | fairkl | — |
 | K13 | Quadratic-penalty KRR: `KRR(penalty_weight=...)`, `fit(..., penalty=, mask=)`, `hsic_penalty`, `laplacian_penalty`; Woodbury path for low-rank penalties | fairkl, manifold | — (K2 for sparse graphs) |
@@ -675,11 +675,11 @@ Both pass `check_estimator` (integration tier).
 
 ---
 
----
-
 ## 5. API — GMRF structure (K6)
 
-**The maths.** - **Besag structure.** The Besag / ICAR structure matrix is the graph
+**The maths.**
+
+- **Besag structure.** The Besag / ICAR structure matrix is the graph
   Laplacian itself, $R = L$. Its null space is spanned by the component
   indicators $\mathbf 1_C/\sqrt{|C|}$.
 - **BYM2 scaling.** It rescales $R^\ast = sR$ so that the geometric mean
@@ -690,7 +690,12 @@ Both pass `check_estimator` (integration tier).
   $G_{ij} = -\tfrac12(\cot\alpha_{ij}+\cot\beta_{ij})$ on each edge, where
   $\alpha_{ij}$ and $\beta_{ij}$ are the angles opposite the edge. So
   $G$ is a graph Laplacian with cotangent weights, which is what
-  `mesh_graph(weighting="cotangent")` builds.
+  `mesh_graph(weighting="cotangent")` builds. **But the weights can be
+  negative.** $\cot\alpha+\cot\beta < 0$ exactly when
+  $\alpha+\beta > \pi$, which happens on non-Delaunay meshes (obtuse
+  triangles on both sides of an edge). $G$ is still PSD, but a negative
+  weight breaks `Graph`'s invariant $L = B^\top B$ with incidence entries
+  $\sqrt{w_e}$.
 
 ```python
 def graph_null_space(graph: AbstractGraph) -> Float[Array, "N c"]:
@@ -721,7 +726,11 @@ def mesh_graph(
   gaussx function (allowed: kernellib depends on gaussx).
 - **`mesh_graph`.** The edge graph of a triangulation. With
   `"cotangent"` weights its Laplacian equals the P1 FEM stiffness matrix
-  `G`, which gives:
+  `G`. It raises if any edge weight is negative (the mesh is not
+  Delaunay), with a message pointing to `gaussx.fem_matrices`, which
+  represents the signed stiffness matrix directly as a `SparseOperator`
+  and never goes through `Graph`. It does not clamp, which would silently
+  change the operator. This gives:
   - a test tying `gaussx.fem_matrices` to kernellib's graph code;
   - Besag models on mesh nodes;
   - Laplacian / Schrödinger eigenmaps on surfaces (K5).
@@ -920,9 +929,13 @@ krr = krr.fit(X, y, key=key)  # n = 10⁵, never materialises K
 ### 6.4 K10: randomized kernel PCA
 
 **The maths.** Kernel PCA diagonalises the centred Gram matrix $HKH$, with
-$H = I - \frac1n\mathbf 1\mathbf 1^\top$. Randomized Nyström (G13) gets
-its top eigenpairs from $\ell$ matvecs with the implicit operator:
-$O(n^2\ell)$ kernel work and $O(n\ell)$ memory, never $O(n^2)$ memory.
+$H = I - \frac1n\mathbf 1\mathbf 1^\top$. A randomized range finder
+with $q$ power iterations (G12's `randomized_eigh`) gets its top $k$
+eigenpairs from $(2q+1)(k+p)$ matvecs with the implicit operator:
+$O(n^2(k+p)q)$ kernel work and $O(n(k+p))$ memory, never $O(n^2)$ memory.
+The error is governed by $\lambda_{k+1}$, damped as
+$(\lambda_{k+1}/\lambda_k)^{2q}$, which is why power iterations matter
+for slowly decaying kernel spectra.
 
 ```python
 class KernelPCA(eqx.Module):
@@ -934,18 +947,25 @@ class KernelPCA(eqx.Module):
     oversample: int = eqx.field(default=10, static=True)
 ```
 
-- **Algorithm.** `"randomized"` runs `gx.randomized_nystrom` (the centred
-  Gram is PSD) on the centred implicit kernel operator
-  (`centering_operator` composed with `to_operator(kernel, X, implicit=True)`).
-  It never materialises the `N × N` Gram.
+- **Algorithm.** `"randomized"` runs
+  `gx.randomized_eigh(HKH, n_components, oversample=, n_power_iter=)`
+  (G12) on the centred implicit kernel operator. That is `H` applied on
+  **both** sides: `H ∘ to_operator(kernel, X, implicit=True) ∘ H`, which
+  is symmetric PSD (a one-sided `HK` is neither). `H` is
+  `centering_operator(n)`, a rank-1 update, so each side costs `O(n)`,
+  and the `N × N` Gram is never materialised.
+- **Why not `randomized_nystrom`.** G13's Nyström is single-pass (one
+  application of the operator), so `n_power_iter` would have no effect on
+  it. `randomized_eigh` is the method with power iterations.
 - **Out-of-sample `transform`** keeps its current formula; only `alphas`
   and `eigenvalues` change source.
 - **Relation to `approx=`.** The feature-map path approximates the
   *kernel*; this path approximates the *eigendecomposition* of the exact
   kernel. The docs describe both and when to use each.
 - **Tests.** Agreement with `"dense"` on the leading components (principal
-  angles) for a fast-decaying spectrum, and improvement with
-  `n_power_iter` on a slow one.
+  angles) for a fast-decaying spectrum; improvement with `n_power_iter` on
+  a slow one; the centred operator's matvec equals `HKH` (not `HK`) on a
+  non-centred Gram, and is symmetric.
 
 
 **Example.**
@@ -1378,6 +1398,8 @@ kernellib by git tag, so any phase they consume needs a release.
 
 - `graph_null_space` is orthonormal and spans the Laplacian's kernel on
   graphs with 1, 2 and isolated-node components.
+- `mesh_graph(weighting="cotangent")` raises on a mesh with an edge
+  opposite two obtuse angles (negative cotangent weight).
 - `mesh_graph(weighting="cotangent")`'s Laplacian equals
   `gaussx.fem_matrices`' `G` on a reference mesh (integration tier).
 - The graph-Matérn ↔ SPDE test of §5.2 (integration tier, once G7 has

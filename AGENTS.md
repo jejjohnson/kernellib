@@ -137,6 +137,8 @@ Workflow:
 
 Plans and design documents go in `.plans/` (gitignored, never committed). If a plan needs to be tracked long-term, create a GitHub issue with the same detail instead. **Never commit plan files to the repository.**
 
+The one exception is the published cross-repo roadmap in `docs/roadmap/`, which the maintainer chose to render in the docs (PR #92). It holds proposals, not shipped features, and says so on every page. Work from it is still tracked as GitHub issues, and new ad-hoc plans still go in `.plans/`.
+
 ## GIT Safety Rules
 
 - **NEVER** push to `main` or merge into `main` unless the user explicitly says "push to main" or "merge to main".

@@ -20,7 +20,7 @@ gaussx operators. gaussx never imports kernellib. The baseline is gaussx
 | G5 | `pseudo_logdet` | manifold, INLA | G3 (grid path), G4 (cofactor path) |
 | G6 | `GaussianMRF`, `IntrinsicGMRF` | manifold, INLA | G1, G3, G5 (G4 for sparse Cholesky sampling) |
 | G7 | Precision builders (iid, rw1, rw2, ar1, besag, bym2, `generalized_variance_scale`), SPDE (grid and FEM), `fem_matrices`, `fem_projector` | INLA | G1, G3 (G4 for meshes) |
-| G8 | `laplace_mode`: precision-form Newton, implicit differentiation, Laplace log-marginal | INLA | G6 |
+| G8 | `laplace_mode`: precision-form Newton, implicit differentiation, Laplace log-marginal; `BinomialLikelihood`, `NegativeBinomialLikelihood` | INLA | G6 |
 | G9 | `theta_design` (`eb`, `grid`, `ccd`) | INLA | — |
 | G10 | `vb_mean_correction` | INLA | G8 |
 | G11 | Sketching operators, `hadamard_transform` (moved from kernellib) | RandNLA | — |
@@ -303,11 +303,22 @@ $$
 - **`B = CCᵀ`.** It becomes $C^{-1}AC^{-\top}u = \lambda u$ with
   $y = C^{-\top}u$.
 - **Diagonal `B`.** $C = B^{1/2}$, and everything stays matrix-free.
-- **Singular `B`.** The constraint only sees $\operatorname{range}(B)$.
-  With $B = U_+S_+U_+^\top$, solve
-  $S_+^{-1/2}U_+^\top A U_+S_+^{-1/2}u = \lambda u$. Directions in
-  $\ker B$ are unconstrained, and must be dropped, not assigned an
-  infinite eigenvalue.
+- **Singular `B`.** Split $v = U_+v_+ + U_0v_0$ over
+  $\operatorname{range}(B)$ and $\ker B$, with $B = U_+S_+U_+^\top$ and
+  $A_{\cdot\cdot}$ the corresponding blocks of $U^\top AU$. The $\ker B$ rows of
+  $Av = \lambda Bv$ read $A_{0+}v_+ + A_{00}v_0 = 0$, because $B$ is zero
+  there. So $v_0$ is not free: it is eliminated, $v_0 = -A_{00}^{-1}A_{0+}v_+$,
+  and the finite eigenpairs solve the **Schur complement** pencil
+
+  $$
+  \big(A_{++} - A_{+0}A_{00}^{-1}A_{0+}\big)\,v_+ = \lambda\,S_+v_+ .
+  $$
+
+  Simply dropping the $\ker B$ directions is correct only when $A$ maps
+  $\operatorname{range}(B)$ into itself ($A_{0+} = 0$). For the trace
+  minimisation, $A_{00}$ must be positive definite: otherwise the
+  objective is unbounded below along $\ker B$, and the problem is
+  ill-posed. That is raised as an error, not returned as eigenpairs.
 
 ```python
 def eigh_generalized(
@@ -328,7 +339,7 @@ Dispatch on `B`:
 |---|---|
 | `DiagonalLinearOperator` with positive entries | Scale: `S = B^{-1/2} A B^{-1/2}`, `eig(S)`, `v = B^{-1/2} u`. This stays matrix-free, so `rank=` goes through Lanczos. It is kernellib's current degree-constraint trick |
 | Positive definite (tagged) | Cholesky whitening `C⁻¹ A C⁻ᵀ`, which is LPP's current code path |
-| PSD, possibly singular (the default for dense) | Eigendecompose `B`; directions with eigenvalue `≤ rcond · max` are dropped from the problem; whiten the rest. This is the old `eigh_robust`, but it drops the null directions instead of setting them to `∞`. The returned `K` shrinks if `B`'s rank is below the requested count, and a warning says so |
+| PSD, possibly singular (the default for dense) | Eigendecompose `B`; directions with eigenvalue `≤ rcond · max` form `ker B`. Eliminate them by the Schur complement above (a Cholesky of `A₀₀`, which must be positive definite, else a clear error), then whiten the `range(B)` block by `S₊^{-1/2}` and lift back with `v₀ = −A₀₀⁻¹A₀₊v₊`. The old `eigh_robust` set null directions to `∞`, and simply dropping them is wrong when `A` couples the two spaces. The returned `K` shrinks if `B`'s rank is below the requested count, and a warning says so |
 
 With `which="smallest"` and `rank=` on a matrix-free path, use the shift
 `c·I − S` with a Gershgorin bound, as kernellib's ARPACK path does now.
@@ -409,6 +420,15 @@ def selected_inverse(op: BlockTriDiag) -> BlockTriDiag: ...  # the band of op⁻
     for an `H × W` grid, and it is exact.
   - A `pinv=True` flag zeroes the entries at `f = 0`, for intrinsic priors
     on grids. That is the exact BYM2 and ICAR scaling constant on a raster.
+- **Shifted Kronecker products, `A ⊗ B + c·I`.** In the joint eigenbasis,
+  `(A ⊗ B + cI)⁻¹ = (U_A ⊗ U_B)(Λ_A ⊗ Λ_B + c)⁻¹(U_A ⊗ U_B)ᵀ`, so
+  `solve`, `logdet` and `diag_inv` are exact. gaussx's `SumOfKroneckers`
+  already dispatches this `B ⊗ C + σ²I` shape, but it eigendecomposes each
+  factor densely. G3 lets a factor that already carries its eigenbasis
+  (`SpectralFunction` from G7, `DiagonalisedOperator`, `KroneckerSum`) keep
+  it, so a space-time `AR(1) ⊗ grid SPDE + cI` never forms the spatial
+  factor. It is the preconditioner for masked space-time grids (the
+  [SST example](roadmap-examples.md#ex-sst)).
 - **Fix #344** (`BlockTriDiag`'s `symmetric_tag`) in the same PR: every
   banded GMRF depends on it.
 
@@ -519,6 +539,13 @@ class SparseCholeskySolver(AbstractSolverStrategy):  # solve / logdet through th
     That is one Takahashi sweep, never `Q⁻¹`.
   - `solve(Q, b) = x`: `b̄ = Q⁻¹ x̄`, and `Q̄_ij = −b̄_i x_j` on
     `pattern(Q)`, symmetrised.
+  - **Mirrored storage.** These cotangents are per *matrix entry*. With
+    `SparseOperator(symmetric=True)`, one stored off-diagonal value sets
+    both `Q_ij` and `Q_ji`, so its cotangent is the sum of the two,
+    `Z_ij + Z_ji = 2Z_ij` (and `−(b̄_i x_j + b̄_j x_i)` for `solve`). A
+    diagonal value appears once, and keeps `Z_ii`. The VJP maps
+    entry cotangents to stored values with this factor, in one place
+    (`_vjp.py`), for both backends.
   - Sampling uses the triangular-solve adjoint.
 - **CHOLMOD backend** (`gaussx[cholmod]`, via scikit-sparse):
   - `analyze` on the host gives the symbolic factor and AMD / METIS
@@ -834,7 +861,7 @@ structure matrix arrives as an operator, from kernellib's
 | `spde_precision_grid(shape, kappa, tau, alpha, *, spacing=1.0, periodic=False)` | `SpectralFunction(KroneckerSum(L₁, L₂, …), f)` with `f(λ) = τ² h² (κ² + λ/h²)^α` | Exact solve, logdet, `diag_inv` and sampling via factor eigenvectors: `O(Σ n_k³ + N log N)`. Boundary effects are handled by domain extension, as with meshes, and documented |
 | `matern_spde_params(range, sigma, nu, d)` | `(kappa, tau, alpha)` | `κ = √(8ν)/ρ`, `α = ν + d/2`, `τ` set for unit marginal variance (#155 appendix A) |
 | `fem_matrices(vertices, triangles)` | `(C_lumped: Diagonal, G: SparseOperator)` | P1 on planar (`V × 2`) or surface (`V × 3`, e.g. an icosahedral sphere) triangulations. Per-triangle local matrices use einx; assembly is a `segment_sum` into a pattern built on the host from `triangles` |
-| `fem_projector(vertices, triangles, points, *, triangle_index=None)` | `SparseOperator` `(n_obs, V)`, barycentric weights | Point location is blocked brute force for planar meshes, or the caller passes `triangle_index`. No mesh generation ([INLA non-goals](project-inla.md#non-goals)) |
+| `fem_projector(vertices, triangles, points, *, triangle_index=None)` | `SparseOperator` `(n_obs, V)`, barycentric weights | Point location is blocked brute force: a barycentric test for planar meshes, and for surface meshes that are star-shaped about their centroid (spheres, icospheres) a ray–triangle test along the ray from the centroid through each point, with the barycentric weights taken at the intersection. Any other surface mesh needs the caller's `triangle_index`, and says so in the error. No mesh generation ([INLA non-goals](project-inla.md#non-goals)) |
 
 `SpectralFunction` (`_operators/_spectral_function.py`) is the small
 operator behind the grid SPDE: `f(A₁ ⊕ … ⊕ A_d)`, stored as factor
@@ -952,6 +979,12 @@ def laplace_mode(
   constraint corrections for intrinsic priors (Rue et al., 2009, eq. 3).
   Its θ-gradient is exact through the G4 VJPs.
 - **Gaussian likelihood.** One step, and exact.
+- **New likelihoods.** `BinomialLikelihood(n_trials)` and
+  `NegativeBinomialLikelihood` (log link, with the dispersion as a
+  θ-hyperparameter) join gaussx's `AbstractLikelihood` family in this
+  phase, because the INLA v1 scope promises them. Each supplies the
+  log-density and the site gradient and Hessian in `η` that the Newton step
+  uses. Both have diagonal Hessians, so they fit the LGM class.
 - **Out of scope:** likelihoods with a non-diagonal Hessian in `η` (outside
   the LGM class; use NumPyro), and multi-output latents per site.
 
@@ -1606,13 +1639,13 @@ R-INLA posterior summaries are generated **offline** by an R script under
 | Phase | Tests |
 |---|---|
 | G1 | `mv`, `as_matrix`, `transpose` and `diag` against dense; CG `solve` against dense on a PSD Laplacian plus a shift; SLQ `logdet` within its own error bound (slow); Lanczos `eig(rank=)` against dense; `jit` and `grad` through `values`; `vmap` over `values`; pattern hashing is stable across processes; `add_diagonal` and `congruence` preserve the pattern; the BCOO-vs-`segment_sum` benchmark (slow) |
-| G2 | Agreement with `scipy.linalg.eigh(a, b)` for a positive definite `B`; the diagonal-`B` path equals kernellib's current `_smallest_generalized` output; a singular `B` drops directions and warns; `rank=` with Lanczos against dense |
-| G3 | The `BlockTriDiag` selected inverse equals the dense inverse's band on random SPD blocks (`d ∈ {1, 2, 3}`); `KroneckerSum` `diag_inv` equals dense, including `pinv=True` on a singular grid Laplacian; #344 regression |
-| G4 | The factor equals dense Cholesky of the permuted matrix; Takahashi equals the dense inverse on `pattern(L + Lᵀ)`; logdet and solve VJPs match `jax.grad` through dense; `vmap` over values; RCM fill on a reference 2-D mesh is recorded and bounded; CHOLMOD and JAX backends agree (integration tier, skipped without scikit-sparse) |
+| G2 | Agreement with `scipy.linalg.eigh(a, b)` for a positive definite `B`; the diagonal-`B` path equals kernellib's current `_smallest_generalized` output; a singular `B` with `A` **coupling** `range(B)` and `ker B`: the residual `‖Av − λBv‖` is at 1e-10 and the finite eigenvalues equal those of `scipy.linalg.eig(a, b)` (QZ, discarding its infinite ones); the rank warning fires; an indefinite `A₀₀` raises; `rank=` with Lanczos against dense |
+| G3 | The `BlockTriDiag` selected inverse equals the dense inverse's band on random SPD blocks (`d ∈ {1, 2, 3}`); `KroneckerSum` `diag_inv` equals dense, including `pinv=True` on a singular grid Laplacian; `A ⊗ B + cI` solve, logdet and `diag_inv` equal dense when `B` is a `SpectralFunction`, and the spectral factor is never materialised (checked by a matvec-only `B`); #344 regression |
+| G4 | The factor equals dense Cholesky of the permuted matrix; Takahashi equals the dense inverse on `pattern(L + Lᵀ)`; logdet and solve VJPs match `jax.grad` through dense, **for both `symmetric=True` (upper-triangle storage, where off-diagonal gradients are doubled) and full storage**, checked per stored value against finite differences; `vmap` over values; RCM fill on a reference 2-D mesh is recorded and bounded; CHOLMOD and JAX backends agree (integration tier, skipped without scikit-sparse) |
 | G5 | Dense against `KroneckerSum` against `null_space` + SLQ on a grid Laplacian; two connected components (`c = 2`); invariance to the choice of null-space basis; the cofactor path equals dense on connected and disconnected graphs; RW1 closed form; RW2 against dense |
 | G6 | `log_prob` against a dense MVN from `Q⁻¹`, with and without `log_det_precision`; the intrinsic `log_prob` against the closed form on a path graph, including `(N−c)/2 · log τ`; each sampling-dispatch branch has the right covariance on a 10 × 10 grid, bounded by the estimator's own sampling distribution (slow); intrinsic samples are orthogonal to `null_space`; hard-constrained samples satisfy `A_c x = e` to machine precision; constrained marginal variances equal dense; `grad` of `log_prob` with respect to a factor scale; both classes work under `numpyro.handlers.seed` and `trace` |
-| G7 | `rw1_structure` equals the path Laplacian; RW2 null space; AR(1) marginal variance `1/τ` in the interior; `bym2_precision`'s marginal of `b` has the BYM2 covariance (dense check at `n = 30`); `generalized_variance_scale` equals the dense definition and R-INLA's scaled value for the Scotland graph (golden); FEM `C` and `G` on a single triangle and a unit square equal the hand values; grid SPDE equals the FEM SPDE on a regular right-triangle mesh with lumped mass; `matern_spde_params` gives marginal variance ≈ σ² away from the boundary (slow) |
-| G8 | Gaussian likelihood: the mode and `log_marginal` equal the exact conjugate result; Poisson on RW2: the mode matches dense Newton, and `jax.grad` of `log_marginal` with respect to `log τ` matches finite differences; Scotland BYM2 Poisson: the mode matches R-INLA's (golden, 1e-4) |
+| G7 | `rw1_structure` equals the path Laplacian; RW2 null space; AR(1) marginal variance `1/τ` in the interior; `bym2_precision`'s marginal of `b` has the BYM2 covariance (dense check at `n = 30`); `generalized_variance_scale` equals the dense definition and R-INLA's scaled value for the Scotland graph (golden); FEM `C` and `G` on a single triangle and a unit square equal the hand values; `fem_projector` on an icosphere recovers each vertex exactly and reproduces a linear function at random points on the sphere (to the chord error), and a non-star-shaped surface without `triangle_index` raises; grid SPDE equals the FEM SPDE on a regular right-triangle mesh with lumped mass; `matern_spde_params` gives marginal variance ≈ σ² away from the boundary (slow) |
+| G8 | Gaussian likelihood: the mode and `log_marginal` equal the exact conjugate result; binomial and negative-binomial site gradients and Hessians match `jax.grad` / `jax.hessian` of their log-densities, and their log-densities match `scipy.stats`; binomial on RW2 and negative binomial on BYM2 modes match dense Newton; Poisson on RW2: the mode matches dense Newton, and `jax.grad` of `log_marginal` with respect to `log τ` matches finite differences; Scotland BYM2 Poisson: the mode matches R-INLA's (golden, 1e-4) |
 | G9 | CCD point count and symmetry for `m = 3..6`; on a Gaussian `log_post` the weighted design recovers its mean and covariance; the grid threshold is respected |
 | G10 | On a Bernoulli / RW2 problem with skewed posteriors, the corrected means move towards R-INLA's `"vb"` means (golden) and away from the plain Gaussian approximation |
 

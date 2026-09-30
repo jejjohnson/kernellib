@@ -90,7 +90,8 @@ $$
 $Q_t\otimes Q_s + \sigma^{-2}S^\top S$ has 23.6 M unknowns. The mask
 breaks the Kronecker structure, but
 $P = Q_t\otimes Q_s + \bar s\,\sigma^{-2}I$ (with $\bar s$ the observed
-fraction) is still exactly invertible through the factor eigenvectors. As
+fraction) is still exactly invertible through the factor eigenvectors
+(the shifted-Kronecker solve of [gaussx.md](roadmap-gaussx.md), G3). As
 a CG preconditioner, it makes the iteration count depend on how irregular
 the mask is, not on the grid size.
 
@@ -103,9 +104,13 @@ Q = gx.Kronecker(prior_t, prior_s)
 H = Q + lx.DiagonalLinearOperator(
     mask_flat / 0.3**2
 )  # Q + σ⁻² SᵀS (S selects the clear pixels)
-P = Q + lx.DiagonalLinearOperator(
-    jnp.full(Q.in_size(), mask_flat.mean() / 0.3**2)
-)  # exact via factor eigs
+# Q_t ⊗ Q_s + c·I, exact via the factor eigenbases (G3); the spatial factor stays spectral
+c = mask_flat.mean() / 0.3**2
+shift = gx.Kronecker(
+    lx.DiagonalLinearOperator(jnp.full(365, c)),
+    lx.DiagonalLinearOperator(jnp.ones(180 * 360)),
+)
+P = gx.SumOfKroneckers((Q, shift))
 mean = gx.PreconditionedCGSolver(preconditioner=gx.OperatorPreconditioner(P)).solve(
     H, obs_rhs
 )
@@ -327,6 +332,7 @@ C, G = gx.fem_matrices(
     icosphere_vertices, icosphere_triangles
 )  # 3-D vertices: a surface mesh
 Q = gx.spde_precision(C, G, *gx.matern_spde_params(range=500.0, sigma=1.0, nu=1.0, d=2))
+# the sphere is star-shaped, so G7 locates each point by a ray–triangle test
 A = gx.fem_projector(icosphere_vertices, icosphere_triangles, obs_xyz)
 H = Q.union(Q.congruence(A, jnp.full(n_obs, 1 / noise_var)))
 cg = gx.PreconditionedCGSolver(preconditioner=gx.JacobiPreconditioner())

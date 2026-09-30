@@ -187,7 +187,8 @@ See `.github/instructions/docs-examples.instructions.md` for full standards.
 
 Plans go in `.plans/` (gitignored, never committed). Track work via GitHub
 issues. Long-lived design references that the code must agree with go in
-`design_docs/`.
+`design_docs/`. The exception is the published cross-repo roadmap in
+`docs/roadmap/` (proposals rendered in the docs, see `AGENTS.md`).
 
 ## PR Review Comments
 

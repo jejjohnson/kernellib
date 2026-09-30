@@ -73,9 +73,9 @@ numbers:
 
 From the [examples gallery](roadmap-examples.md):
 
-- [fair regression](#ex-fair): predictions independent of protected
+- [fair regression](roadmap-examples.md#ex-fair): predictions independent of protected
   attributes, with the whole trade-off curve;
-- [semi-supervised regression on a graph](#ex-laprls): a few hundred
+- [semi-supervised regression on a graph](roadmap-examples.md#ex-laprls): a few hundred
   labels and many unlabelled points;
 - comparing network representations over a whole dataset (kernellib#89),
   with `CKAAccumulator`.
