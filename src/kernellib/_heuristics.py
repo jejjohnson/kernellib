@@ -130,7 +130,11 @@ def _estimate(
     if method == "gaussian":
         centred = einx.subtract("n d, d -> n d", X, reduce(X, "n d -> d", "mean"))
         variance = reduce(centred**2, "n d -> d", "sum") / (n - 1)
-        sigma = jnp.mean(jnp.sqrt(variance))  # mean per-dimension std (ddof=1)
+        # Mean per-dimension std (ddof=1). A zero-safe sqrt keeps the gradient
+        # finite when a column is constant (sqrt has an infinite slope at 0).
+        constant = variance <= 0
+        std = jnp.where(constant, 0.0, jnp.sqrt(jnp.where(constant, 1.0, variance)))
+        sigma = jnp.mean(std)
         return 2.0 * sigma * jnp.exp(gammaln((d + 1) / 2.0) - gammaln(d / 2.0))
     if method in ("silverman", "scott"):
         sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))

@@ -179,3 +179,13 @@ def test_gaussian_is_smooth_and_per_dimension():
     assert bool(jnp.all(jnp.diff(ard) > 0))
     grad = jax.grad(lambda X: kl.estimate_lengthscale(X, "gaussian"))(X)
     assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+@pytest.mark.parametrize("ard", [False, True])
+def test_gaussian_gradient_is_finite_with_a_constant_column(ard):
+    X = jax.random.normal(jax.random.key(0), (30, 3))
+    X = X.at[:, 1].set(2.0)  # a constant feature: zero variance
+    grad = jax.grad(lambda X: jnp.sum(kl.estimate_lengthscale(X, "gaussian", ard=ard)))(
+        X
+    )
+    assert bool(jnp.all(jnp.isfinite(grad)))

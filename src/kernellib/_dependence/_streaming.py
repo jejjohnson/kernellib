@@ -11,6 +11,13 @@ $$
 which is consistent whatever the batch size, because each term is unbiased.
 With biased per-batch terms the ratio drifts by ``O(1/B)``. Memory is
 ``O(B^2)`` per batch.
+
+**The batches must be random draws** (shuffled, independent, preferably of
+equal size). Each term only sees dependence *within* its batch, so ordered
+or stratified batches bias the estimate. In the extreme, if both
+representations are constant within every batch but their means vary
+between batches, every term is zero and the result is ``0``, while the
+full-data CKA is ``1``.
 """
 
 from __future__ import annotations
@@ -38,6 +45,9 @@ class CKAAccumulator(eqx.Module):
     to the running sums, and `result` returns their CKA. It works inside
     ``jax.jit`` and as a ``jax.lax.scan`` carry. Degenerate sums give ``0``,
     as in `kernellib.cka`.
+
+    Feed it **shuffled** batches: ordered or stratified batches bias the
+    estimate (see the module docstring).
 
     Attributes:
         kernel_x: Kernel on the first representation.
