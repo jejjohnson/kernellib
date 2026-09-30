@@ -29,11 +29,12 @@ questions.
 | File | Phases | Serves |
 |---|---|---|
 | [gaussx.md](roadmap-gaussx.md) | G1–G10 (Part A: structured precision, GMRFs, INLA kernels), G11–G17 (Part B: randomized) | manifold, RandNLA, INLA |
-| [kernellib.md](roadmap-kernellib.md) | K1–K5 (graphs, embeddings), K6 (GMRF structure), K7–K10 (randomized kernel methods), K11 (docs), K12–K14 (dependence penalties) | all four |
+| [kernellib.md](roadmap-kernellib.md) | K1–K5 (graphs, embeddings), K6 (GMRF structure), K7–K10 (randomized kernel methods), K11 (docs), K12–K14 (dependence penalties), K15 (proximity graphs) | all four |
 | [pyrox.md](roadmap-pyrox.md) | P1–P5 (pyrox-gp), P6–P10 (pyrox-lgm, repo-level) | manifold, RandNLA, INLA |
 | [manipy.md](roadmap-manipy.md) | M0–M5 | manifold |
 | [plumax.md](roadmap-plumax.md) | X1 | RandNLA |
-| [examples.md](roadmap-examples.md) | — | Twelve end-to-end problems (model, maths, pseudocode, phases needed) |
+| [examples.md](roadmap-examples.md) | — | Thirteen end-to-end problems (model, maths, pseudocode, phases needed) |
+| [implementation.md](roadmap-implementation.md) | all | The implementation plan: dependency graph, critical paths, release gates and the PR sequence per repo |
 
 **Out of scope:**
 
@@ -63,7 +64,7 @@ questions.
 | Precision builders: iid, RW, AR, Besag, BYM2 scaling, SPDE (grid, FEM), FEM assembly | gaussx | G7 |
 | Precision-form Laplace, θ-designs, VB correction | gaussx | G8–G10 |
 | Sketches, range finder, randomized SVD / eigh / Nyström, RPCholesky, preconditioners, sketch-and-precondition LSMR, XDiag and tier-2 estimators | gaussx | G11–G17 |
-| Graph construction (k-NN, radius, grid, mesh), Laplacians, spectral graph kernels, graph Matérn, Laplacian eigenpairs | kernellib | K1–K4, K6 |
+| Graph construction (k-NN, radius, grid, mesh, edge lists from external tools, Delaunay / Gabriel / RNG), Laplacians, spectral graph kernels, graph Matérn, Laplacian eigenpairs | kernellib | K1–K4, K6, K15 |
 | Laplacian / Schrödinger eigenmaps, LPP, SEP, kernel LPP / SEP | kernellib | K5 |
 | GMRF structure: null spaces, structure matrices | kernellib | K6 |
 | Landmark selection, preconditioned KRR, randomized kernel PCA | kernellib | K7–K10 |
@@ -147,7 +148,7 @@ them.
        an iterative solver whose answer does not depend on it, up to
        tolerance, such as the Lanczos start block in
        `laplacian_eigpairs`.
-7. **Training loops in examples.**
+7. **External tools in examples: training loops and data sources.**
    - **Networks and SVI: `pipekit-train`.** Examples that train a network
      (an Equinox module, over mini-batches) use
      [pipekit](https://github.com/jejjohnson/pipekit)'s `TrainingLoop`
@@ -164,26 +165,35 @@ them.
      the time of writing). Library code never imports it, and the import
      tests are unchanged. Notebook outputs are committed, so the pin only
      matters when a notebook is re-executed.
+   - **Real spatial data: city2graph.** Examples that start from polygons,
+     road networks or origin–destination (OD) tables use
+     [city2graph](https://github.com/c2g-dev/city2graph) (contiguity,
+     proximity and OD graphs), also as a docs-only dependency. Its
+     output enters through `kl.graph_from_edges` as integer arrays, with
+     its distance-valued `weight` column converted to affinities (K2).
+     GIS loaders and GNN converters stay in city2graph.
 
 ---
 
 ## 4. Order of work
 
 Phases are specified, with tests, in the repo files. "Needs" means a
-released version, and every phase is one PR. The waves below respect
-every cross-repo dependency; within a wave, everything can run in
-parallel.
+released version, and every phase is one PR. A wave is the **earliest**
+a phase can start, computed from the "Needs" columns: within a wave,
+everything can run in parallel. The
+[implementation plan](roadmap-implementation.md) turns this into a
+sequence, with slack, release gates and PR order.
 
 | Wave | Phases |
 |---|---|
-| 1 | G1, G2, G3, G9, G11, G14, K1, K12, K13, K14, P1, P6, M0 |
+| 1 | G1, G2, G3, G9, G11, G14, K1, K12, K13, K14, P1, P6, P10, M0 |
 | 2 | G4 (G1), G12 (G11), G15 (G11), K2 (K1, G1), K7 (G11), K8 (G14) |
-| 3 | G5 (G3, G4), G13 (G12), G16 (G12), K3 (K2), K10 (G12), X1 (G12), P3 (K8), P5 (K8), M2 (K2) |
-| 4 | G6 (G1, G3, G5), G7 (G1, G3, G4), K4 (K3), K9 (G13, G14), G17 on demand |
-| 5 | G8 (G6), K5 (K3, G2), K6 (K2–K4; G7 for its test), P2 (K3, K4) |
-| 6 | G10 (G8), P7 (G6, G7, K6), M1 (K2, K5, G2) |
-| 7 | P8 (G8–G10, P7), K11 (K5, K6, K8–K10, K12–K14), M3 (M1, M2) |
-| 8 | P9, M4, M5 (M3). P4 as soon as gaussx#312 is fixed (and G13 is out). P10 alongside every pyrox phase |
+| 3 | G5 (G3, G4), G7 (G1, G3, G4), G13 (G12), G16 (G12), K3 (K2), K10 (G12), X1 (G12), P3 (K8), P5 (K8), M2 (K2) |
+| 4 | G6 (G1, G3, G5), K4 (K3), K5 (K3, G2), K9 (G13, G14), P4 (G13; also gaussx#312), G17 on demand |
+| 5 | G8 (G6), K6 (K2–K4; G7 for its test), P2 (K3, K4), M1 (K2, K5, G2) |
+| 6 | G10 (G8), K15 (K2, K6), P7 (G6, G7, K6), M3 (M1, M2) |
+| 7 | P8 (G8–G10, P7), K11 (K5, K6, K8–K10, K12–K15), M4 (M3), M5 (M3) |
+| 8 | P9 (P8). P10 is also updated alongside every pyrox phase |
 
 **Highest-value early deliverables:**
 
@@ -197,7 +207,9 @@ parallel.
   today. It needs nothing else.
 
 **Critical path to a first end-to-end `inla()`:**
-G1 → G4 → G5 → G6 → G8 → G10 → P8, with G7, K6 and P7 alongside.
+G1 → G4 → G5 → G6 → G8 → G10 → P8, with G7, K6 and P7 alongside. The
+graph chain K1 → K2 → K3 → K4 → K6 → P7 has zero slack too: a delay in
+either chain delays `inla()`.
 
 ### Old phase ids
 
@@ -238,3 +250,5 @@ pages.
 | 2026-09-30 | The three project plans (manifold, RandNLA, INLA) are fused into this per-repo roadmap, with one phase numbering per repo and the old ids mapped in §4. Project pages keep motivation, audits, use cases, non-goals and open questions. Cross-cutting decisions are in §3 |
 | 2026-09-30 | A fourth project, [dependence penalties](project-fairkl.md), from the keras-fairkl audit. It is kernellib-only (K12–K14) and has no cross-repo dependencies; its fast paths reuse gaussx's existing `LowRankUpdate` Woodbury solve. Bugs found are filed as kernellib#93, #94 and keras-fairkl#15–#19 |
 | 2026-09-30 | Cross-cutting decision 7: examples that train networks use pipekit-train's `TrainingLoop` (a docs-only dependency, git-pinned); small full-batch fits use optax directly |
+| 2026-09-30 | city2graph reviewed. Not a dependency; it becomes the docs-only data source for real spatial examples (decision 7). kernellib gains `graph_from_edges`, distance-to-weight conversion and `knn_graph(ensure_connected=)` in K2, and proximity graphs as K15. Gallery example 13 (OD flows) added |
+| 2026-09-30 | The waves are recomputed as earliest-start levels from the "Needs" columns (G7, K5, M1, M3–M5 and P4 move earlier), and the [implementation plan](roadmap-implementation.md) is added |

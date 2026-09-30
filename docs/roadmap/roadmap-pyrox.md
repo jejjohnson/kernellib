@@ -736,6 +736,11 @@ $\log\pi(y_i\mid\eta_i)$ under the same marginals.
   instead of a hand-written `svi.update` loop, with pipekit in the docs
   dependency group only. Existing notebooks change only when re-executed
   for another reason.
+- **Real spatial data in docs** (decision 7). The pyrox-lgm BYM2 notebook
+  starts from polygons through city2graph's `contiguity_graph` and
+  `kl.graph_from_edges` (K2), instead of a pre-built adjacency matrix.
+  The OD-flow example ([gallery 13](roadmap-examples.md#ex-od)) is a
+  candidate second notebook after P8.
 - **Dependency pins:**
   - pyrox-gp: kernellib ≥ v0.0.8 for P1; the tag containing K3 and K4 for
     P2; the tag containing K8 for P3 and P5; gaussx with G13, after #312,
