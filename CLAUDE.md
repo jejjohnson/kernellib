@@ -194,7 +194,7 @@ issues. Long-lived design references that the code must agree with go in
 
 When addressing PR review comments, always resolve each review thread after fixing it via the GitHub GraphQL API (`resolveReviewThread` mutation). Do not leave addressed comments unresolved. To obtain the required `threadId`, first list the pull request's review threads via the GitHub GraphQL API (see the "Pull Request Review Comments" section in `AGENTS.md` for a minimal query and end-to-end workflow).
 
-**Automated reviewers (GitHub Copilot and ChatGPT Codex only).** Once one of their comments has been addressed (fixed, or deliberately declined with the reason in a reply), resolve its thread and then **hide the bot's comment as resolved** with the `minimizeComment` mutation (`classifier: RESOLVED`). Their authors are `copilot-pull-request-reviewer` and `chatgpt-codex-connector`. Never hide human reviewers' comments or your own replies. On stacked PRs (base is another PR's branch), Codex posts its review as a plain PR comment instead of review threads, so check both `reviewThreads` and `comments`. See `AGENTS.md` for the queries.
+**Automated reviewers (GitHub Copilot and ChatGPT Codex only).** Address their comments with code changes, without replying to them. Once a comment is addressed (or deliberately declined), resolve its thread and then **hide the bot's comment as resolved** with the `minimizeComment` mutation (`classifier: RESOLVED`). Their authors are `copilot-pull-request-reviewer` and `chatgpt-codex-connector`. Never hide human reviewers' comments. On stacked PRs (base is another PR's branch), Codex posts its review as a plain PR comment instead of review threads, so check both `reviewThreads` and `comments`. See `AGENTS.md` for the queries.
 
 ## Code Review
 

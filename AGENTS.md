@@ -137,7 +137,7 @@ Workflow:
 
 This applies **only** to the GitHub Copilot and ChatGPT Codex bots (authors `copilot-pull-request-reviewer` and `chatgpt-codex-connector`). Human reviewers' comments are never hidden.
 
-Once a bot comment has been addressed (fixed, or deliberately declined with the reason given in a reply), resolve its thread as above, then hide the comment as resolved:
+Address bot comments with code changes; **do not reply to them**. Once a bot comment is addressed (or deliberately declined; say why in the PR description or to the maintainer, not in a reply), resolve its thread as above, then hide the comment as resolved:
 
 ```bash
 # 3. List comment IDs: review-thread comments and plain PR comments
@@ -158,8 +158,8 @@ gh api graphql -f query='mutation($id: ID!) { minimizeComment(input: {subjectId:
 ```
 
 - **Review-thread comments:** hide the bot's comments in resolved threads only.
-- **Plain PR comments:** on stacked PRs, Codex posts its review as one plain comment ("💡 Codex Review") rather than as threads. Reply once, covering every finding and its disposition (fixed, with the commit, or declined, with the reason), then hide the bot comment.
-- Skip comments that are already minimized, and leave your own replies visible.
+- **Plain PR comments:** on stacked PRs, Codex posts its review as one plain comment ("💡 Codex Review") rather than as threads. Address every finding in it, then hide the bot comment.
+- Skip comments that are already minimized.
 
 ## Plans
 
