@@ -22,6 +22,8 @@ something usable at each wave.
 | 8 | [Background covariances and EOFs](#ex-eofs) | remote sensing, climate | G12, X1 |
 | 9 | [A GPLVM started on the data manifold](#ex-gplvm) | latent-variable models | K5, P1 |
 | 10 | [Uncertainty on a 2M-node global mesh](#ex-mesh) | geostatistics on the sphere | G1, G7, G16 |
+| 11 | [Fair regression](#ex-fair) | credit, hiring, public-sector risk scores | K12, K13 (K9 at scale) |
+| 12 | [Semi-supervised regression on a graph](#ex-laprls) | remote sensing with sparse in-situ labels | K13 (K2 for sparse graphs) |
 
 ---
 
@@ -331,3 +333,91 @@ cg = gx.PreconditionedCGSolver(preconditioner=gx.JacobiPreconditioner())
 mean = cg.solve(H, A.T.mv(y_obs / noise_var))
 sd = jnp.sqrt(gx.diag_inv(H, method="xdiag", num_probes=64, solver=cg, key=key))
 ```
+
+---
+
+(ex-fair)=
+## 11. Fair regression
+
+**Problem.** Predict income from the Adult census (about 30,000 rows)
+without the predictions depending on sex or race, and show the full
+accuracy–dependence trade-off rather than a single operating point.
+
+**Model** (Pérez-Suay et al., 2017). Fair kernel ridge regression, with the
+linear-kernel HSIC between the predictions $f = K\alpha$ and the protected
+attributes $S$ as the penalty:
+
+$$
+\min_\alpha\ \tfrac1n\|y-K\alpha\|^2 + \lambda\,\alpha^\top K\alpha
++ \mu\,\underbrace{\tfrac1{n^2}\alpha^\top KHSS^\top HK\alpha}_{\operatorname{HSIC}_b(f,\,S)} .
+$$
+
+It is quadratic, so its solution is one linear system, a rank-2 update of
+KRR's (see [kernellib.md](roadmap-kernellib.md), K13).
+
+```python
+S = jnp.asarray(adult[["sex", "race_white"]], dtype=float)
+base = kl.KRR(
+    kl.RBF(2.0),
+    regularization=1e-4,
+    implicit=True,
+    preconditioner="rpcholesky",
+    preconditioner_rank=1000,
+)
+penalty = kl.hsic_penalty(kl.Linear(), S)  # H S Sᵀ H / n², rank 2
+dependence = partial(kl.cka, kl.RBF(1.0), kl.Linear(), estimator="unbiased")
+front = []
+for mu in jnp.logspace(-1, 3, 12):
+    fit = dataclasses.replace(base, penalty_weight=mu).fit(
+        X, y, penalty=penalty, key=key
+    )
+    pred = fit.predict(X_test)
+    front.append((jnp.mean((pred - y_test) ** 2), dependence(pred[:, None], S_test)))
+```
+
+The same trade-off for a network needs gradients through a nonlinear
+penalty. Only K12's gradient-safe `kl.cka` is required:
+`loss = mse + mu * kl.cka(kl.RBF(ell_y), kl.RBF(1.0), pred[:, None], s)`.
+
+**What makes it fast.** By Woodbury, each μ costs three ordinary KRR
+solves: one for $y$, one per attribute. Each is preconditioned CG on the
+implicit kernel operator (K9), so $K$ is never formed.
+
+---
+
+(ex-laprls)=
+## 12. Semi-supervised regression on a graph
+
+**Problem.** Soil moisture at 20,000 pixels, with only 300 in-situ labels.
+The unlabelled pixels still show where the data manifold is.
+
+**Model.** Laplacian-regularised least squares (Belkin, Niyogi &
+Sindhwani, 2006). $f = K\alpha$ over all points, with a data term on the
+labelled ones only ($J$ is the labelled mask, $l = \operatorname{tr}J$) and
+a smoothness penalty along a k-NN graph:
+
+$$
+\min_\alpha\ \tfrac1l\|J(y-K\alpha)\|^2 + \lambda\,\alpha^\top K\alpha
++ \tfrac{\mu}{n^2} f^\top Lf
+\quad\Longrightarrow\quad
+\big(JK + l\lambda I + \tfrac{l\mu}{n^2}LK\big)\alpha = Jy .
+$$
+
+This is the same estimator as [fair regression](#ex-fair), with a
+different penalty matrix.
+
+```python
+graph = kl.nearest_neighbors(X_all, 10)  # a K2 Graph once that lands
+laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
+    X_all,
+    y_all,  # any value where unlabelled
+    mask=is_labelled,
+    penalty=kl.laplacian_penalty(kl.adjacency_matrix(graph)),
+)
+moisture_map = laprls.predict(X_grid)
+```
+
+**What makes it work.** With a mask, K13 solves the symmetric normal form
+$(KJK + l\lambda K + \tfrac{l\mu}{n^2}KLK)\alpha = KJy$ by CG. With a
+sparse K2 Laplacian, each iteration costs three kernel matvecs and one
+sparse matvec.

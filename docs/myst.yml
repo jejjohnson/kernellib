@@ -53,6 +53,7 @@ project:
             - file: roadmap/project-manifold.md
             - file: roadmap/project-rnla.md
             - file: roadmap/project-inla.md
+            - file: roadmap/project-fairkl.md
     - title: Project
       children:
         - file: contributing.md

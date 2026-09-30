@@ -13,10 +13,14 @@ everything with a kernel or a graph in it:
   SEP, kernel LPP / SEP);
 - the structure matrices that GMRF priors are built from;
 - the kernel-specific uses of randomized linear algebra (landmark
-  selection, preconditioned KRR, randomized kernel PCA).
+  selection, preconditioned KRR, randomized kernel PCA);
+- dependence measures that are safe to train with, and the penalised
+  estimators built on them (quadratic-penalty KRR, supervised and fair
+  kernel PCA, pre-images).
 
 It serves the [manifold](project-manifold.md),
-[RandNLA](project-rnla.md) and [INLA](project-inla.md) projects.
+[RandNLA](project-rnla.md), [INLA](project-inla.md) and
+[dependence-penalties](project-fairkl.md) projects.
 The baseline is kernellib 0.0.11.
 
 > Maths notes (**The maths.**) say where each operation comes from; **Example.** blocks are pseudocode against the *planned* API (`gx` = gaussx, `kl` = kernellib, `px` = pyrox-gp, `lgm` = pyrox-lgm). End-to-end problems are in the [examples gallery](roadmap-examples.md).
@@ -33,7 +37,10 @@ The baseline is kernellib 0.0.11.
 | K8 | `select_landmarks` (uniform / leverage / rpcholesky / greedy), used by `NystromFeatures`, `Falkon`, `EigenPro` | RandNLA | G14 |
 | K9 | Preconditioned `KRR` (`preconditioner="nystrom" \| "rpcholesky"`) | RandNLA | G13, G14 |
 | K10 | `KernelPCA(eigen_solver="randomized")` | RandNLA | G12 |
-| K11 | Docs: API pages, notebooks, `architecture.md` updates | all | K5, K6, K8–K10 |
+| K11 | Docs: API pages, notebooks, `architecture.md` updates | all | K5, K6, K8–K10, K12–K14 |
+| K12 | Dependence-measure numerics: gradient-safe `cka` ([#93](https://github.com/jejjohnson/kernellib/issues/93)), U-centred unbiased HSIC ([#94](https://github.com/jejjohnson/kernellib/issues/94)), `CKAAccumulator` (mini-batch CKA), `estimate_lengthscale(method="gaussian")` | fairkl | — |
+| K13 | Quadratic-penalty KRR: `KRR(penalty_weight=...)`, `fit(..., penalty=, mask=)`, `hsic_penalty`, `laplacian_penalty`; Woodbury path for low-rank penalties | fairkl, manifold | — (K2 for sparse graphs) |
+| K14 | `KernelPCA` extensions: `center_cross_kernel`, supervised / fair KPCA (`target_weight`), `inverse_transform` (learned pre-image) | fairkl, manifold | — |
 
 ---
 
@@ -60,6 +67,9 @@ Outside `_decomposition/`:
 | `KRR` (`_regression/_krr.py:59`) | `solver: gx.AbstractSolverStrategy = gx.DenseSolver()`; `implicit=True` gives a matrix-free operator | No preconditioner wired in; a plain `gx.CGSolver()` on `K + λnI` stalls as `n` grows |
 | `KernelPCA` (`_decomposition/_kpca.py:100,119`) | Dense `eigh` of the centred Gram, or `approx=` feature maps | No matrix-free exact-kernel path |
 | `hadamard_transform` (`_operators/_fastfood.py:55`) | O(d log d) fast Walsh–Hadamard transform, used by FastFood, public | Needed by gaussx's SRHT sketch; gaussx cannot import kernellib |
+| `hsic`, `cka`, `mmd_squared` (`_dependence/`, `functional/_statistics.py`) | Biased and unbiased estimators, `approx=` feature maps, low-rank centring, permutation tests | `cka` is NaN for (near-)constant inputs (#93); the unbiased HSIC cancels catastrophically in float32 (#94); no mini-batch accumulator |
+| `KRR` data term | Squared error with a ridge `λ·n` (mean convention) | No penalty beyond the ridge, no unlabelled points |
+| `KernelPCA` transforms | Out-of-sample centring inline in `transform` | No `inverse_transform`, no supervision, centring helper is private |
 
 
 ---
@@ -89,6 +99,15 @@ Outside `_decomposition/`:
    everywhere except `NystromFeatures`. `KRR` has no preconditioner.
    `KernelPCA` has no matrix-free exact path. `hadamard_transform` has to
    move so that gaussx's SRHT sketch can use it.
+9. **Dependence measures as training penalties.** `cka` has to survive
+   `jax.grad` on degenerate inputs, the unbiased HSIC has to be accurate
+   in float32, and comparing networks over a dataset needs a mini-batch
+   CKA (kernellib#89).
+10. **Penalised kernel estimators.** The fair-kernel-learning closed forms
+    (Pérez-Suay et al., 2017) and Laplacian-regularised least squares
+    (Belkin, Niyogi & Sindhwani, 2006) are the same quadratic-penalty KRR.
+    Supervised and fair kernel PCA are one generalised eigenproblem.
+    `KernelPCA` has no pre-image.
 
 ---
 
@@ -101,7 +120,11 @@ A new layer-1 package `_graph/` takes the graph code out of
 ```
 src/kernellib/
 ├── functional/
-│   └── _graph.py              # NEW  graph_heat_spectrum, graph_matern_spectrum            (K4)
+│   ├── _graph.py              # NEW  graph_heat_spectrum, graph_matern_spectrum            (K4)
+│   └── _statistics.py         # U-centred unbiased HSIC, guarded cka (K12); center_cross_kernel (K14)
+├── _heuristics.py             # estimate_lengthscale(method="gaussian")                    (K12)
+├── _dependence/
+│   └── _streaming.py          # NEW  CKAAccumulator                                         (K12)
 ├── _graph/                    # NEW package, layer 1                                       (K1)
 │   ├── __init__.py
 │   ├── _neighbors.py          # MOVED KNNGraph, nearest_neighbors; NEW radius_neighbors     (K2)
@@ -118,9 +141,10 @@ src/kernellib/
 ├── _operators/
 │   └── _fastfood.py           # hadamard_transform imported from gaussx                     (K7)
 ├── _regression/
-│   └── _krr.py                # KRR.preconditioner                                          (K9)
+│   ├── _krr.py                # KRR.preconditioner (K9); penalty_weight, penalty=, mask=   (K13)
+│   └── _penalties.py          # NEW  hsic_penalty, laplacian_penalty                        (K13)
 └── _decomposition/
-    ├── _kpca.py               # eigen_solver="randomized"                                   (K10)
+    ├── _kpca.py               # eigen_solver="randomized" (K10); target_weight, inverse_transform (K14)
     ├── _eigenmaps.py          # LE, SE, potentials; graph inputs; combine_potentials,
     │                          # spatial_spectral_graph                                      (K5)
     ├── _projections.py        # MOVED LocalityPreservingProjections (K1); NEW SchrodingerEigenmapProjections (K5)
@@ -949,7 +973,339 @@ kpca = kl.KernelPCA(kl.RBF(1.0), n_components=20, eigen_solver="randomized").fit
 
 ---
 
-## 7. Phases and tests
+## 7. API — dependence penalties and kernel-PCA extensions (K12–K14)
+
+These come from the [dependence-penalties project](project-fairkl.md), an
+audit of `keras-fairkl`. They are general kernel methods: nothing here is
+named "fair". Fairness is one use of a dependence penalty, alongside
+semi-supervised learning, supervised embeddings and representation
+comparison.
+
+### 7.1 K12: dependence-measure numerics
+
+**The maths.** CKA normalises HSIC,
+
+$$
+\operatorname{CKA}(x,y) = \frac{\operatorname{HSIC}(x,y)}{\sqrt{\operatorname{HSIC}(x,x)\,\operatorname{HSIC}(y,y)}},
+$$
+
+which is undefined when either self-HSIC is not positive. That happens for
+a constant variable, and the *unbiased* self-HSIC may be slightly negative
+by chance. A constant is independent of everything, so K12 defines
+CKA = 0 there. It uses a double `where`, so that the gradient is 0 rather
+than NaN (`sqrt` has an infinite slope at 0).
+
+The unbiased HSIC (Song et al., 2012) expands into three sums of size
+$O(n^2)$ that cancel. In float32 the expansion returns 0 once the Gram
+matrices are within about $10^{-3}$ of constant (#94). The same estimator
+is an inner product of **U-centred** matrices (Székely & Rizzo, 2014).
+For $i\ne j$, with the diagonal of $K$ set to zero first,
+
+$$
+\tilde K_{ij} = K_{ij} - \frac{1}{n-2}\sum_l K_{il} - \frac{1}{n-2}\sum_k K_{kj}
++ \frac{1}{(n-1)(n-2)}\sum_{k,l}K_{kl},
+\qquad
+\widehat{\operatorname{HSIC}}_u = \frac{\langle\tilde K,\tilde L\rangle_F}{n(n-3)},
+$$
+
+and $\tilde K_{ii} = 0$. The common mode is removed *before* the product,
+so nothing cancels. The estimator is invariant to $K\to K+a\mathbf 1^\top+\mathbf 1a^\top$,
+and therefore to $K\to HKH$. So the low-rank path centres its factors
+first, at $O(nr)$ cost, and returns the same value.
+
+**Mini-batch CKA** (Nguyen, Raghu & Kornblith, 2021). Over batches $b$,
+
+$$
+\operatorname{CKA}_{\text{mb}} = \frac{\sum_b \operatorname{HSIC}_u(K_b,L_b)}
+{\sqrt{\sum_b \operatorname{HSIC}_u(K_b,K_b)\,\sum_b \operatorname{HSIC}_u(L_b,L_b)}}.
+$$
+
+Each term is unbiased, so the ratio is consistent for any batch size. With
+biased per-batch terms, it drifts by $O(1/B)$ (keras-fairkl#19 measured
++16 % at $B = 10$). Memory is $O(B^2)$, not $O(N^2)$.
+
+**A closed-form bandwidth.** For $x, x'\sim\mathcal N(\mu, s^2I_d)$,
+$\mathbb E\|x-x'\| = 2s\,\Gamma(\tfrac{d+1}{2})/\Gamma(\tfrac d2)$. As a
+lengthscale, it needs no pairwise distances and is a smooth function of
+the data. It is the heuristic of the 2017 fair-learning notebooks.
+
+```python
+# functional/_statistics.py: private helpers, used by hsic / cka at both levels
+def _u_centre(K: Float[Array, "n n"]) -> Float[Array, "n n"]: ...
+def _safe_ratio(cross, self_x, self_y) -> Float[Array, ""]:
+    """cross / sqrt(self_x * self_y), and 0 (with a 0 gradient) where that is <= 0."""
+
+
+# _dependence/_streaming.py
+class CKAAccumulator(eqx.Module):
+    kernel_x: AbstractKernel
+    kernel_y: AbstractKernel
+    # running sums of the unbiased HSIC(x, y), HSIC(x, x), HSIC(y, y)
+    sums: Float[Array, "3"] = eqx.field(default_factory=lambda: jnp.zeros(3))
+
+    def update(self, X_b, Y_b) -> "CKAAccumulator":  # batch size >= 4
+        ...
+
+    def result(self) -> Float[Array, ""]: ...
+
+
+# _heuristics.py: a new method, same signature; 2 s Γ((d+1)/2) / Γ(d/2), s = mean std
+kl.estimate_lengthscale(X, method="gaussian")
+```
+
+- `CKAAccumulator` is a pytree whose `update` returns a new accumulator, so
+  it works inside `jax.lax.scan` and training loops, and takes `approx=`
+  feature maps like `cka` does.
+- It serves kernellib#89 (comparing neural-network representations).
+
+**Example.**
+
+```python
+# Layer similarity over a whole dataset (kernellib#89), in O(B²) memory
+acc = kl.CKAAccumulator(kl.Linear(), kl.Linear())
+for xb in batches:
+    acc = acc.update(layer_a(params_a, xb), layer_b(params_b, xb))
+similarity = acc.result()
+
+# A CKA penalty that survives a collapsed or zero-initialised network
+# the bandwidth on the predictions comes from the target, once (keras-fairkl#16)
+ell_f = kl.estimate_lengthscale(y_train[:, None], method="gaussian")
+
+
+def loss(params, xb, yb, sb):
+    pred = mlp(params, xb)
+    penalty = kl.cka(
+        kl.RBF(ell_f), kl.RBF(1.0), pred[:, None], sb, estimator="unbiased"
+    )
+    return jnp.mean((pred - yb) ** 2) + mu * penalty  # finite value and gradient (K12)
+```
+
+Tests:
+
+- **#93.** `cka` is finite, with a finite gradient, for inputs at scales
+  $\{0, 10^{-2}, 10^{-4}, 10^{-5}\}$. The biased value is in $[0, 1]$,
+  and the constant case is exactly 0.
+- **#94.** The float32 unbiased HSIC is within $10^{-3}$ (relative) of
+  float64, at scales $10^{-1}$ to $10^{-3}$, on the dense, low-rank and
+  feature paths. Existing results are unchanged to $10^{-10}$ in x64.
+- **Accumulator.**
+  - One batch equals `cka(..., estimator="unbiased")`.
+  - Batch sizes 10 and 1000 on $n = 2000$ agree within 0.01.
+  - It runs under `jax.lax.scan`.
+- **Gaussian lengthscale.** It matches the Monte Carlo mean pairwise
+  distance of Gaussian samples for $d\in\{1, 10, 100\}$, and its gradient
+  is finite.
+
+### 7.2 K13: KRR with a quadratic penalty
+
+**The maths.** Add a data-dependent quadratic penalty to KRR, in its mean
+convention. Let $J$ be the diagonal mask of labelled points (the identity
+when every point is labelled) and $l=\operatorname{tr}J$:
+
+$$
+\min_\alpha\ \frac1l\|J(y-K\alpha)\|^2 + \lambda\,\alpha^\top K\alpha
++ \mu\,\alpha^\top K M K\alpha
+\quad\Longrightarrow\quad
+(JK + l\lambda I + l\mu\,MK)\,\alpha = Jy .
+$$
+
+At $\mu = 0$ with no mask, this is exactly `KRR`'s $(K+n\lambda I)\alpha = y$.
+One solver covers two literatures:
+
+- **Fair kernel learning** (Pérez-Suay et al., 2017). With a linear kernel
+  on the predictions $f = K\alpha$, the biased HSIC with protected
+  attributes $s$ is
+  $\tfrac1{n^2}f^\top HK_sHf$, so $M = HK_sH/n^2$. Minimising it pushes
+  the predictions towards independence from $s$.
+- **Laplacian-regularised least squares** (LapRLS; Belkin, Niyogi &
+  Sindhwani, 2006). $M = L/n^2$ for a graph Laplacian over labelled and
+  unlabelled points. The penalty $f^\top Lf$ makes $f$ smooth along the
+  data manifold, and the mask leaves the unlabelled points without a data
+  term.
+
+**The fast path.** When $K_s = \Phi\Phi^\top$ has rank $r$ (a `Linear`
+kernel on $r$ attributes, or `approx=` features), set $\tilde Q = H\Phi/n$.
+Then $M = \tilde Q\tilde Q^\top$, and without a mask the system is
+
+$$
+(K + n\lambda I) + \tilde Q\,\operatorname{diag}(n\mu)\,(K\tilde Q)^\top,
+$$
+
+a non-symmetric rank-$r$ update of KRR's own operator.
+`gx.solve` on a `gx.LowRankUpdate` already does the general Woodbury solve,
+and K9's preconditioner can be passed as its solver. So a fair fit costs
+$r+1$ ordinary KRR solves, with all of them CG on the implicit
+operator when $n$ is large. Only the $r\times r$ capacitance depends on
+$\mu$.
+
+**The general path.** Dense $M$, or any mask, uses the symmetric normal
+form $(KJK + l\lambda K + l\mu\,KMK)\alpha = KJy$. It is PSD, so CG
+applies, at three kernel matvecs per iteration.
+
+```python
+class KRR(AbstractEstimator):
+    ...
+    penalty_weight: float | Float[Array, ""] = 0.0  # μ
+
+    def fit(
+        self,
+        X,
+        y,
+        *,
+        penalty: lx.AbstractLinearOperator | None = None,
+        mask: Bool[Array, " N"] | None = None,
+        key=None,
+    ) -> "KRR": ...
+
+
+# _regression/_penalties.py: M as an operator on the training points
+def hsic_penalty(
+    kernel: AbstractKernel,
+    S: Float[Array, "N P"],
+    *,
+    approx: AbstractFeatureMap | None = None,
+) -> lx.AbstractLinearOperator:
+    """H K_s H / n²: a low-rank gx.LowRankUpdate for Linear / approx=, dense otherwise."""
+
+
+def laplacian_penalty(
+    graph, *, normalization: str = "unnormalized"
+) -> lx.AbstractLinearOperator:
+    """L / n², from a dense adjacency today and from a K2 Graph once it lands."""
+```
+
+- **Why `penalty` is a `fit` argument.** It is aligned with `X`, like a
+  sample weight, while `penalty_weight` is a hyperparameter that
+  cross-validation can tune.
+- **Why "penalty", not "fair".** The neutral names make the LapRLS use as
+  natural as the fairness one.
+- **Nonlinear dependence penalties** (an RBF kernel on the predictions)
+  have no closed form. They are the K12 recipe: `jax.grad` of the loss,
+  not an estimator.
+
+**Example.**
+
+```python
+# protected attributes, n × 2; the penalty is a rank-2 update, so 3 KRR solves
+S = jnp.asarray(adult[["sex", "race_white"]], dtype=float)
+fair = kl.KRR(kl.RBF(2.0), regularization=1e-4, penalty_weight=30.0).fit(
+    X, y, penalty=kl.hsic_penalty(kl.Linear(), S)
+)
+
+g_adj = kl.adjacency_matrix(kl.nearest_neighbors(X_all, 10))  # or a K2 Graph
+laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
+    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(g_adj)
+)
+```
+
+Tests:
+
+- `penalty_weight=0` is bit-identical to `KRR` today, and an all-true mask
+  equals no mask.
+- **Stationarity.** At the returned $\alpha$, `jax.grad` of the objective
+  is below $10^{-6}$ (x64, dense).
+- **Woodbury.** The low-rank path equals the dense solve to $10^{-8}$
+  (x64), with the dense, CG and K9-preconditioned base solvers.
+- **Continuity.** Predictions at $\mu = 10^{-8}$ match $\mu = 0$ to
+  $10^{-6}$. keras-fairkl#15 is the counterexample.
+- **Monotonicity.** The linear-kernel HSIC between the predictions and $S$
+  decreases monotonically in $\mu$.
+- **LapRLS (slow tier).** Two moons with one label per class: accuracy
+  above 0.95, against about 0.5 for plain KRR on the two labels.
+
+### 7.3 K14: kernel PCA extensions
+
+**Out-of-sample centring.** For new points, $\tilde K_t = K_t -
+\mathbf 1\bar k^\top - \bar k_t\mathbf 1^\top + \bar{\bar k}$. Here
+$\bar k$ holds the training Gram's column means, $\bar k_t$ the row means of
+$K_t$, and $\bar{\bar k}$ the training grand mean. It becomes a public
+array function, `kl.functional.center_cross_kernel(K_t, col_means, mean)`,
+used by `KernelPCA.transform` (today it is inline) and by the two
+extensions below.
+
+**Supervised and fair kernel PCA.** With $Z = K_cA$ and a target (or
+protected-attribute) kernel $K_T$, maximise the variance plus $\gamma$
+times the linear-kernel HSIC between $Z$ and $T$:
+
+$$
+\max_A\ \operatorname{tr}\Big(A^\top K_c\big(\tfrac1nI + \tfrac{\gamma}{n^2}HK_TH\big)K_cA\Big)
+\quad\text{s.t.}\quad A^\top K_cA = I .
+$$
+
+$\gamma > 0$ is supervised KPCA (Barshan et al., 2011); $\gamma < 0$ is
+fair KPCA (Pérez-Suay et al., 2017). Write $K_c = U\Lambda U^\top$ over its
+positive eigenpairs and $A = U\Lambda^{-1/2}B$. The constraint becomes
+$B^\top B = I$, and $B$ is the top eigenvectors of the small matrix
+$C = \Lambda^{1/2}U^\top\big(\tfrac1nI+\tfrac{\gamma}{n^2}HK_TH\big)U\Lambda^{1/2}$.
+The embedding is $Z = U\Lambda^{1/2}B$.
+
+At $\gamma = 0$, $C = \Lambda/n$, so $B = I$ and $Z = U\Lambda^{1/2}$:
+exactly today's `KernelPCA`. The cost is today's dense `eigh`, plus one
+$r\times r$ `eigh`. With `approx=` features $\Phi_c$, it is the
+$R\times R$ eigenproblem of $\Phi_c^\top(\tfrac1nI+\tfrac{\gamma}{n^2}HK_TH)\Phi_c$.
+gaussx's `eigh_generalized` (G2) is not needed. It becomes relevant only for
+a future matrix-free path.
+
+**Pre-images** (Bakir, Weston & Schölkopf, 2004). Learn the map back from
+embedding to input space by kernel ridge regression on the training
+pairs $(Z_i, x_i)$:
+$\hat x(z) = k_{\text{inv}}(z, Z)(K_{\text{inv}}+n\lambda I)^{-1}X$. This
+is kernellib's own multi-output `KRR`, so any solver (and K9) applies.
+
+```python
+class KernelPCA(eqx.Module):
+    ...
+    target_kernel: AbstractKernel | None = None
+    target_weight: float = 0.0  # γ: > 0 supervised, < 0 fair
+    fit_inverse_transform: bool = eqx.field(default=False, static=True)
+    inverse_kernel: AbstractKernel | None = None  # default: RBF, median heuristic on Z
+    inverse_regularization: float = 1e-3
+    inverse_model: KRR | None = None
+
+    def fit(self, X, *, target: Float[Array, "N P"] | None = None) -> "KernelPCA": ...
+    def inverse_transform(self, Z: Float[Array, "M n"]) -> Float[Array, "M D"]: ...
+```
+
+- `target_weight != 0` with `eigen_solver="randomized"` (K10) is out of
+  scope. For $\gamma < 0$ the operator can be indefinite, and randomized
+  Nyström needs PSD.
+- `_decomposition` importing `KRR` from `_regression` is a layer-2 to
+  layer-2 import, which the layering rule allows.
+
+**Example.**
+
+```python
+# Embedding that keeps structure but drops the protected attribute
+emb = kl.KernelPCA(
+    kl.RBF(1.0), n_components=5, target_kernel=kl.Linear(), target_weight=-50.0
+).fit(X, target=S)
+
+# Denoising by projection and pre-image
+kpca = kl.KernelPCA(kl.RBF(3.0), n_components=40, fit_inverse_transform=True).fit(
+    X_clean
+)
+X_denoised = kpca.inverse_transform(kpca.transform(X_noisy))
+```
+
+Tests:
+
+- `target_weight=0` is bit-identical to today's `KernelPCA`.
+- It agrees with a brute-force `scipy.linalg.eigh(A, B)` on a small
+  problem (subspaces, via principal angles).
+- The HSIC between $Z$ and $T$ increases monotonically in $\gamma > 0$, and
+  decreases for $\gamma < 0$.
+- The `approx=` path converges to the exact one as $R$ grows (slow tier).
+- **Pre-image.** Reconstruction error on the training set at full rank
+  and small regularisation is below $10^{-3}$. It also matches
+  scikit-learn's `KernelPCA(fit_inverse_transform=True)` on the same
+  kernels (integration tier).
+- `center_cross_kernel` with $X_t = X$ equals `center_kernel`.
+- The scikit-learn adapter gains `fit_inverse_transform` and `target_*`
+  (integration tier, `check_estimator`).
+
+---
+
+## 8. Phases and tests
 
 Each phase is one PR, released by release-please. pyrox-gp and manipy pin
 kernellib by git tag, so any phase they consume needs a release.
@@ -1048,6 +1404,15 @@ The tests are given with each API section (§6.1–6.4).
   gains a preconditioned-KRR line.
 - Update `graph_embeddings.ipynb` only if its code paths change (they
   should not).
+- A new notebook, `docs/notebooks/dependence_penalties.ipynb` (K12–K14):
+  - fair KRR on Adult census: the accuracy–dependence curve over $\mu$
+    from the closed form, and the same trade-off for an MLP trained with
+    a `kl.cka` penalty;
+  - LapRLS on two moons;
+  - supervised against fair kernel PCA on the same data;
+  - pre-image denoising.
+- kernellib#89 (comparing representations with CKA) uses
+  `CKAAccumulator`.
 - Update `design_docs/kernellib/architecture.md`:
   - add `_graph/`, `_projections.py`, `_kernel_projections.py` and
     `_spectral/_landmarks.py` to the package tree;
@@ -1057,9 +1422,15 @@ The tests are given with each API section (§6.1–6.4).
     stale since the 2026-09-26 decision);
   - add a decisions-log entry pointing to this roadmap.
 
+### K12–K14
+
+The tests are given with each API section (§7.1–7.3). None of the three
+needs another phase; K13 accepts K2 `Graph`s in `laplacian_penalty` once
+K2 has shipped.
+
 ---
 
-## 8. Import boundaries
+## 9. Import boundaries
 
 - Nothing here imports NumPyro or scikit-learn from the core.
   `test_imports.py` keeps passing unchanged.
@@ -1071,11 +1442,13 @@ The tests are given with each API section (§6.1–6.4).
 - K6's `structure_matrix` is the only call into gaussx's GMRF layer
   (allowed: kernellib depends on gaussx; the reverse never happens).
 
-## 9. Risks
+## 10. Risks
 
 | Risk | Mitigation |
 |---|---|
 | Lanczos converges slowly at the small end of a clustered Laplacian spectrum | Oversample, use a loose tolerance in tests, document it, and keep `"arpack"` as the robust fallback |
 | BCOO matvec is slow on some backends | Benchmark against a `segment_sum` matvec in K2 and pick per backend inside `SparseOperator` (gaussx), not here |
 | Degenerate eigenvalues make eigenvector tests flaky | Compare subspaces (principal angles), never individual vectors |
+| $\gamma < 0$ in supervised / fair KPCA makes the reduced matrix indefinite | Keep the top-$k$ eigenvectors anyway, which is the variance–dependence trade-off the user asked for, and say in the docstring that the scores can be negative |
+| A dense `hsic_penalty` (RBF on attributes) costs $O(n^2)$ memory | Recommend `approx=` in the docstring. The low-rank path is also the fast one |
 | Row-major vs column-major confusion when porting old notebooks | Stated in `GridGraph`'s docstring, and in the manipy HSI helpers |

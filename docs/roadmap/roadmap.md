@@ -2,7 +2,7 @@
 date: 2026-09-30
 ---
 
-# Roadmap: graphs, GMRFs, INLA and randomized linear algebra
+# Roadmap: graphs, GMRFs, INLA, randomized linear algebra and dependence penalties
 
 :::{note}
 **Status: draft (v0.2.0, 2026-09-30).** This is a plan, not documentation of
@@ -12,13 +12,14 @@ PR and issue in the repo it touches.
 
 ## Summary
 
-Three projects touch the same four libraries, and overlap heavily:
+Four projects touch the same libraries, and overlap heavily:
 
 | Project | Source | In one line |
 |---|---|---|
 | [Manifold learning and graphs](project-manifold.md) | The author's 2016–2018 `manipy` / `manifold_learning` research code | Graph primitives in kernellib; manipy becomes the JAX dimensionality-reduction library |
 | [RandNLA](project-rnla.md) | [gaussx#156](https://github.com/jejjohnson/gaussx/issues/156) | Sketching, randomized factorisations and better preconditioners in gaussx; kernel uses in kernellib |
 | [INLA](project-inla.md) | [gaussx#155](https://github.com/jejjohnson/gaussx/issues/155) | Structured precision and GMRFs in gaussx; latent Gaussian models and `inla()` in a new pyrox-lgm |
+| [Dependence penalties](project-fairkl.md) | The author's [keras-fairkl](https://github.com/jejjohnson/keras-fairkl) and 2017 fair-learning notebooks | No new library: stable and gradient-safe HSIC / CKA, quadratic-penalty KRR (fair KRR, LapRLS), supervised / fair kernel PCA and pre-images in kernellib |
 
 Every repo file mixes the API with **maths notes** (where each operation comes from) and **pseudocode examples**; the [examples gallery](roadmap-examples.md) shows end-to-end problems. This directory specifies the work **per repo**, with one phase numbering
 per repo. The project pages keep what is project-specific: motivation, the
@@ -27,12 +28,12 @@ questions.
 
 | File | Phases | Serves |
 |---|---|---|
-| [gaussx.md](roadmap-gaussx.md) | G1–G10 (Part A: structured precision, GMRFs, INLA kernels), G11–G17 (Part B: randomized) | all three |
-| [kernellib.md](roadmap-kernellib.md) | K1–K5 (graphs, embeddings), K6 (GMRF structure), K7–K10 (randomized kernel methods), K11 (docs) | all three |
-| [pyrox.md](roadmap-pyrox.md) | P1–P5 (pyrox-gp), P6–P10 (pyrox-lgm, repo-level) | all three |
+| [gaussx.md](roadmap-gaussx.md) | G1–G10 (Part A: structured precision, GMRFs, INLA kernels), G11–G17 (Part B: randomized) | manifold, RandNLA, INLA |
+| [kernellib.md](roadmap-kernellib.md) | K1–K5 (graphs, embeddings), K6 (GMRF structure), K7–K10 (randomized kernel methods), K11 (docs), K12–K14 (dependence penalties) | all four |
+| [pyrox.md](roadmap-pyrox.md) | P1–P5 (pyrox-gp), P6–P10 (pyrox-lgm, repo-level) | manifold, RandNLA, INLA |
 | [manipy.md](roadmap-manipy.md) | M0–M5 | manifold |
 | [plumax.md](roadmap-plumax.md) | X1 | RandNLA |
-| [examples.md](roadmap-examples.md) | — | Ten end-to-end problems (model, maths, pseudocode, phases needed) |
+| [examples.md](roadmap-examples.md) | — | Twelve end-to-end problems (model, maths, pseudocode, phases needed) |
 
 **Out of scope:**
 
@@ -66,6 +67,8 @@ questions.
 | Laplacian / Schrödinger eigenmaps, LPP, SEP, kernel LPP / SEP | kernellib | K5 |
 | GMRF structure: null spaces, structure matrices | kernellib | K6 |
 | Landmark selection, preconditioned KRR, randomized kernel PCA | kernellib | K7–K10 |
+| Gradient-safe CKA, stable unbiased HSIC, mini-batch CKA, Gaussian bandwidth | kernellib | K12 |
+| Quadratic-penalty KRR (fair KRR, LapRLS), supervised / fair kernel PCA, pre-images | kernellib | K13, K14 |
 | Graph Matérn inducing features, latent and inducing-point initialisation, exact-GP recipe | pyrox-gp | P1–P5 |
 | Latent components (including the CAR / ICAR / Leroux / BYM2 spatial priors), PC priors, `LGM`, `inla()` | pyrox-lgm | P6–P9 |
 | Manifold alignment, Isomap / LLE / diffusion maps / t-SNE, out-of-sample extension, HSI workflows, metrics, datasets | manipy | M0–M5 |
@@ -145,13 +148,13 @@ parallel.
 
 | Wave | Phases |
 |---|---|
-| 1 | G1, G2, G3, G9, G11, G14, K1, P1, P6, M0 |
+| 1 | G1, G2, G3, G9, G11, G14, K1, K12, K13, K14, P1, P6, M0 |
 | 2 | G4 (G1), G12 (G11), G15 (G11), K2 (K1, G1), K7 (G11), K8 (G14) |
 | 3 | G5 (G3, G4), G13 (G12), G16 (G12), K3 (K2), K10 (G12), X1 (G12), P3 (K8), P5 (K8), M2 (K2) |
 | 4 | G6 (G1, G3, G5), G7 (G1, G3, G4), K4 (K3), K9 (G13, G14), G17 on demand |
 | 5 | G8 (G6), K5 (K3, G2), K6 (K2–K4; G7 for its test), P2 (K3, K4) |
 | 6 | G10 (G8), P7 (G6, G7, K6), M1 (K2, K5, G2) |
-| 7 | P8 (G8–G10, P7), K11, M3 (M1, M2), M5 |
+| 7 | P8 (G8–G10, P7), K11 (K5, K6, K8–K10, K12–K14), M3 (M1, M2), M5 |
 | 8 | P9, M4. P4 as soon as gaussx#312 is fixed (and G13 is out). P10 alongside every pyrox phase |
 
 **Highest-value early deliverables:**
@@ -161,6 +164,9 @@ parallel.
   exact and `O(N)`.
 - **K8 → P3** gives kernel-aware landmark and inducing-point selection.
 - **P1** removes a phantom `pca_init` from pyrox's design docs.
+- **K12** fixes two live numerics bugs, kernellib#93 (NaN CKA) and #94
+  (float32 unbiased HSIC), that make CKA unusable as a training penalty
+  today. It needs nothing else.
 
 **Critical path to a first end-to-end `inla()`:**
 G1 → G4 → G5 → G6 → G8 → G10 → P8, with G7, K6 and P7 alongside.
@@ -194,7 +200,7 @@ pages.
 |---|---|---|
 | 1 | `jax.experimental.sparse` is experimental | Accept it, isolated behind `gaussx.SparseOperator` (G1) and `Graph.to_bcoo()` (K2), so a move to a stable API touches two places |
 | 2 | Where do the CAR / ICAR distributions live? | **Resolved.** The distributions go in gaussx (G6). The priors with hyperpriors go in pyrox-lgm (P7), not pyrox-gp |
-| 3 | Where does this roadmap live? | kernellib's `design_docs/`, because gaussx's CLAUDE.md keeps design documents out of the gaussx repo (`.plans/`, gitignored). File the phases as issues in each repo, and link them here |
+| 3 | Where does this roadmap live? | kernellib's `docs/roadmap/`, rendered in the MyST site, because gaussx's CLAUDE.md keeps design documents out of the gaussx repo (`.plans/`, gitignored). File the phases as issues in each repo, and link them here |
 | 4 | Should the `key=None → PRNGKey(0)` default stay for new randomized code? | Yes, for consistency with gaussx today. Revisit repo-wide if silent determinism causes a bug |
 
 ## 6. Decisions log
@@ -202,3 +208,4 @@ pages.
 | Date | Decision |
 |---|---|
 | 2026-09-30 | The three project plans (manifold, RandNLA, INLA) are fused into this per-repo roadmap, with one phase numbering per repo and the old ids mapped in §4. Project pages keep motivation, audits, use cases, non-goals and open questions. Cross-cutting decisions are in §3 |
+| 2026-09-30 | A fourth project, [dependence penalties](project-fairkl.md), from the keras-fairkl audit. It is kernellib-only (K12–K14) and has no cross-repo dependencies; its fast paths reuse gaussx's existing `LowRankUpdate` Woodbury solve. Bugs found are filed as kernellib#93, #94 and keras-fairkl#15–#19 |
