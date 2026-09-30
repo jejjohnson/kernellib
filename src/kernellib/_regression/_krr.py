@@ -153,6 +153,12 @@ class KRR(AbstractEstimator):
             J = jnp.asarray(mask, dtype=bool)
             if J.shape != (n,):
                 raise ValueError(f"mask must have shape ({n},), got {J.shape}.")
+            try:
+                empty = not bool(jnp.any(J))
+            except jax.errors.ConcretizationTypeError:  # traced: can't check
+                empty = False
+            if empty:
+                raise ValueError("mask selects no labelled points.")
         Jf = J.astype(X.dtype)
         n_lab = jnp.sum(Jf) if mask is not None else n
         # Unlabelled targets are ignored; zero them so a NaN placeholder
@@ -251,7 +257,15 @@ def _no_penalty(
     """No penalty, or a weight that is a concrete zero: the plain KRR path."""
     if penalty is None:
         return True
-    return isinstance(weight, (int, float)) and weight == 0
+    return _is_concrete_zero(weight)
+
+
+def _is_concrete_zero(value: float | Float[Array, ""]) -> bool:
+    """Whether ``value`` is a known zero: a Python number, or a concrete array."""
+    try:
+        return bool(jnp.asarray(value) == 0)
+    except jax.errors.ConcretizationTypeError:  # traced: not known to be zero
+        return False
 
 
 def _is_low_rank(

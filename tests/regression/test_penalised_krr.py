@@ -159,6 +159,8 @@ def test_errors():
     X, y, S = _data()
     with pytest.raises(ValueError, match="mask"):
         _krr(1.0).fit(X, y, mask=jnp.ones(3, dtype=bool))
+    with pytest.raises(ValueError, match="no labelled points"):
+        _krr(1.0).fit(X, y, mask=jnp.zeros(X.shape[0], dtype=bool))
     bad = gx.LowRankUpdate(
         base=lx.DiagonalLinearOperator(jnp.ones(X.shape[0])),
         U=S,
@@ -193,3 +195,22 @@ def test_laprls_classifies_two_moons_from_two_labels():
     baseline = jnp.mean(jnp.sign(plain.predict(X)) == labels)
     assert float(accuracy) > 0.95
     assert float(baseline) < 0.85
+
+
+@pytest.mark.parametrize("dtype", [jnp.int32, jnp.bool_])
+def test_hsic_penalty_keeps_a_fractional_variance_for_discrete_attributes(dtype):
+    S = (jnp.arange(40) % 2).astype(dtype)[:, None]
+    M = kl.hsic_penalty(kl.Linear(variance=0.5), S)
+    assert jnp.issubdtype(M.U.dtype, jnp.floating)
+    assert jnp.allclose(M.d, 0.5)
+    dense = kl.hsic_penalty(kl.Linear(variance=0.5), S.astype(float))
+    assert jnp.allclose(M.as_matrix(), dense.as_matrix())
+
+
+def test_concrete_array_zero_weight_is_plain_krr():
+    X, y, S = _data()
+    plain = kl.KRR(KERNEL, regularization=1e-3).fit(X, y)
+    zero = kl.KRR(KERNEL, regularization=1e-3, penalty_weight=jnp.asarray(0.0)).fit(
+        X, y, penalty=kl.hsic_penalty(kl.Linear(), S)
+    )
+    assert bool(jnp.all(plain.alpha == zero.alpha))

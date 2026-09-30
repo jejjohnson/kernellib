@@ -78,12 +78,15 @@ def hsic_penalty(
     if approx is not None or isinstance(kernel, Linear):
         if approx is not None:
             Phi = approx.fit(kernel, S)(S)
-            weights = jnp.ones(Phi.shape[1], dtype=Phi.dtype)
+            variance = 1.0
         else:
             assert isinstance(kernel, Linear)
             Phi = S
-            weights = jnp.full(S.shape[1], kernel.variance, dtype=S.dtype)
-        Q = _centre_columns(Phi) / n
+            variance = kernel.variance
+        # Integer or boolean attributes: work in floats, so a fractional
+        # variance is not truncated.
+        Q = _centre_columns(jnp.asarray(Phi, dtype=jnp.result_type(Phi, float))) / n
+        weights = jnp.full(Q.shape[1], variance, dtype=Q.dtype)
         zero = lx.DiagonalLinearOperator(jnp.zeros(n, dtype=Q.dtype))
         return gx.LowRankUpdate(
             base=zero, U=Q, d=weights, V=Q, tags=frozenset({lx.symmetric_tag})
