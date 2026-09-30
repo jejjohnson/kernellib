@@ -1300,9 +1300,14 @@ $r+1$ ordinary KRR solves, with all of them CG on the implicit
 operator when $n$ is large. Only the $r\times r$ capacitance depends on
 $\mu$.
 
-**The general path.** Dense $M$, or any mask, uses the symmetric normal
-form $(KJK + l\lambda K + l\mu\,KMK)\alpha = KJy$. It is PSD, so CG
-applies, at three kernel matvecs per iteration.
+**The general path.** Dense $M$, or any mask, solves the system itself.
+It is not symmetric, but it is $PK + l\lambda I$ with $P = J + l\mu M$
+PSD, which is similar to a PSD matrix plus $l\lambda I$: its eigenvalues
+are real and at least $l\lambda$, as well conditioned as KRR. So it is
+solved by dense LU, or matrix-free by GMRES with ``implicit=True`` (one
+kernel matvec per iteration). The symmetric normal form
+$(KJK + l\lambda K + l\mu\,KMK)\alpha = KJy$ would allow CG, but it
+squares the conditioning of $K$; implementing K13 showed CG stalling on it.
 
 ```python
 class KRR(AbstractEstimator):
