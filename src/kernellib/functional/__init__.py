@@ -32,6 +32,7 @@ from kernellib.functional._stationary import (
     white_kernel,
 )
 from kernellib.functional._statistics import (
+    center_cross_kernel,
     center_kernel,
     centering_operator,
     cka,
@@ -41,6 +42,7 @@ from kernellib.functional._statistics import (
 
 
 __all__ = [
+    "center_cross_kernel",
     "center_kernel",
     "centering_operator",
     "cka",

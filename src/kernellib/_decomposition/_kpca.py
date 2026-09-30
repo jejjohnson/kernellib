@@ -17,18 +17,46 @@ eigenvalues divided by $n$ are the feature-space variances.
 The exact path costs $O(N^3)$. With ``approx``, a feature map
 $\phi$ (Nyström, random Fourier, ...) replaces the kernel and kernel PCA
 becomes ordinary PCA of $\phi(X)$, in $O(N R^2)$.
+
+**Supervised and fair kernel PCA.** Given targets $T$ with a kernel $K_T$,
+the components $Z = \tilde K A$ maximise the variance plus $\gamma$ times
+the linear-kernel HSIC between $Z$ and $T$,
+
+$$
+\max_A\ \operatorname{tr}\Big(A^\top \tilde K\big(\tfrac1n I
+    + \tfrac{\gamma}{n^2} H K_T H\big)\tilde K A\Big)
+\quad\text{s.t.}\quad A^\top \tilde K A = I .
+$$
+
+$\gamma > 0$ is supervised kernel PCA (Barshan et al., 2011) and
+$\gamma < 0$ fair kernel PCA (Pérez-Suay et al., 2017). With
+$\tilde K = U\Lambda U^\top$ over its positive eigenpairs and
+$A = U\Lambda^{-1/2}B$, the constraint is $B^\top B = I$ and $B$ is the top
+eigenvectors of $C = \Lambda^{1/2}U^\top(\tfrac1n I
++ \tfrac{\gamma}{n^2}HK_TH)U\Lambda^{1/2}$; the embedding is
+$Z = U\Lambda^{1/2}B$. At $\gamma = 0$, $C = \Lambda / n$ and this is plain
+kernel PCA.
+
+**Pre-images** (Bakir, Weston & Schölkopf, 2004). With
+``fit_inverse_transform``, a `KRR` from the training embedding back to the
+inputs is fitted, and `inverse_transform` maps components to input space.
 """
 
 from __future__ import annotations
 
 import dataclasses
 
+import einx
 import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._kernels import AbstractKernel
+from kernellib._einx import einsum, rearrange, reduce
+from kernellib._heuristics import estimate_lengthscale
+from kernellib._kernels import RBF, AbstractKernel, Linear
+from kernellib._regression._krr import KRR
 from kernellib._spectral import AbstractFeatureMap
+from kernellib.functional._statistics import _double_centre, center_cross_kernel
 
 
 __all__ = ["KernelPCA"]
@@ -50,6 +78,19 @@ class KernelPCA(eqx.Module):
         feature_map: The fitted feature map (approximate path).
         components: Principal directions in feature space ``(R, n)``
             (approximate path).
+        target_kernel: Kernel on the targets passed to `fit`; ``None`` means
+            `Linear`.
+        target_weight: $\gamma$: ``> 0`` supervised, ``< 0`` fair, ``0``
+            (default) plain kernel PCA. With a target, ``eigenvalues`` are
+            ``n`` times the eigenvalues of $C$ (so they equal plain kernel
+            PCA's at $\gamma = 0$) and can be negative for $\gamma < 0$;
+            ``explained_variance`` is each component's variance.
+        fit_inverse_transform: Also fit the pre-image map, for
+            `inverse_transform`.
+        inverse_kernel: Kernel on the embedding for the pre-image `KRR`;
+            ``None`` means an `RBF` with the median-heuristic lengthscale.
+        inverse_regularization: Ridge of the pre-image `KRR`.
+        inverse_model: The fitted pre-image `KRR`.
 
     Examples:
         >>> import jax
@@ -74,18 +115,125 @@ class KernelPCA(eqx.Module):
     feature_map: AbstractFeatureMap | None = None
     feature_mean: Float[Array, " R"] | None = None
     components: Float[Array, "R n"] | None = None
+    target_kernel: AbstractKernel | None = None
+    target_weight: float | Float[Array, ""] = 0.0
+    fit_inverse_transform: bool = eqx.field(default=False, static=True)
+    inverse_kernel: AbstractKernel | None = None
+    inverse_regularization: float | Float[Array, ""] = 1e-3
+    inverse_model: KRR | None = None
 
     def __check_init__(self) -> None:
         if self.n_components < 1:
             raise ValueError(f"n_components must be >= 1, got {self.n_components}.")
 
-    def fit(self, X: Float[Array, "N D"]) -> KernelPCA:
+    def fit(
+        self,
+        X: Float[Array, "N D"],
+        *,
+        target: Float[Array, "N P"] | Float[Array, " N"] | None = None,
+    ) -> KernelPCA:
         """Fit the components on ``X``.
+
+        Args:
+            X: Training inputs, shape ``(N, D)``.
+            target: Targets (supervised) or protected attributes (fair) for
+                ``target_weight``; ignored when the weight is ``0``.
 
         Raises:
             ValueError: If ``n_components`` exceeds what the data (or the
-                feature map) supports.
+                feature map) supports, or ``target_weight`` is non-zero
+                without a ``target``.
         """
+        weight_is_zero = (
+            isinstance(self.target_weight, (int, float)) and self.target_weight == 0
+        )
+        if target is None and not weight_is_zero:
+            raise ValueError("target_weight is non-zero but no target was given.")
+        if target is None or weight_is_zero:
+            fitted = self._fit_plain(X)
+        else:
+            fitted = self._fit_supervised(X, _target_penalty(self, target))
+        if self.fit_inverse_transform:
+            assert fitted.embedding is not None
+            fitted = dataclasses.replace(
+                fitted, inverse_model=self._fit_pre_image(fitted.embedding, X)
+            )
+        return fitted
+
+    def inverse_transform(self, Z: Float[Array, "M n"]) -> Float[Array, "M D"]:
+        """Approximate pre-images of components ``Z`` in input space.
+
+        Raises:
+            RuntimeError: If fitted without ``fit_inverse_transform``.
+        """
+        if self.inverse_model is None:
+            raise RuntimeError(
+                "inverse_transform needs KernelPCA(fit_inverse_transform=True)."
+            )
+        return self.inverse_model.predict(Z)
+
+    def _fit_pre_image(self, Z: Float[Array, "N n"], X: Float[Array, "N D"]) -> KRR:
+        kernel = self.inverse_kernel
+        if kernel is None:
+            kernel = RBF(lengthscale=estimate_lengthscale(Z))
+        return KRR(kernel, regularization=self.inverse_regularization).fit(Z, X)
+
+    def _fit_supervised(
+        self, X: Float[Array, "N D"], M: Float[Array, "N N"]
+    ) -> KernelPCA:
+        """The generalised eigenproblem, as a standard one of size N (or R)."""
+        n, k, gamma = X.shape[0], self.n_components, self.target_weight
+        if self.approx is not None:
+            fmap = self.approx.fit(self.kernel, X)
+            Phi = fmap(X)
+            if k > min(Phi.shape):
+                raise ValueError(
+                    f"n_components={k} exceeds the rank bound "
+                    f"{min(Phi.shape)} of the features."
+                )
+            mu = reduce(Phi, "n r -> r", "mean")
+            Pc = einx.subtract("n r, r -> n r", Phi, mu)
+            C = einsum(Pc, Pc, "n a, n b -> a b") / n + gamma * _quad(M, Pc)
+            rho, W = _top(C, k)
+            Z = einsum(Pc, W, "n r, r k -> n k")
+            return dataclasses.replace(
+                self,
+                eigenvalues=n * rho,
+                explained_variance=reduce(Z**2, "n k -> k", "sum") / n,
+                embedding=Z,
+                feature_map=fmap,
+                feature_mean=mu,
+                components=W,
+            )
+        if k > n:
+            raise ValueError(f"n_components={k} exceeds the number of points {n}.")
+        K = self.kernel(X, X)
+        col = reduce(K, "i j -> j", "mean")
+        total = jnp.mean(K)
+        Kc = _double_centre(K)
+        lam, U = jnp.linalg.eigh(_symmetrise(Kc))
+        # Positive eigenpairs only: the constraint A^T K A = I lives there.
+        positive = lam > jnp.max(lam) * n * jnp.finfo(lam.dtype).eps
+        w = jnp.where(positive, jnp.sqrt(jnp.where(positive, lam, 1.0)), 0.0)
+        Uw = einx.multiply("n a, a -> n a", U, w)
+        C = jnp.diag(w**2) / n + gamma * _quad(M, Uw)
+        rho, B = _top(C, k)
+        inv_w = jnp.where(positive, 1.0 / jnp.where(positive, w, 1.0), 0.0)
+        Z = einsum(Uw, B, "n a, a k -> n k")
+        return dataclasses.replace(
+            self,
+            X_train=X,
+            alphas=einsum(
+                einx.multiply("n a, a -> n a", U, inv_w), B, "n a, a k -> n k"
+            ),
+            eigenvalues=n * rho,
+            explained_variance=reduce(Z**2, "n k -> k", "sum") / n,
+            embedding=Z,
+            gram_column_means=col,
+            gram_mean=total,
+        )
+
+    def _fit_plain(self, X: Float[Array, "N D"]) -> KernelPCA:
         n = X.shape[0]
         if self.approx is not None:
             fmap = self.approx.fit(self.kernel, X)
@@ -144,10 +292,35 @@ class KernelPCA(eqx.Module):
         assert self.X_train is not None and self.gram_column_means is not None
         assert self.gram_mean is not None
         Kt = self.kernel(X, self.X_train)
-        Ktc = (
-            Kt
-            - self.gram_column_means[None, :]
-            - jnp.mean(Kt, axis=1, keepdims=True)
-            + self.gram_mean
-        )
+        Ktc = center_cross_kernel(Kt, self.gram_column_means, self.gram_mean)
         return Ktc @ self.alphas
+
+
+def _target_penalty(
+    model: KernelPCA, target: Float[Array, "N P"] | Float[Array, " N"]
+) -> Float[Array, "N N"]:
+    """``H K_T H / n^2`` for the targets."""
+    T = jnp.asarray(target)
+    if T.ndim == 1:
+        T = rearrange(T, "n -> n 1")
+    kernel = Linear() if model.target_kernel is None else model.target_kernel
+    n = T.shape[0]
+    return _double_centre(kernel(T, T)) / n**2
+
+
+def _quad(M: Float[Array, "N N"], V: Float[Array, "N r"]) -> Float[Array, "r r"]:
+    """``V^T M V``."""
+    return einsum(V, einsum(M, V, "i j, j b -> i b"), "i a, i b -> a b")
+
+
+def _top(
+    C: Float[Array, "r r"], k: int
+) -> tuple[Float[Array, " k"], Float[Array, "r k"]]:
+    """The ``k`` largest eigenpairs of a symmetric matrix, descending."""
+    rho, B = jnp.linalg.eigh(_symmetrise(C))
+    return rho[::-1][:k], B[:, ::-1][:, :k]
+
+
+def _symmetrise(A: Float[Array, "n n"]) -> Float[Array, "n n"]:
+    """``(A + A^T) / 2``, against rounding before ``eigh``."""
+    return 0.5 * (A + rearrange(A, "i j -> j i"))
