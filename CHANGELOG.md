@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.12](https://github.com/jejjohnson/kernellib/compare/v0.0.11...v0.0.12) (2026-09-30)
+
+
+### Features
+
+* **decomposition:** supervised and fair KernelPCA, pre-images and center_cross_kernel (K14) ([#104](https://github.com/jejjohnson/kernellib/issues/104)) ([0bc6fa1](https://github.com/jejjohnson/kernellib/commit/0bc6fa11f2deddcd3ca8d4c2c094b40f78f31085))
+* **dependence:** gradient-safe CKA, U-centred unbiased HSIC, CKAAccumulator and a Gaussian bandwidth (K12) ([#101](https://github.com/jejjohnson/kernellib/issues/101)) ([6af61dc](https://github.com/jejjohnson/kernellib/commit/6af61dc96231b208f725a1ee910c6cac08a8ab99))
+* **regression:** quadratic-penalty KRR for fair KRR and LapRLS (K13) ([#103](https://github.com/jejjohnson/kernellib/issues/103)) ([97399d8](https://github.com/jejjohnson/kernellib/commit/97399d898bd7822352093779768dbc247a8699a3))
+
 ## [0.0.11](https://github.com/jejjohnson/kernellib/compare/v0.0.10...v0.0.11) (2026-09-29)
 
 
