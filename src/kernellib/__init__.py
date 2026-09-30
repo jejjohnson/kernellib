@@ -20,21 +20,12 @@ from __future__ import annotations
 from kernellib import functional
 from kernellib._decomposition import (
     KernelPCA,
-    KNNGraph,
     LaplacianEigenmaps,
     LocalityPreservingProjections,
     SchrodingerEigenmaps,
-    adjacency_matrix,
     barrier_potential,
-    commute_time_kernel,
-    cosine_graph_kernel,
-    diffusion_kernel,
-    graph_laplacian,
     label_potential,
     laplacian_eigenmap,
-    nearest_neighbors,
-    random_walk_kernel,
-    regularized_laplacian_kernel,
     schrodinger_eigenmap,
     spatial_spectral_potential,
 )
@@ -51,6 +42,17 @@ from kernellib._dependence import (
     mmd_squared,
     permutation_test,
     taylor_statistics,
+)
+from kernellib._graph import (
+    KNNGraph,
+    adjacency_matrix,
+    commute_time_kernel,
+    cosine_graph_kernel,
+    diffusion_kernel,
+    graph_laplacian,
+    nearest_neighbors,
+    random_walk_kernel,
+    regularized_laplacian_kernel,
 )
 from kernellib._heuristics import (
     estimate_lengthscale,

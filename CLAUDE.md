@@ -84,7 +84,8 @@ The planned layout (from the design doc; directories appear as their phase lands
 | `_heuristics.py` | Bandwidth heuristics | 1 |
 | `_regression/` | `KRR`, `Falkon`, `EigenPro` estimators, with the Falkon / EigenPro primitives moved from gaussx | 2 |
 | `_dependence/` | HSIC, CKA, MMD, permutation tests | 2 |
-| `_decomposition/` | Kernel PCA; k-NN graphs (exact JAX, optional pynndescent / sklearn), Laplacians and graph kernels; Laplacian and Schrödinger eigenmaps, LPP | 2 |
+| `_graph/` | k-NN search (exact JAX, optional pynndescent / sklearn), adjacency, Laplacians, graph kernels, the ARPACK eigenpair helpers | 1 |
+| `_decomposition/` | Kernel PCA; Laplacian and Schrödinger eigenmaps; LPP (`_projections.py`) | 2 |
 
 Dependency direction is strictly one-way, layer 0 → 1 → 2.
 
