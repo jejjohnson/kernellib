@@ -24,6 +24,7 @@ something usable at each wave.
 | 10 | [Uncertainty on a 2M-node global mesh](#ex-mesh) | geostatistics on the sphere | G1, G7, G16 |
 | 11 | [Fair regression](#ex-fair) | credit, hiring, public-sector risk scores | K12, K13 (K9 at scale) |
 | 12 | [Semi-supervised regression on a graph](#ex-laprls) | remote sensing with sparse in-situ labels | K13 (K2 for sparse graphs) |
+| 13 | [Origin–destination flows](#ex-od) | mobility, migration, trade | K2, K6, G6–G10, P7, P8 |
 
 ---
 
@@ -48,7 +49,11 @@ generalised variance. The stacked $(b,u^\ast)$ has the sparse precision of
 share of the variance that is spatially structured.
 
 ```python
-counties = kl.graph_from_adjacency(queen_contiguity)
+# polygons → queen contiguity with city2graph (docs-only), → kernellib by edge list
+nodes, edges = c2g.contiguity_graph(counties_gdf, contiguity="queen")
+u = nodes.index.get_indexer(edges.index.get_level_values(0))
+v = nodes.index.get_indexer(edges.index.get_level_values(1))
+counties = kl.graph_from_edges(u, v, len(nodes))  # connectivity weights for an ICAR
 model = lgm.LGM(
     components=(lgm.BYM2(counties, name="region"),),
     fixed=lgm.FixedEffects(("intercept", "z")),
@@ -434,3 +439,50 @@ moisture_map = laprls.predict(X_grid)
 $(KJK + l\lambda K + \tfrac{l\mu}{n^2}KLK)\alpha = KJy$ by CG. With a
 sparse K2 Laplacian, each iteration costs three kernel matvecs and one
 sparse matvec.
+
+---
+
+(ex-od)=
+## 13. Origin–destination flows
+
+**Problem.** Trip counts $y_{od}$ between 300 regions (commuting, bike
+share, migration). How much of the flow is explained by distance, and
+which regions generate or attract more trips than distance predicts?
+
+**Model.** A spatial-interaction (gravity) model with structured origin
+and destination effects:
+
+$$
+y_{od}\sim\operatorname{Poisson}(\mu_{od}),\qquad
+\log\mu_{od} = \beta_0 - \gamma\log d_{od} + a_o + b_d,
+$$
+
+with $a$ and $b$ two BYM2 fields on the same region graph. It is an LGM
+with two components indexed by origin and destination. The Hessian of the
+latent field stays sparse: two BYM2 blocks, coupled only through the
+$O(n_{\text{regions}}^2)$ observations, which is $A^\top WA$ with $A$
+selecting $a_o$ and $b_d$ per pair.
+
+```python
+nodes, edges = c2g.contiguity_graph(regions_gdf, contiguity="queen")
+regions = kl.graph_from_edges(
+    nodes.index.get_indexer(edges.index.get_level_values(0)),
+    nodes.index.get_indexer(edges.index.get_level_values(1)),
+    len(nodes),
+)
+flows = od_table  # city2graph's OD tools give (origin, destination, count) rows
+model = lgm.LGM(
+    components=(
+        lgm.BYM2(regions, name="origin"),
+        lgm.BYM2(regions, name="destination"),
+    ),
+    fixed=lgm.FixedEffects(("intercept", "log_distance")),
+    likelihood=gx.PoissonLikelihood(),  # or NegativeBinomialLikelihood for overdispersion (G8)
+)
+res = lgm.inla(model, flows, key=key)
+generators = res.random["origin"].mean  # excess outflow, beyond distance
+```
+
+**What makes it work.** Nothing new: the two components and the
+likelihood already exist in the plan. city2graph supplies the region
+graph and the OD table, and `graph_from_edges` is the only seam.

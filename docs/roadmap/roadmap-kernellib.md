@@ -28,7 +28,7 @@ The baseline is kernellib 0.0.11.
 | Phase | What | Projects | Needs |
 |---|---|---|---|
 | K1 | Move-only refactor into `_graph/` (and LPP into `_projections.py`) | manifold | — |
-| K2 | `AbstractGraph` / `Graph` (static topology) / `GridGraph`; builders; Laplacian and incidence operators | manifold, INLA | K1, G1 |
+| K2 | `AbstractGraph` / `Graph` (static topology) / `GridGraph`; builders (including `graph_from_edges`, distance-to-weight conversion, `knn_graph(ensure_connected=)`); Laplacian and incidence operators | manifold, INLA | K1, G1 |
 | K3 | `laplacian_eigpairs` (dense / Kronecker / Lanczos / ARPACK), `n_components_graph` | manifold, INLA | K2 |
 | K4 | Graph spectra (`graph_heat_spectrum`, `graph_matern_spectrum`), `matern_graph_kernel` | manifold, INLA | K3 (tests only) |
 | K5 | Eigenmap extensions, `combine_potentials`, SEP, kernel LPP / SEP, sklearn adapters | manifold | K3, G2 |
@@ -37,10 +37,11 @@ The baseline is kernellib 0.0.11.
 | K8 | `select_landmarks` (uniform / leverage / rpcholesky / greedy), used by `NystromFeatures`, `Falkon`, `EigenPro` | RandNLA | G14 |
 | K9 | Preconditioned `KRR` (`preconditioner="nystrom" \| "rpcholesky"`) | RandNLA | G13, G14 |
 | K10 | `KernelPCA(eigen_solver="randomized")` via `gx.randomized_eigh` on `HKH` | RandNLA | G12 |
-| K11 | Docs: API pages, notebooks, `architecture.md` updates | all | K5, K6, K8–K10, K12–K14 |
+| K11 | Docs: API pages, notebooks, `architecture.md` updates | all | K5, K6, K8–K10, K12–K15 |
 | K12 | Dependence-measure numerics: gradient-safe `cka` ([#93](https://github.com/jejjohnson/kernellib/issues/93)), U-centred unbiased HSIC ([#94](https://github.com/jejjohnson/kernellib/issues/94)), `CKAAccumulator` (mini-batch CKA), `estimate_lengthscale(method="gaussian")` | fairkl | — |
 | K13 | Quadratic-penalty KRR: `KRR(penalty_weight=...)`, `fit(..., penalty=, mask=)`, `hsic_penalty`, `laplacian_penalty`; Woodbury path for low-rank penalties | fairkl, manifold | — (K2 for sparse graphs) |
 | K14 | `KernelPCA` extensions: `center_cross_kernel`, supervised / fair KPCA (`target_weight`), `inverse_transform` (learned pre-image) | fairkl, manifold | — |
+| K15 | Proximity graphs for low-dimensional points: `delaunay_graph`, `gabriel_graph`, `relative_neighborhood_graph` (from the city2graph review) | manifold, INLA | K2, K6 |
 
 ---
 
@@ -130,7 +131,9 @@ src/kernellib/
 │   ├── _neighbors.py          # MOVED KNNGraph, nearest_neighbors; NEW radius_neighbors     (K2)
 │   ├── _types.py              # NEW  GraphTopology, AbstractGraph, Graph, GridGraph         (K2)
 │   ├── _construct.py          # NEW  graph_from_neighbors, knn_graph, radius_graph, grid_graph,
-│   │                          #      graph_from_adjacency (K2), mesh_graph (K6); MOVED adjacency_matrix
+│   │                          #      graph_from_adjacency, graph_from_edges (K2), mesh_graph (K6);
+│   │                          #      MOVED adjacency_matrix
+│   ├── _proximity.py          # NEW  delaunay_graph, gabriel_graph, relative_neighborhood_graph (K15)
 │   ├── _weights.py            # NEW  heat, connectivity, cosine, local scaling, any kernel  (K2)
 │   ├── _laplacian.py          # MOVED graph_laplacian; NEW laplacian_operator (K2),
 │   │                          #      graph_null_space, structure_matrix (K6)
@@ -320,6 +323,7 @@ def knn_graph(
     symmetrize="max",
     backend="exact",
     random_state=None,
+    ensure_connected: bool = False,  # add Borůvka bridge edges until one component
 ) -> Graph: ...  # nearest_neighbors + graph_from_neighbors
 
 
@@ -338,6 +342,19 @@ def grid_graph(
 
 
 def graph_from_adjacency(W: Float[Array, "N N"], *, atol: float = 0.0) -> Graph: ...
+
+
+def graph_from_edges(
+    senders: Int[Array, " E"],
+    receivers: Int[Array, " E"],
+    n_nodes: int,
+    *,
+    weights: Float[Array, " E"] | None = None,  # affinities, used as given
+    distances: Float[Array, " E"] | None = None,  # converted by `weighting`
+    weighting: Weighting = "connectivity",
+    bandwidth: float | Literal["median"] | None = None,
+    symmetrize: Literal["max", "min", "mean"] = "max",
+) -> Graph: ...
 
 
 def edge_weights(
@@ -368,6 +385,27 @@ Weighting = Literal["heat", "connectivity", "cosine"] | AbstractKernel
   That generalises Cahill's spatial-spectral potential: grid topology,
   spectral weights. It is also the extension point for any spatial model
   that wants covariate-dependent adjacency.
+- **`graph_from_edges`** is the sparse interoperability seam. Any
+  upstream tool that produces an edge list (city2graph, libpysal
+  contiguity, NetworkX, OpenStreetMap road networks) hands kernellib
+  plain integer arrays, and kernellib never imports those libraries.
+  - Pass `weights` for affinities, or `distances` to have them converted.
+  - **Distances are not weights.** city2graph's edge `weight` column is a
+    distance, so using it as an affinity inverts the Laplacian: far
+    neighbours would couple most strongly. With `distances=`, `weighting`
+    converts them: `"heat"` gives $\exp(-d^2/2\sigma^2)$, a stationary
+    kernellib kernel is evaluated on $d$, and `"connectivity"` ignores
+    them.
+  - Duplicate or reversed pairs are merged by `symmetrize`, and
+    self-loops are dropped.
+  - `graph_from_adjacency` stays for small dense inputs.
+- **`ensure_connected`.** A k-NN graph on clustered data often splits
+  into components. That silently adds zero eigenvalues to eigenmaps, and
+  islands to an ICAR prior. With `ensure_connected=True`, each component is
+  joined to its nearest other component by the shortest edge between them
+  (Borůvka's step, so at most $\lceil\log_2 c\rceil$ rounds for $c$
+  components). These are exactly edges of the Euclidean minimum spanning
+  tree, weighted like every other edge. It is eager, like `radius_graph`.
 - **`adjacency_matrix(knn, ...)`** stays, as
   `graph_from_neighbors(knn, ...).to_dense()`. It must stay bit-identical:
   the current doctests pin its output.
@@ -680,6 +718,63 @@ Z = klpp.transform(X_new)
 - `KernelLocalityPreservingProjections`.
 
 Both pass `check_estimator` (integration tier).
+
+---
+
+## 4b. API — proximity graphs (K15)
+
+From the [city2graph review](roadmap.md): parameter-free, sparse,
+connected graphs for spatial points in two or three dimensions, where a
+k-NN graph needs its `k` tuned and can disconnect.
+
+**The maths.** The Delaunay triangulation $DT$ of points in general
+position contains a nested family of proximity graphs:
+
+$$
+\mathrm{EMST}\ \subseteq\ \mathrm{RNG}\ \subseteq\ \mathrm{GG}\ \subseteq\ DT .
+$$
+
+- **Gabriel graph (GG).** $(i,j)$ is an edge when the disc with diameter
+  $x_ix_j$ contains no other point:
+  $d_{ik}^2 + d_{jk}^2 \ge d_{ij}^2$ for all $k$. For a Delaunay edge, it
+  suffices to check the one or two vertices opposite it in its
+  triangles (the angle there is below 90°).
+- **Relative neighbourhood graph (RNG).** $(i,j)$ is an edge when no $k$
+  is closer to both: $\max(d_{ik}, d_{jk}) \ge d_{ij}$. The candidates
+  are Delaunay neighbours of $i$ or $j$.
+- Every graph in the chain contains the EMST, so every one is
+  **connected**. Each has $O(n)$ edges.
+
+```python
+def delaunay_graph(
+    X: Float[Array, "N d"], *, weighting="heat", bandwidth=None
+) -> Graph: ...
+def gabriel_graph(
+    X: Float[Array, "N d"], *, weighting="heat", bandwidth=None
+) -> Graph: ...
+def relative_neighborhood_graph(
+    X: Float[Array, "N d"], *, weighting="heat", bandwidth=None
+) -> Graph: ...
+```
+
+- The triangulation is `scipy.spatial.Delaunay` on the host (eager, like
+  every builder), for `d ∈ {2, 3}`. Higher `d` raises and points to
+  `knn_graph`.
+- The triangle → edge code is shared with K6's `mesh_graph`. The filtered
+  edges go through `graph_from_edges`, and `weighting` applies to their
+  lengths.
+- Tests:
+  - the nesting EMST ⊆ RNG ⊆ GG ⊆ DT holds on random points;
+  - each graph is connected;
+  - GG and RNG agree with brute-force $O(n^3)$ definitions at $n = 200$;
+  - collinear or duplicate points raise clearly.
+
+**Example.**
+
+```python
+stations = kl.gabriel_graph(station_xy, weighting="connectivity")  # no k to tune
+prior = kl.structure_matrix(stations)  # an ICAR on irregular monitoring sites (K6)
+```
 
 ---
 
@@ -1400,6 +1495,11 @@ kernellib by git tag, so any phase they consume needs a release.
     a path ⊕ cycle), and anisotropic `axis_weights`;
   - `incidence_operatorᵀ @ incidence_operator == laplacian`;
   - `dirichlet_energy(f) == f @ L @ f`;
+- `graph_from_edges` equals `graph_from_adjacency` on the same edges;
+  duplicate and reversed pairs merge; `distances=` with `"heat"` equals
+  `knn_graph`'s heat weights on the same topology;
+- `knn_graph(ensure_connected=True)` on two separated clusters has one
+  component, and its added edges belong to the Euclidean MST;
   - kernel weighting with `RBF` equals `"heat"`;
   - gradients of the Dirichlet energy with respect to the edge weights
     match finite differences.
@@ -1504,6 +1604,10 @@ The tests are given with each API section (§7.1–7.3). None of the three
 needs another phase; K13 accepts K2 `Graph`s in `laplacian_penalty` once
 K2 has shipped.
 
+### K15: proximity graphs (needs K2 and K6)
+
+The tests are given with the API (§4b).
+
 ---
 
 ## 9. Import boundaries
@@ -1513,7 +1617,11 @@ K2 has shipped.
 - `jax.experimental.sparse` is used only through `gaussx.SparseOperator`
   and `Graph.to_bcoo()`, so a change in that experimental API touches two
   places.
-- SciPy stays confined to the `"arpack"` method, as today.
+- SciPy stays confined to the `"arpack"` method and K15's
+  `scipy.spatial.Delaunay` (lazy imports), as today.
+- city2graph, libpysal, NetworkX and GeoPandas are never imported.
+  `graph_from_edges` takes their output as integer arrays (roadmap
+  decision 7).
 - pipekit is a docs-group dependency only (roadmap decision 7). No module
   under `src/kernellib` imports it, and `test_imports.py` does not change.
 

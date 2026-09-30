@@ -33,7 +33,7 @@ This project covers what is left.
 
 | Repo | Phases |
 |---|---|
-| kernellib | [K1–K5](roadmap-kernellib.md): `_graph/` package, sparse `Graph` with static topology, `grid_graph`, scalable eigenpairs, graph Matérn, eigenmap extensions, SEP, kernel LPP / SEP; K11 docs |
+| kernellib | [K1–K5](roadmap-kernellib.md): `_graph/` package, sparse `Graph` with static topology, `grid_graph`, `graph_from_edges` (the seam for city2graph / libpysal / NetworkX), `knn_graph(ensure_connected=)`, scalable eigenpairs, graph Matérn, eigenmap extensions, SEP, kernel LPP / SEP; K15 proximity graphs (Delaunay, Gabriel, RNG); K11 docs |
 | gaussx | [G1, G2, G5, G6](roadmap-gaussx.md): `SparseOperator`, `eigh_generalized`, `pseudo_logdet`, GMRF distributions (shared with INLA) |
 | pyrox | [P1, P2](roadmap-pyrox.md): `latent_init`, graph Matérn inducing features; [P7](roadmap-pyrox.md): the CAR / ICAR / Leroux / BYM2 spatial priors, as pyrox-lgm components |
 | manipy | [M0–M5](roadmap-manipy.md): fresh JAX rewrite; manifold alignment, more DR methods, hyperspectral workflows, metrics, datasets |
