@@ -384,3 +384,23 @@ def test_unbiased_hsic_is_invariant_to_double_centring():
         assert abs(
             float(_stats._hsic_unbiased(jnp.asarray(K2), jnp.asarray(L))) - base
         ) <= 1e-10 * abs(base)
+
+
+@pytest.mark.parametrize("estimator", ["biased", "unbiased"])
+@pytest.mark.parametrize(
+    ("self_x", "self_y"),
+    [(-1e-10, -1e-10), (-1e-10, 0.5), (0.5, 0.0), (0.0, 0.0)],
+)
+def test_cka_ratio_is_zero_when_either_self_term_is_not_positive(
+    estimator, self_x, self_y
+):
+    # Two negative self-HSICs have a positive product; each is tested alone.
+    ratio, grad = jax.value_and_grad(_stats._cka_ratio, argnums=(0, 1, 2))(
+        jnp.asarray(0.3), jnp.asarray(self_x), jnp.asarray(self_y), estimator
+    )
+    assert float(ratio) == 0.0
+    assert all(float(g) == 0.0 for g in grad)
+
+
+def test_cka_ratio_propagates_nan():
+    assert jnp.isnan(_stats._cka_ratio(jnp.asarray(0.3), jnp.nan, 0.5, "unbiased"))
