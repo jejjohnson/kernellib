@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -147,3 +148,44 @@ def test_lengthscale_grid():
     assert jnp.allclose(grid, 2.0 * jnp.array([0.01, 0.1, 1.0, 10.0, 100.0]))
     with pytest.raises(ValueError, match="n_points"):
         kl.lengthscale_grid(1.0, n_points=0)
+
+
+@pytest.mark.parametrize("d", [1, 10, 100])
+def test_gaussian_is_the_mean_distance_of_gaussian_draws(d):
+    from jax.scipy.special import gammaln
+
+    def formula(s):
+        return 2.0 * s * jnp.exp(gammaln((d + 1) / 2) - gammaln(d / 2))
+
+    k1, k2, k3 = jax.random.split(jax.random.key(d), 3)
+    X = 3.0 + 2.5 * jax.random.normal(k1, (400, d))
+    centred = einx.subtract("n d, d -> n d", X, einx.mean("n d -> d", X))
+    sigma_hat = jnp.mean(jnp.sqrt(einx.sum("n d -> d", centred**2) / (X.shape[0] - 1)))
+    # The method is the closed form at the sample scale...
+    assert jnp.allclose(kl.estimate_lengthscale(X, "gaussian"), formula(sigma_hat))
+    # ...and the closed form is E|x - x'| for Gaussian draws: check it against
+    # a Monte Carlo mean, bounded by 4 of its own standard errors.
+    s = 2.5
+    diffs = s * (jax.random.normal(k2, (20000, d)) - jax.random.normal(k3, (20000, d)))
+    dists = jnp.sqrt(einx.sum("m d -> m", diffs**2))
+    se = jnp.std(dists) / jnp.sqrt(dists.size)
+    assert abs(float(jnp.mean(dists) - formula(s))) < 4 * float(se)
+
+
+def test_gaussian_is_smooth_and_per_dimension():
+    X = jax.random.normal(jax.random.key(0), (50, 3)) * jnp.array([1.0, 2.0, 4.0])
+    ard = kl.estimate_lengthscale(X, "gaussian", ard=True)
+    assert ard.shape == (3,)
+    assert bool(jnp.all(jnp.diff(ard) > 0))
+    grad = jax.grad(lambda X: kl.estimate_lengthscale(X, "gaussian"))(X)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+@pytest.mark.parametrize("ard", [False, True])
+def test_gaussian_gradient_is_finite_with_a_constant_column(ard):
+    X = jax.random.normal(jax.random.key(0), (30, 3))
+    X = X.at[:, 1].set(2.0)  # a constant feature: zero variance
+    grad = jax.grad(lambda X: jnp.sum(kl.estimate_lengthscale(X, "gaussian", ard=ard)))(
+        X
+    )
+    assert bool(jnp.all(jnp.isfinite(grad)))

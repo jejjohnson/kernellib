@@ -8,6 +8,7 @@ kernels and samples.
 |---|---|---|
 | `hsic` | dependence between paired samples | biased, unbiased (Song et al., 2012) |
 | `cka` | HSIC normalised to ``[0, 1]`` | biased, unbiased |
+| `CKAAccumulator` | CKA over a dataset, batch by batch | unbiased per batch (Nguyen et al., 2021) |
 | `kernel_alignment` | uncentred alignment of two Gram matrices | — |
 | `mmd_squared` | difference between two distributions | biased, unbiased, linear-time |
 | `distance_covariance_squared` | dependence (Székely et al., 2007) | biased (V), unbiased (U-centred) |
@@ -51,6 +52,28 @@ m = kl.mmd_squared(kx, X, X_other, approx=kl.FastFoodFeatures(1024, key))
 Everything is differentiable, so ``jax.grad`` of HSIC with respect to a
 lengthscale (bandwidth selection) or the inputs (sensitivity) works directly.
 
+## Training with CKA, and CKA over a dataset
+
+`cka` is safe as a training penalty. When either input is constant (a
+network at initialisation, a collapsed representation), CKA is defined as
+``0`` with a zero gradient, instead of ``0 / 0``. The unbiased HSIC is
+computed from U-centred matrices, so it stays accurate in float32 even when
+a Gram matrix is nearly constant.
+
+To compare two representations over a dataset too large for one Gram
+matrix, accumulate the unbiased HSIC terms batch by batch. Each term is
+unbiased, so the result does not depend on the batch size (Nguyen, Raghu &
+Kornblith, 2021):
+
+```python
+acc = kl.CKAAccumulator(kl.Linear(), kl.Linear())
+for xb in batches:
+    acc = acc.update(layer_a(xb), layer_b(xb))  # O(B^2) memory per batch
+similarity = acc.result()
+```
+
+`CKAAccumulator` is a pytree, so it also works as a ``jax.lax.scan`` carry.
+
 ## Distance-based statistics
 
 For a walk-through from correlation to these measures, see the
@@ -91,6 +114,8 @@ classic diagram on a squared scale (variance and $\rho^2$).
 ::: kernellib.hsic
 
 ::: kernellib.cka
+
+::: kernellib.CKAAccumulator
 
 ::: kernellib.kernel_alignment
 

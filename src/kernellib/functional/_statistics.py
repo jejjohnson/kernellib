@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeGuard
 
+import einx
 import gaussx as gx
 import jax.numpy as jnp
 import lineax as lx
@@ -171,6 +172,15 @@ def hsic(
     samples, and it needs ``n >= 4``. Like the closed form it implements, it
     assumes symmetric kernel matrices, which any kernel produces.
 
+    Numerically it is evaluated as $\langle \tilde K_f^{U}, \tilde K_q^{U}
+    \rangle_F / (n(n-3))$ with U-centred matrices (Székely & Rizzo, 2014),
+    which is the same estimator algebraically. The expanded form above sums
+    three ``O(n^2)`` terms that cancel, and in float32 it loses every digit
+    once a Gram matrix is within about ``1e-3`` of constant. Centring first
+    removes the common mode before anything is summed. The low-rank path
+    centres its factors instead, which leaves the estimate unchanged because
+    it is invariant to ``K -> H K H``.
+
     When both operands are `gaussx.LowRankUpdate` on a diagonal base (e.g.
     ``feature_map.operator(X)``), both estimators run on the factors in
     ``O(N R_f R_q)`` and never form an ``N x N`` matrix. The diagonal base
@@ -214,17 +224,29 @@ def hsic(
 
 
 def _hsic_unbiased(K: Float[Array, "n n"], L: Float[Array, "n n"]) -> Float[Array, ""]:
-    """Song et al. (2012) unbiased HSIC on dense matrices."""
+    """Song et al. (2012) unbiased HSIC on dense matrices, via U-centring."""
     n = K.shape[0]
     if n < 4:
         raise ValueError(f"The unbiased HSIC estimator needs n >= 4, got n={n}.")
-    K_t = K - jnp.diag(jnp.diag(K))
-    L_t = L - jnp.diag(jnp.diag(L))
-    # tr(K_t L_t) = sum_ij K_t[i, j] L_t[i, j] for symmetric kernel matrices.
-    trace_term = jnp.sum(K_t * L_t)
-    ones_term = jnp.sum(K_t) * jnp.sum(L_t) / ((n - 1) * (n - 2))
-    cross_term = 2.0 / (n - 2) * jnp.sum(K_t @ L_t)
-    return (trace_term + ones_term - cross_term) / (n * (n - 3))
+    return jnp.sum(_u_centre(K) * _u_centre(L)) / (n * (n - 3))
+
+
+def _u_centre(K: Float[Array, "n n"]) -> Float[Array, "n n"]:
+    """Székely & Rizzo (2014) U-centring: zero diagonal, off-diagonal entries
+
+    ``K_ij - r_i / (n-2) - c_j / (n-2) + S / ((n-1)(n-2))``, with row sums
+    ``r``, column sums ``c`` and total ``S`` of ``K`` with its diagonal zeroed.
+    """
+    n = K.shape[0]
+    off = 1.0 - jnp.eye(n, dtype=K.dtype)
+    # U-centring ignores a constant shift, so remove the off-diagonal mean
+    # first: every sum below then runs on small numbers, not on ~1 + tiny.
+    common = jnp.sum(K * off) / (n * (n - 1))
+    K = (K - common) * off
+    rows = reduce(K, "i j -> i", "sum") / (n - 2)
+    cols = reduce(K, "i j -> j", "sum") / (n - 2)
+    total = jnp.sum(K) / ((n - 1) * (n - 2))
+    return (K + total - einx.add("i, j -> i j", rows, cols)) * off
 
 
 def _hsic_features(
@@ -257,6 +279,10 @@ def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array
     n = Uk.shape[0]
     if n < 4:
         raise ValueError(f"The unbiased HSIC estimator needs n >= 4, got n={n}.")
+    # Centre the factors, i.e. K -> H K H. The estimator is invariant to it
+    # (it only adds row and column constants off the diagonal), and it removes
+    # the common mode that the sums below would otherwise cancel in float32.
+    Uk, Vk, Ul, Vl = (_centre_columns(F) for F in (Uk, Vk, Ul, Vl))
     # einx contracts an axis over exactly two operands, so fold d in first.
     diag_k = einsum(Uk * dk, Vk, "n a, n a -> n")
     diag_l = einsum(Ul * dl, Vl, "n b, n b -> n")
@@ -272,6 +298,11 @@ def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array
     ones_term = jnp.sum(K1) * jnp.sum(L1) / ((n - 1) * (n - 2))
     cross_term = 2.0 / (n - 2) * jnp.sum(K1 * L1)
     return (trace_term + ones_term - cross_term) / (n * (n - 3))
+
+
+def _centre_columns(F: Float[Array, "N R"]) -> Float[Array, "N R"]:
+    """Subtract each column's mean: ``H F``."""
+    return einx.subtract("n r, r -> n r", F, reduce(F, "n r -> r", "mean"))
 
 
 def _frob_sq(A: Float[Array, "a b"]) -> Float[Array, ""]:
@@ -292,10 +323,16 @@ def cka(
     $$
 
     With the biased estimator and PSD kernels the value lies in ``[0, 1]``
-    and is invariant to rescaling either kernel. The unbiased estimator gives
-    debiased CKA; its self-HSIC terms can be non-positive for very small
-    samples, in which case the result is not finite. Low-rank operands on a
-    diagonal base take the ``O(N R_f R_q)`` path of `hsic`.
+    (the result is clipped there, against rounding) and is invariant to
+    rescaling either kernel. The unbiased estimator gives debiased CKA.
+    Low-rank operands on a diagonal base take the ``O(N R_f R_q)`` path of
+    `hsic`.
+
+    **Degenerate inputs.** When either self-HSIC is not positive (a constant
+    variable, or a slightly negative unbiased estimate), CKA is defined as
+    ``0``, with a zero gradient: a constant is independent of everything.
+    That keeps it usable as a training penalty, for example for a network
+    whose output starts constant. NaN inputs still give NaN.
 
     Args:
         K_f: First kernel matrix, shape ``(n, n)``.
@@ -317,7 +354,32 @@ def cka(
     cross = hsic(K_f, K_q, estimator=estimator)
     self_f = hsic(K_f, K_f, estimator=estimator)
     self_q = hsic(K_q, K_q, estimator=estimator)
-    return cross / jnp.sqrt(self_f * self_q)
+    return _cka_ratio(cross, self_f, self_q, estimator)
+
+
+def _cka_ratio(
+    cross: Float[Array, ""],
+    self_x: Float[Array, ""],
+    self_y: Float[Array, ""],
+    estimator: Literal["biased", "unbiased"],
+) -> Float[Array, ""]:
+    """``cross / sqrt(self_x * self_y)``, and 0 with a 0 gradient where either
+
+    self term is not positive. A double ``where`` keeps ``sqrt`` away from 0
+    (its slope is infinite there). A NaN in any term propagates.
+    The biased ratio is clipped to ``[0, 1]``, where it lies in exact
+    arithmetic.
+    """
+    denom = self_x * self_y
+    # Test each term: two slightly negative (unbiased) estimates would give a
+    # positive product. A NaN anywhere is never "degenerate", so it reaches
+    # the ratio and propagates, even when the other side is constant.
+    has_nan = jnp.isnan(cross) | jnp.isnan(self_x) | jnp.isnan(self_y)
+    degenerate = ((self_x <= 0) | (self_y <= 0)) & ~has_nan
+    ratio = jnp.where(
+        degenerate, 0.0, cross / jnp.sqrt(jnp.where(degenerate, 1.0, denom))
+    )
+    return jnp.clip(ratio, 0.0, 1.0) if estimator == "biased" else ratio
 
 
 def mmd_squared(

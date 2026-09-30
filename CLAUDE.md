@@ -178,7 +178,13 @@ See `.github/instructions/docs-examples.instructions.md` for full standards.
 - Kernels, feature maps and estimators are `equinox.Module` subclasses (immutable, PyTree-compatible); hyperparameters are plain array fields with no transforms or priors
 - Dependence measures and helpers are pure functions
 - Use `jaxtyping` annotations for array shapes
-- Use `einx` for tensor reshaping/contraction — no raw `jnp.reshape`/`jnp.transpose`/`jnp.einsum`
+- Use `einx` for **every operation on a dense array** (anything that is not a lineax operator), in `src/` and `tests/`:
+  - contractions and transposes: `einsum(A, x, "j i, j -> i")`, never `A.T @ x`, `jnp.einsum` or `jnp.transpose`;
+  - reshapes: `rearrange`, never `.reshape` or `jnp.reshape`;
+  - axis reductions: `reduce(K, "i j -> j", "mean")`, never `jnp.mean(K, axis=0)` (likewise `sum`, `max`, `std`, ...);
+  - broadcasting against inserted axes: `einx.subtract("i j, j -> i j", K, col)`, never `K - col[None, :]` (likewise `einx.add`, `einx.multiply`, ...).
+
+  Use the `kernellib._einx` wrappers (`einsum`, `rearrange`, `reduce`, `repeat`), and `einx.<op>` for elementwise broadcasts. Fine as they are: matvecs with no transpose (`L @ z`), full reductions (`jnp.sum(A)`), `jnp.eye` / `jnp.diag`, `jnp.concatenate` / `jnp.stack`, and lineax operator methods. Before committing, grep the diff for `axis=`, `[:, None]`, `[None, :]`, `.T` and `reshape`.
 - Google-style docstrings with executable `Examples:` blocks
 - Type hints on all public functions and methods
 - Surgical changes only — don't refactor adjacent code or add docstrings to unchanged code
