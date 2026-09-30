@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TypeGuard
 
+import einx
 import equinox as eqx
 import gaussx as gx
 import jax
@@ -156,7 +157,11 @@ class KRR(AbstractEstimator):
         n_lab = jnp.sum(Jf) if mask is not None else n
         # Unlabelled targets are ignored; zero them so a NaN placeholder
         # cannot leak through J y.
-        Jy = jnp.where(J if y.ndim == 1 else J[:, None], y, 0.0)
+        Jy = (
+            jnp.where(J, y, 0.0)
+            if y.ndim == 1
+            else einx.where("n, n c, -> n c", J, y, 0.0)
+        )
 
         if mask is None and _is_low_rank(penalty):
             return self._fit_woodbury(X, y, penalty, n * mu)
@@ -169,7 +174,7 @@ class KRR(AbstractEstimator):
             K = K_op.as_matrix()
             MK = jax.vmap(M_mv, in_axes=1, out_axes=1)(K)
             B = (
-                Jf[:, None] * K
+                einx.multiply("i, i j -> i j", Jf, K)
                 + n_lab * lam * jnp.eye(n, dtype=K.dtype)
                 + n_lab * reg * MK
             )
@@ -216,9 +221,10 @@ class KRR(AbstractEstimator):
         solve = self.solver.solve
         Ainv_U = jax.vmap(lambda u: solve(A, u), in_axes=1, out_axes=1)(U)
         # Capacitance I + diag(w) (K V)^T A^{-1} U, free of 1 / w.
-        capacitance = jnp.eye(U.shape[1], dtype=U.dtype) + w[:, None] * einsum(
-            KV, Ainv_U, "n a, n b -> a b"
+        weighted = einx.multiply(
+            "a, a b -> a b", w, einsum(KV, Ainv_U, "n a, n b -> a b")
         )
+        capacitance = jnp.eye(U.shape[1], dtype=U.dtype) + weighted
 
         def one(b: Float[Array, " N"]) -> Float[Array, " N"]:
             Ainv_b = solve(A, b)

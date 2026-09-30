@@ -21,9 +21,11 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from kernellib._einx import rearrange
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._kernels import AbstractKernel, Linear
 from kernellib._spectral import AbstractFeatureMap
+from kernellib.functional._statistics import _centre_columns, _double_centre
 
 
 __all__ = ["hsic_penalty", "laplacian_penalty"]
@@ -71,7 +73,7 @@ def hsic_penalty(
     """
     S = jnp.asarray(S)
     if S.ndim == 1:
-        S = S[:, None]
+        S = rearrange(S, "n -> n 1")
     n = S.shape[0]
     if approx is not None or isinstance(kernel, Linear):
         if approx is not None:
@@ -81,15 +83,14 @@ def hsic_penalty(
             assert isinstance(kernel, Linear)
             Phi = S
             weights = jnp.full(S.shape[1], kernel.variance, dtype=S.dtype)
-        Q = (Phi - jnp.mean(Phi, axis=0)) / n
+        Q = _centre_columns(Phi) / n
         zero = lx.DiagonalLinearOperator(jnp.zeros(n, dtype=Q.dtype))
         return gx.LowRankUpdate(
             base=zero, U=Q, d=weights, V=Q, tags=frozenset({lx.symmetric_tag})
         )
-    K = kernel(S, S)
-    Kc = K - jnp.mean(K, axis=0)[None, :] - jnp.mean(K, axis=1)[:, None] + jnp.mean(K)
     return lx.MatrixLinearOperator(
-        Kc / n**2, frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+        _double_centre(kernel(S, S)) / n**2,
+        frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
     )
 
 

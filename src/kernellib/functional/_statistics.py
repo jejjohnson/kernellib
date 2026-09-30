@@ -300,6 +300,13 @@ def _hsic_unbiased_low_rank(K: LowRankFactors, L: LowRankFactors) -> Float[Array
     return (trace_term + ones_term - cross_term) / (n * (n - 3))
 
 
+def _double_centre(K: Float[Array, "N N"]) -> Float[Array, "N N"]:
+    """``H K H`` of a dense matrix, from its row, column and grand means."""
+    rows = reduce(K, "i j -> i", "mean")
+    cols = reduce(K, "i j -> j", "mean")
+    return K + jnp.mean(K) - einx.add("i, j -> i j", rows, cols)
+
+
 def _centre_columns(F: Float[Array, "N R"]) -> Float[Array, "N R"]:
     """Subtract each column's mean: ``H F``."""
     return einx.subtract("n r, r -> n r", F, reduce(F, "n r -> r", "mean"))

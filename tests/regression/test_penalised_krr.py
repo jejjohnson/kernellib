@@ -12,6 +12,7 @@ import lineax as lx
 import pytest
 
 import kernellib as kl
+from kernellib._einx import rearrange
 
 
 def _data(n=60, key=0):
@@ -108,7 +109,14 @@ def test_dependence_decreases_with_the_weight():
     M = kl.hsic_penalty(kl.Linear(), S)
     lin = kl.Linear()
     values = [
-        float(kl.hsic(lin, lin, _krr(mu).fit(X, y, penalty=M).predict(X)[:, None], S))
+        float(
+            kl.hsic(
+                lin,
+                lin,
+                rearrange(_krr(mu).fit(X, y, penalty=M).predict(X), "n -> n 1"),
+                S,
+            )
+        )
         for mu in (0.0, 1.0, 10.0, 100.0, 1000.0)
     ]
     assert all(a > b for a, b in itertools.pairwise(values))
