@@ -133,6 +133,34 @@ Workflow:
 3. After pushing the fix, resolve each addressed review thread via the `resolveReviewThread` mutation
 4. Do **not** resolve threads you haven't addressed
 
+### Automated reviewers: hide addressed comments
+
+This applies **only** to the GitHub Copilot and ChatGPT Codex bots (authors `copilot-pull-request-reviewer` and `chatgpt-codex-connector`). Human reviewers' comments are never hidden.
+
+Address bot comments with code changes; **do not reply to them**. Once a bot comment is addressed (or deliberately declined; say why in the PR description or to the maintainer, not in a reply), resolve its thread as above, then hide the comment as resolved:
+
+```bash
+# 3. List comment IDs: review-thread comments and plain PR comments
+gh api graphql -f query='
+  query($owner: String!, $repo: String!, $pr: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pr) {
+        reviewThreads(first: 100) {
+          nodes { isResolved comments(first: 50) { nodes { id isMinimized author { login } } } }
+        }
+        comments(first: 100) { nodes { id isMinimized author { login } body } }
+      }
+    }
+  }' -f owner=OWNER -f repo=REPO -F pr=PR_NUMBER
+
+# 4. Hide an addressed bot comment as resolved
+gh api graphql -f query='mutation($id: ID!) { minimizeComment(input: {subjectId: $id, classifier: RESOLVED}) { minimizedComment { isMinimized } } }' -f id=COMMENT_ID
+```
+
+- **Review-thread comments:** hide the bot's comments in resolved threads only.
+- **Plain PR comments:** on stacked PRs, Codex posts its review as one plain comment ("💡 Codex Review") rather than as threads. Address every finding in it, then hide the bot comment.
+- Skip comments that are already minimized.
+
 ## Plans
 
 Plans and design documents go in `.plans/` (gitignored, never committed). If a plan needs to be tracked long-term, create a GitHub issue with the same detail instead. **Never commit plan files to the repository.**
