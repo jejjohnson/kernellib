@@ -1087,17 +1087,39 @@ for xb in batches:
     acc = acc.update(layer_a(params_a, xb), layer_b(params_b, xb))
 similarity = acc.result()
 
-# A CKA penalty that survives a collapsed or zero-initialised network
-# the bandwidth on the predictions comes from the target, once (keras-fairkl#16)
+# A CKA penalty that survives a collapsed or zero-initialised network, trained with
+# pipekit-train (roadmap decision 7). The bandwidth on the predictions comes from the
+# target, once (keras-fairkl#16).
 ell_f = kl.estimate_lengthscale(y_train[:, None], method="gaussian")
 
 
-def loss(params, xb, yb, sb):
-    pred = mlp(params, xb)
-    penalty = kl.cka(
-        kl.RBF(ell_f), kl.RBF(1.0), pred[:, None], sb, estimator="unbiased"
-    )
-    return jnp.mean((pred - yb) ** 2) + mu * penalty  # finite value and gradient (K12)
+class CKAPenalisedMSE:  # a pipekit TrainTask
+    def __init__(self, mu, ell_f):
+        self.mu, self.ell_f = mu, ell_f
+
+    def loss_fn(self, model, batch, key):
+        x, y, s = batch
+        pred = jax.vmap(model)(x)[:, 0]
+        mse = jnp.mean((pred - y) ** 2)
+        cka = kl.cka(
+            kl.RBF(self.ell_f), kl.RBF(1.0), pred[:, None], s, estimator="unbiased"
+        )
+        # finite value and gradient even for a constant prediction at init (K12)
+        return mse + self.mu * cka, {"mse": mse, "cka": cka}
+
+
+loop = pt.TrainingLoop(
+    model_op=EquinoxModelOp(eqx.nn.MLP(X.shape[1], 1, 64, 2, key=key)),
+    dataset=pt.IterableDataset(
+        source=list(zip(X, y_train, S)), content_hash="adult-v1"
+    ),
+    task=CKAPenalisedMSE(mu=10.0, ell_f=ell_f),
+    optimizer_config={"name": "adam", "learning_rate": 1e-3},
+    max_steps=5_000,
+    batch_size=256,  # the unbiased estimator needs at least 4 per batch
+    backend="equinox",
+)
+trained_op, artifact = loop.run()
 ```
 
 Tests:
@@ -1426,10 +1448,16 @@ The tests are given with each API section (§6.1–6.4).
   gains a preconditioned-KRR line.
 - Update `graph_embeddings.ipynb` only if its code paths change (they
   should not).
+- **Training loops** follow [roadmap decision 7](roadmap.md):
+  - add `pipekit-train[equinox]` to the `docs` dependency group, pinned by
+    git tag; nothing under `src/` imports it;
+  - `kernels_and_jax.ipynb`: replace the hand-written Adam in the
+    hyperparameter-tuning cell with `optax.adam`. It stays a plain loop,
+    because the point is `jax.grad` through `KRR.fit`.
 - A new notebook, `docs/notebooks/dependence_penalties.ipynb` (K12–K14):
   - fair KRR on Adult census: the accuracy–dependence curve over $\mu$
     from the closed form, and the same trade-off for an MLP trained with
-    a `kl.cka` penalty;
+    a `kl.cka` penalty, as a pipekit `TrainTask` (§7.1's example);
   - LapRLS on two moons;
   - supervised against fair kernel PCA on the same data;
   - pre-image denoising.
@@ -1460,6 +1488,8 @@ K2 has shipped.
   and `Graph.to_bcoo()`, so a change in that experimental API touches two
   places.
 - SciPy stays confined to the `"arpack"` method, as today.
+- pipekit is a docs-group dependency only (roadmap decision 7). No module
+  under `src/kernellib` imports it, and `test_imports.py` does not change.
 
 - K6's `structure_matrix` is the only call into gaussx's GMRF layer
   (allowed: kernellib depends on gaussx; the reverse never happens).

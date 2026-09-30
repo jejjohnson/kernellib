@@ -33,7 +33,7 @@ About 80 % of fairkl already exists in kernellib, usually more generally:
 | `FairKernelPCA`, `FairPCA` (Adam, soft orthogonality) | `KernelPCA` | **Port** as a generalised eigenproblem, supervised or fair (K14) |
 | `FairKernelPCA.inverse_transform` | None | **Port** as a learned pre-image with any kernel (K14) |
 | `_center_cross_kernel` | Inline in `KernelPCA.transform` | **Port** as public `functional.center_cross_kernel` (K14) |
-| `FairLinear`, `FairModelWrapper` | — | Skip: `loss + mu * kl.cka(...)` with `jax.grad` is the whole pattern. Shown in the docs (K11) |
+| `FairLinear`, `FairModelWrapper` | — | Skip: `loss + mu * kl.cka(...)` is the whole pattern. The docs (K11) show it as a pipekit `TrainTask`, trained with `pipekit_train.TrainingLoop` ([roadmap decision 7](roadmap.md)), which also covers what `FairModelWrapper` did for arbitrary networks |
 | `sklearn_compat`, `tuning` (keras-tuner) | `kernellib.sklearn` | Skip |
 
 The central finding is that fairkl's models are **all** trained by

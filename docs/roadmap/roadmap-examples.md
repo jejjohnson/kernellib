@@ -382,8 +382,10 @@ for mu in jnp.logspace(-1, 3, 12):
 ```
 
 The same trade-off for a network needs gradients through a nonlinear
-penalty. Only K12's gradient-safe `kl.cka` is required:
-`loss = mse + mu * kl.cka(kl.RBF(ell_y), kl.RBF(1.0), pred[:, None], s)`.
+penalty. Only K12's gradient-safe `kl.cka` is required: the loss is
+`mse + mu * kl.cka(kl.RBF(ell_y), kl.RBF(1.0), pred[:, None], s)`, written
+as a pipekit `TrainTask` and trained with `pipekit_train.TrainingLoop`
+(the full snippet is K12's example in [kernellib.md](roadmap-kernellib.md)).
 
 **What makes it fast.** By Woodbury, each μ costs three ordinary KRR
 solves: one for $y$, one per attribute. Each is preconditioned CG on the

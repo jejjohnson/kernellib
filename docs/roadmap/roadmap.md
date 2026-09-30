@@ -136,6 +136,23 @@ them.
    - einx for every contraction;
    - randomized functions take `key`, with `key=None` meaning
      `PRNGKey(0)`, as elsewhere in gaussx, stated in each docstring.
+7. **Training loops in examples.**
+   - **Networks and SVI: `pipekit-train`.** Examples that train a network
+     (an Equinox module, over mini-batches) use
+     [pipekit](https://github.com/jejjohnson/pipekit)'s `TrainingLoop`
+     with its Equinox backend, rather than a hand-rolled loop. The
+     objective is a pipekit `TrainTask` (`loss_fn(model, batch, key)`).
+     pyrox's SVI examples may use pipekit's `numpyro-svi` adapter the same
+     way.
+   - **Small full-batch fits: optax directly.** A few scalar
+     hyperparameters, or `jax.grad` through `fit`, use optax directly.
+     `TrainingLoop` is built for datasets and batches, and would hide the
+     point of such examples.
+   - **Docs-only dependency.** pipekit is a dependency of each repo's
+     **docs group only**, pinned by git tag (it is not on PyPI; 0.0.2 at
+     the time of writing). Library code never imports it, and the import
+     tests are unchanged. Notebook outputs are committed, so the pin only
+     matters when a notebook is re-executed.
 
 ---
 
@@ -209,3 +226,4 @@ pages.
 |---|---|
 | 2026-09-30 | The three project plans (manifold, RandNLA, INLA) are fused into this per-repo roadmap, with one phase numbering per repo and the old ids mapped in §4. Project pages keep motivation, audits, use cases, non-goals and open questions. Cross-cutting decisions are in §3 |
 | 2026-09-30 | A fourth project, [dependence penalties](project-fairkl.md), from the keras-fairkl audit. It is kernellib-only (K12–K14) and has no cross-repo dependencies; its fast paths reuse gaussx's existing `LowRankUpdate` Woodbury solve. Bugs found are filed as kernellib#93, #94 and keras-fairkl#15–#19 |
+| 2026-09-30 | Cross-cutting decision 7: examples that train networks use pipekit-train's `TrainingLoop` (a docs-only dependency, git-pinned); small full-batch fits use optax directly |

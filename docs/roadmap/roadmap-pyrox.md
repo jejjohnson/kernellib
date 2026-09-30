@@ -729,6 +729,11 @@ $\log\pi(y_i\mid\eta_i)$ under the same marginals.
 - **pyrox-gp's covariance-form `LaplaceInference` is unchanged**
   ([INLA open question 4](project-inla.md#open-questions)). A later
   option: route GMRF priors in pyrox-gp models through `gx.laplace_mode`.
+- **Training loops in docs** ([roadmap decision 7](roadmap.md)). New
+  examples that fit by SVI may use pipekit-train's `numpyro-svi` adapter
+  instead of a hand-written `svi.update` loop, with pipekit in the docs
+  dependency group only. Existing notebooks change only when re-executed
+  for another reason.
 - **Dependency pins:**
   - pyrox-gp: kernellib ≥ v0.0.8 for P1; the tag containing K3 and K4 for
     P2; the tag containing K8 for P3 and P5; gaussx with G13, after #312,
