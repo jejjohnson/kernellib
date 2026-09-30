@@ -97,7 +97,12 @@ the mask is, not on the grid size.
 
 ```python
 prior_s = gx.spde_precision_grid(
-    (180, 360), kappa, tau, alpha=2, spacing=1.0, periodic=True
+    (180, 360),
+    kappa,
+    tau,
+    alpha=2,
+    spacing=1.0,
+    periodic=(False, True),  # lon wraps, lat does not
 )
 prior_t = gx.ar1_precision(365, rho=0.9, tau=1.0)
 Q = gx.Kronecker(prior_t, prior_s)
@@ -415,12 +420,12 @@ This is the same estimator as [fair regression](#ex-fair), with a
 different penalty matrix.
 
 ```python
-graph = kl.nearest_neighbors(X_all, 10)  # a K2 Graph once that lands
+graph = kl.knn_graph(X_all, 10, weighting="heat")  # K2: a sparse weighted Graph
 laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
     X_all,
     y_all,  # any value where unlabelled
     mask=is_labelled,
-    penalty=kl.laplacian_penalty(kl.adjacency_matrix(graph)),
+    penalty=kl.laplacian_penalty(graph),  # sparse L / n², never densified
 )
 moisture_map = laprls.predict(X_grid)
 ```

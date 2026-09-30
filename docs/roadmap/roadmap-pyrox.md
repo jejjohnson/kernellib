@@ -299,8 +299,8 @@ def init_inducing(
     X: Float[Array, "N D"],
     n_inducing: int,
     *,
+    kernel: Kernel | None,  # required keyword; None only with method="uniform"
     method: Literal["uniform", "rpcholesky", "greedy", "leverage"] = "rpcholesky",
-    kernel: Kernel | None = None,
     key: PRNGKeyArray,
 ) -> Float[Array, "M D"]:
     """Inducing inputs chosen from X."""
@@ -309,8 +309,10 @@ def init_inducing(
 - It calls `kernellib.select_landmarks` on the kernel frozen at its
   current parameters (`kernel.frozen()`, inside the kernel context), and
   returns `X[indices]`.
-- **`kernel`** is required for every method except `"uniform"`, which
-  ignores it.
+- **`kernel`** is a required keyword with no default, so the default
+  call `init_inducing(X, M, kernel=k, key=key)` is always valid.
+  `kernel=None` is accepted only with `method="uniform"`; any other
+  method raises.
 - **The default is `"rpcholesky"`.** It is kernel-aware and
   parameter-free, and at initialisation it is as good as or better than
   k-means for sparse variational GPs.

@@ -134,8 +134,19 @@ them.
    - distributions subclass NumPyro's `Distribution`, never bare Equinox
      modules;
    - einx for every contraction;
-   - randomized functions take `key`, with `key=None` meaning
-     `PRNGKey(0)`, as elsewhere in gaussx, stated in each docstring.
+   - **PRNG keys:**
+     - **gaussx:** randomized primitives take `key`, with `key=None`
+       meaning `PRNGKey(0)`, as elsewhere in gaussx, stated in each
+       docstring.
+     - **kernellib, pyrox and manipy:** a `key` is **required** wherever
+       the result depends on it (`select_landmarks`, `init_inducing`,
+       `Falkon` centres, randomized `KernelPCA`), following kernellib's
+       existing rule (`estimate_lengthscale(subsample=...)` raises
+       without one).
+     - **The exception:** `key=None` is allowed where the key only seeds
+       an iterative solver whose answer does not depend on it, up to
+       tolerance, such as the Lanczos start block in
+       `laplacian_eigpairs`.
 7. **Training loops in examples.**
    - **Networks and SVI: `pipekit-train`.** Examples that train a network
      (an Equinox module, over mini-batches) use
@@ -171,8 +182,8 @@ parallel.
 | 4 | G6 (G1, G3, G5), G7 (G1, G3, G4), K4 (K3), K9 (G13, G14), G17 on demand |
 | 5 | G8 (G6), K5 (K3, G2), K6 (K2–K4; G7 for its test), P2 (K3, K4) |
 | 6 | G10 (G8), P7 (G6, G7, K6), M1 (K2, K5, G2) |
-| 7 | P8 (G8–G10, P7), K11 (K5, K6, K8–K10, K12–K14), M3 (M1, M2), M5 |
-| 8 | P9, M4. P4 as soon as gaussx#312 is fixed (and G13 is out). P10 alongside every pyrox phase |
+| 7 | P8 (G8–G10, P7), K11 (K5, K6, K8–K10, K12–K14), M3 (M1, M2) |
+| 8 | P9, M4, M5 (M3). P4 as soon as gaussx#312 is fixed (and G13 is out). P10 alongside every pyrox phase |
 
 **Highest-value early deliverables:**
 
@@ -218,7 +229,7 @@ pages.
 | 1 | `jax.experimental.sparse` is experimental | Accept it, isolated behind `gaussx.SparseOperator` (G1) and `Graph.to_bcoo()` (K2), so a move to a stable API touches two places |
 | 2 | Where do the CAR / ICAR distributions live? | **Resolved.** The distributions go in gaussx (G6). The priors with hyperpriors go in pyrox-lgm (P7), not pyrox-gp |
 | 3 | Where does this roadmap live? | kernellib's `docs/roadmap/`, rendered in the MyST site, because gaussx's CLAUDE.md keeps design documents out of the gaussx repo (`.plans/`, gitignored). File the phases as issues in each repo, and link them here |
-| 4 | Should the `key=None → PRNGKey(0)` default stay for new randomized code? | Yes, for consistency with gaussx today. Revisit repo-wide if silent determinism causes a bug |
+| 4 | Should the `key=None → PRNGKey(0)` default stay for new randomized code? | In gaussx, yes, for consistency with gaussx today. kernellib, pyrox and manipy require a key wherever the result depends on it (§3, decision 6). Revisit if silent determinism causes a bug |
 
 ## 6. Decisions log
 

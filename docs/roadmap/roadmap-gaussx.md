@@ -858,7 +858,7 @@ structure matrix arrives as an operator, from kernellib's
 | `generalized_variance_scale(structure, null_space)` | scalar `s` | The geometric mean of `diag(R⁺)` under the sum-to-zero constraint (Sørbye & Rue, 2014). Uses G3 (grids, exact), or the G4 selected inverse on `R + εI` followed by the kriging correction (graphs, exact and sparse). It replaces the earlier "dense or Hutchinson" `bym2_scaling` idea; very large graphs use G16 |
 | `bym2_precision(structure_scaled, tau, phi)` | `SparseOperator` on the stacked `(b, u*)` | Riebler et al. (2016): `Q = [[τ/(1−φ)·I, −√(τφ)/(1−φ)·I], [−√(τφ)/(1−φ)·I, R* + φ/(1−φ)·I]]`. Sparse, with `R*`'s pattern plus two diagonals, fixed across `(τ, φ)` |
 | `spde_precision(C_lumped, G, kappa, tau, alpha: int)` | `SparseOperator` | `K = κ² C̃ + G`; `Q₁ = τ²K`, `Q₂ = τ² K C̃⁻¹ K`, then `Q_α = K C̃⁻¹ Q_{α−2} C̃⁻¹ K`. The pattern (the α-ring neighbourhood) is computed once on the host |
-| `spde_precision_grid(shape, kappa, tau, alpha, *, spacing=1.0, periodic=False)` | `SpectralFunction(KroneckerSum(L₁, L₂, …), f)` with `f(λ) = τ² h² (κ² + λ/h²)^α` | Exact solve, logdet, `diag_inv` and sampling via factor eigenvectors: `O(Σ n_k³ + N log N)`. Boundary effects are handled by domain extension, as with meshes, and documented |
+| `spde_precision_grid(shape, kappa, tau, alpha, *, spacing=1.0, periodic=False)`; `periodic` is a `bool` or a per-axis tuple, e.g. `(False, True)` for a global lat–lon raster | `SpectralFunction(KroneckerSum(L₁, L₂, …), f)` with `f(λ) = τ² h² (κ² + λ/h²)^α` | Exact solve, logdet, `diag_inv` and sampling via factor eigenvectors: `O(Σ n_k³ + N log N)`. Boundary effects are handled by domain extension, as with meshes, and documented |
 | `matern_spde_params(range, sigma, nu, d)` | `(kappa, tau, alpha)` | `κ = √(8ν)/ρ`, `α = ν + d/2`, `τ` set for unit marginal variance (#155 appendix A) |
 | `fem_matrices(vertices, triangles)` | `(C_lumped: Diagonal, G: SparseOperator)` | P1 on planar (`V × 2`) or surface (`V × 3`, e.g. an icosahedral sphere) triangulations. Per-triangle local matrices use einx; assembly is a `segment_sum` into a pattern built on the host from `triangles` |
 | `fem_projector(vertices, triangles, points, *, triangle_index=None)` | `SparseOperator` `(n_obs, V)`, barycentric weights | Point location is blocked brute force: a barycentric test for planar meshes, and for surface meshes that are star-shaped about their centroid (spheres, icospheres) a ray–triangle test along the ray from the centroid through each point, with the barycentric weights taken at the intersection. Any other surface mesh needs the caller's `triangle_index`, and says so in the error. No mesh generation ([INLA non-goals](project-inla.md#non-goals)) |
@@ -892,7 +892,12 @@ A = gx.fem_projector(
 )  # (n_stations, n_nodes), 3 non-zeros per row
 # ...or on a ¼° global raster, with no mesh at all
 Q_grid = gx.spde_precision_grid(
-    (720, 1440), kappa, tau, alpha, spacing=0.25, periodic=True
+    (720, 1440),
+    kappa,
+    tau,
+    alpha,
+    spacing=0.25,
+    periodic=(False, True),  # wrap longitude only
 )
 ```
 

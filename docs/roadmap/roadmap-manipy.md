@@ -18,7 +18,7 @@ users need. It serves the [manifold](project-manifold.md) project.
 | M2 | Hyperspectral workflow, metrics, datasets | K2 |
 | M3 | Isomap, the LLE family, diffusion maps, Nyström out-of-sample | M1, M2 |
 | M4 | KEMA, t-SNE (on demand) | M3 |
-| M5 | Documentation and reproduction notebooks | M1, M2 |
+| M5 | Documentation and reproduction notebooks | M1, M2, M3 |
 
 ---
 
@@ -210,6 +210,10 @@ class ManifoldAlignment(eqx.Module):
     )
     projections: tuple[Float[Array, "D_i n"], ...] | None = None
     means: tuple[Float[Array, " D_i"], ...] | None = None
+    # standardize=True: per-domain z-scoring of the embedding, fitted on each
+    # domain's labelled embeddings and reapplied by transform(domain=i)
+    embedding_means: tuple[Float[Array, " n"], ...] | None = None
+    embedding_scales: tuple[Float[Array, " n"], ...] | None = None
     eigenvalues: Float[Array, " n"] | None = None
 
     def fit(
@@ -349,9 +353,8 @@ Y = (
     .fit(X, V)
     .embedding
 )
-train, test = manipy.hsi.stratified_split(
-    einx.rearrange("h w -> (h w)", gt), fraction=0.1, key=key
-)
+gt_flat = einx.rearrange("h w -> (h w)", gt)
+train, test = manipy.hsi.stratified_split(gt_flat, fraction=0.1, key=key)
 pred = SVC().fit(Y[train], gt_flat[train]).predict(Y[test])
 oa, aa, kappa = (
     manipy.metrics.overall_accuracy(gt_flat[test], pred),

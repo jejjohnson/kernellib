@@ -91,7 +91,7 @@ default σ. Old settings translate as `σ_new = σ_old / √2`.
 
 The questions about `jax.experimental.sparse` and about where the CAR /
 ICAR distributions live are cross-project: see the
-[roadmap](#roadmap-open-questions).
+[roadmap](roadmap.md#roadmap-open-questions).
 
 ## Decisions log
 

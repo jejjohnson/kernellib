@@ -234,7 +234,7 @@ class GridGraph(AbstractGraph):  # final
     connectivity: Literal["face", "full"] = eqx.field(
         static=True
     )  # 4/6-neighbour or 8/26-neighbour
-    periodic: bool = eqx.field(static=True)
+    periodic: tuple[bool, ...] = eqx.field(static=True)  # per axis; a bool is broadcast
     axis_weights: Float[Array, " d"]  # per-axis edge weight (anisotropic spacing)
     n_nodes: int = eqx.field(static=True)
 ```
@@ -245,8 +245,12 @@ Notes:
   `E` explicitly unless asked.
 - `GridGraph.laplacian_operator("unnormalized")` with `connectivity="face"`
   returns a nested `gaussx.KroneckerSum` of `axis_weights[k] * L_k`, where
-  `L_k` is the path Laplacian (`periodic=False`, free boundary) or the cycle
-  Laplacian (`periodic=True`).
+  `L_k` is the path Laplacian (`periodic[k]=False`, free boundary) or the
+  cycle Laplacian (`periodic[k]=True`).
+  - Periodicity is **per axis**, because a global latitude–longitude
+    raster wraps in longitude but not in latitude:
+    `periodic=(False, True)`. A scalar `bool` is shorthand for every
+    axis.
   - This is exact, including border degrees.
   - Every other combination falls back to `SparseOperator`. The symmetric
     normalisation is not a Kronecker sum, because degrees vary at the
@@ -325,7 +329,11 @@ def radius_graph(
 
 
 def grid_graph(
-    shape, *, connectivity="face", periodic=False, spacing=None
+    shape,
+    *,
+    connectivity="face",
+    periodic: bool | tuple[bool, ...] = False,  # per axis
+    spacing=None,
 ) -> GridGraph: ...
 
 
@@ -773,8 +781,12 @@ while SPDE uses `α = ν + d/2`) is exactly what pyrox-gp's
 `LaplacianInducingFeatures` got wrong ([P2](roadmap-pyrox.md)).
 
 K6 adds an integration test on a 32 × 32 grid:
-`diag(kl.matern_graph_kernel(grid, nu=α, lengthscale=√(2α)/κ))` equals
-`gaussx.spde_precision_grid(..., alpha=α).diag_inv()` after normalisation.
+`diag(kl.matern_graph_kernel(grid, nu=α, lengthscale=√(2α)/κ, normalization="unnormalized"))`
+equals `gaussx.spde_precision_grid(..., alpha=α).diag_inv()` after
+normalisation. The **unnormalised** Laplacian must be selected explicitly:
+`matern_graph_kernel` defaults to the symmetric normalisation, while the
+grid SPDE is built on the unnormalised path and cycle Laplacians, and the
+two spectra differ at the borders of a non-periodic grid.
 The docs state the mapping, so users can move between covariance form (GP
 inducing features) and precision form (GMRF / INLA) on one graph.
 
@@ -883,6 +895,7 @@ class KRR(AbstractEstimator):
         default="none", static=True
     )
     preconditioner_rank: int = eqx.field(default=200, static=True)
+    solver: gx.AbstractSolverStrategy | None = None  # None: choose automatically
 ```
 
 - **Routing.** When `preconditioner != "none"`, `KRR` solves
@@ -897,8 +910,16 @@ class KRR(AbstractEstimator):
     rather than `r` full matvecs, so it is the better choice when kernel
     evaluations are expensive.
 - **Interface.** The preconditioner is always built from `K` with
-  `shift=λn` passed separately, which is the #345 rule. `solver=` still
-  works and takes precedence if the caller passes a strategy explicitly.
+  `shift=λn` passed separately, which is the #345 rule.
+- **Choosing the solver.** Today `solver` defaults to `gx.DenseSolver()`,
+  so `fit` cannot tell a default from an explicit choice. K9 changes the
+  default to `solver: gx.AbstractSolverStrategy | None = None`, meaning
+  "choose automatically": `DenseSolver()` when `preconditioner="none"`
+  (today's behaviour, unchanged), and preconditioned CG otherwise. Any
+  strategy the caller passes, including an explicit `DenseSolver()`, is
+  used as given. Combining an explicit `solver` with
+  `preconditioner != "none"` raises, instead of silently ignoring one of
+  them.
 - **Why a convenience field and not only documentation.** Building a
   preconditioner needs `K` and `λn` separately, and only `KRR` knows both.
   A user passing a strategy cannot do that without re-deriving `λn`.
@@ -909,6 +930,8 @@ Tests:
   problem with `n = 20 000` is below 10 % of the unpreconditioned count
   (slow tier).
 - Predictions match `DenseSolver` at `n = 2000`.
+- `KRR()` with no arguments is unchanged (it solves with `DenseSolver`);
+  an explicit `solver` with `preconditioner != "none"` raises.
 - Update the notebook from kernellib#83 (KRR vs Falkon vs EigenPro) to add
   a preconditioned-KRR line.
 
@@ -957,6 +980,9 @@ class KernelPCA(eqx.Module):
 - **Why not `randomized_nystrom`.** G13's Nyström is single-pass (one
   application of the operator), so `n_power_iter` would have no effect on
   it. `randomized_eigh` is the method with power iterations.
+- **Key.** `fit(X, *, key=None)` gains a `key`, which is **required**
+  when `eigen_solver="randomized"` (it raises without one), per roadmap
+  decision 6; the dense path ignores it.
 - **Out-of-sample `transform`** keeps its current formula; only `alphas`
   and `eigenvalues` change source.
 - **Relation to `approx=`.** The feature-map path approximates the
@@ -971,9 +997,8 @@ class KernelPCA(eqx.Module):
 **Example.**
 
 ```python
-kpca = kl.KernelPCA(kl.RBF(1.0), n_components=20, eigen_solver="randomized").fit(
-    X
-)  # n = 5·10⁴
+kpca = kl.KernelPCA(kl.RBF(1.0), n_components=20, eigen_solver="randomized")
+kpca = kpca.fit(X, key=key)  # n = 5·10⁴
 ```
 
 ### 6.5 Deliberately not changed
@@ -1371,7 +1396,8 @@ kernellib by git tag, so any phase they consume needs a release.
   - the Laplacian operator's matvec agrees with the dense `graph_laplacian`
     for all three normalisations;
   - `GridGraph`'s `KroneckerSum` Laplacian agrees with the dense one for
-    both `periodic` settings and anisotropic `axis_weights`;
+    both `periodic` settings, **mixed per-axis periodicity** (`(False, True)`:
+    a path ⊕ cycle), and anisotropic `axis_weights`;
   - `incidence_operatorᵀ @ incidence_operator == laplacian`;
   - `dirichlet_energy(f) == f @ L @ f`;
   - kernel weighting with `RBF` equals `"heat"`;

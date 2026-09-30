@@ -58,8 +58,9 @@ $$
 
 - **Matched-filter background:**
   - `U, s, Vt = gx.randomized_svd(Xc, rank, oversample=n_oversamples, n_power_iter=n_iter, key=key)`;
-  - `V = Vt`, and `d = s**2 / n_samples`, with the normalisation
-    unchanged.
+  - `V = Vt.T` (shape `(n_bands, rank)`: `randomized_svd` returns `Vt`
+    as `(rank, n_bands)`), and `d = s**2 / n_samples`, with the
+    normalisation unchanged.
 - **Parameter mapping.** `n_oversamples` maps to `oversample`, and
   `TruncatedSVD`'s `n_iter` maps to `n_power_iter`. The current call does
   not pass `n_iter`, so it runs with `TruncatedSVD`'s default of 5 (the
