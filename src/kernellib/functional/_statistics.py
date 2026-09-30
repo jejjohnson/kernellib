@@ -26,6 +26,7 @@ from kernellib._einx import einsum, reduce
 
 
 __all__ = [
+    "center_cross_kernel",
     "center_kernel",
     "centering_operator",
     "cka",
@@ -139,6 +140,48 @@ def _center_low_rank(K: gx.LowRankUpdate, tags: frozenset) -> gx.LowRankUpdate:
     correction = jnp.stack([-1.0 / n, -1.0 / n, jnp.sum(delta) / n**2]).astype(dtype)
     d = jnp.concatenate([K.d.astype(dtype), correction])
     return gx.LowRankUpdate(base=K.base, U=U, d=d, V=V, tags=tags)
+
+
+def center_cross_kernel(
+    K_t: Float[Array, "M N"],
+    col_means: Float[Array, " N"],
+    mean: Float[Array, ""] | float,
+) -> Float[Array, "M N"]:
+    r"""Centre a cross-kernel matrix with the training Gram's statistics.
+
+    For new points $x_t$ against training points, the feature-space
+    centring that `center_kernel` applies to the training Gram $K$ is
+
+    $$
+    \tilde K_t = K_t - \mathbf 1\,\bar k^\top
+        - \bar k_t\,\mathbf 1^\top + \bar{\bar k},
+    $$
+
+    with $\bar k$ the column means of $K$, $\bar k_t$ the row means of
+    $K_t$ and $\bar{\bar k}$ the grand mean of $K$. With $x_t$ the training
+    points themselves it equals $HKH$. `KernelPCA.transform` uses it.
+
+    Args:
+        K_t: Cross-kernel matrix ``k(X_t, X)``, shape ``(M, N)``.
+        col_means: Column means of the training Gram ``k(X, X)``, ``(N,)``.
+        mean: Grand mean of the training Gram.
+
+    Returns:
+        The centred cross-kernel matrix, shape ``(M, N)``.
+
+    Examples:
+        >>> import einx
+        >>> import jax.numpy as jnp
+        >>> from kernellib.functional import center_cross_kernel
+        >>> K = jnp.array([[2.0, 1.0], [1.0, 2.0]])
+        >>> center_cross_kernel(K, einx.mean("i j -> j", K), jnp.mean(K)).tolist()
+        [[0.5, -0.5], [-0.5, 0.5]]
+    """
+    minus_cols = einx.subtract("m n, n -> m n", K_t, col_means)
+    minus_rows = einx.subtract(
+        "m n, m -> m n", minus_cols, reduce(K_t, "m n -> m", "mean")
+    )
+    return minus_rows + mean
 
 
 def hsic(

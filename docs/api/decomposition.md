@@ -18,6 +18,29 @@ Z = kpca.transform(X_new)
 kpca = kl.KernelPCA(k, n_components=10, approx=kl.NystromFeatures(500, key)).fit(X)
 ```
 
+**Supervised and fair kernel PCA.** Pass targets to `fit` and a
+``target_weight`` $\gamma$: the components maximise the variance plus
+$\gamma$ times their linear HSIC with the targets. $\gamma > 0$ keeps
+target-relevant structure (supervised KPCA, Barshan et al., 2011);
+$\gamma < 0$ removes it (fair KPCA). It is still one eigenproblem, and
+$\gamma = 0$ is plain kernel PCA.
+
+```python
+supervised = kl.KernelPCA(k, n_components=5, target_weight=100.0).fit(X, target=y)
+fair = kl.KernelPCA(
+    k, n_components=5, target_kernel=kl.Linear(), target_weight=-100.0
+).fit(X, target=S)  # embedding (nearly) independent of S
+```
+
+**Pre-images.** With ``fit_inverse_transform=True``, a `KRR` from the
+embedding back to the inputs is fitted (Bakir, Weston & Schölkopf, 2004), so
+components map back to input space, e.g. for denoising:
+
+```python
+kpca = kl.KernelPCA(k, n_components=40, fit_inverse_transform=True).fit(X_clean)
+X_denoised = kpca.inverse_transform(kpca.transform(X_noisy))
+```
+
 ::: kernellib.KernelPCA
 
 ## Neighbourhood graphs
