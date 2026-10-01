@@ -140,15 +140,28 @@ This applies **only** to the GitHub Copilot and ChatGPT Codex bots (authors `cop
 Address bot comments with code changes; **do not reply to them**. Once a bot comment is addressed (or deliberately declined; say why in the PR description or to the maintainer, not in a reply), resolve its thread as above, then hide the comment as resolved:
 
 ```bash
-# 3. List comment IDs: review-thread comments and plain PR comments
-gh api graphql -f query='
-  query($owner: String!, $repo: String!, $pr: Int!) {
+# 3a. Review-thread comment IDs (paginated: --paginate follows endCursor)
+gh api graphql --paginate -f query='
+  query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $pr) {
-        reviewThreads(first: 100) {
+        reviewThreads(first: 100, after: $endCursor) {
+          pageInfo { hasNextPage endCursor }
           nodes { isResolved comments(first: 50) { nodes { id isMinimized author { login } } } }
         }
-        comments(first: 100) { nodes { id isMinimized author { login } body } }
+      }
+    }
+  }' -f owner=OWNER -f repo=REPO -F pr=PR_NUMBER
+
+# 3b. Plain PR comment IDs (paginated: PRs can carry more than 100 comments)
+gh api graphql --paginate -f query='
+  query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $pr) {
+        comments(first: 100, after: $endCursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id isMinimized author { login } body }
+        }
       }
     }
   }' -f owner=OWNER -f repo=REPO -F pr=PR_NUMBER
