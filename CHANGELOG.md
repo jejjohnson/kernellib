@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.13](https://github.com/jejjohnson/kernellib/compare/v0.0.12...v0.0.13) (2026-10-01)
+
+
+### Bug Fixes
+
+* wave-1 review follow-ups (jit-safe checks, symmetric penalties, jitted plain KPCA) ([#108](https://github.com/jejjohnson/kernellib/issues/108)) ([96ba637](https://github.com/jejjohnson/kernellib/commit/96ba63738391ba287dcd98e0a44effb590d9f776))
+
 ## [0.0.12](https://github.com/jejjohnson/kernellib/compare/v0.0.11...v0.0.12) (2026-09-30)
 
 
