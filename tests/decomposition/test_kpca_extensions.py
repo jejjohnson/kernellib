@@ -232,3 +232,15 @@ def test_known_nonzero_weight_without_target_still_raises():
     X, _ = _data()
     with pytest.raises(ValueError, match="no target"):
         kl.KernelPCA(K, target_weight=jnp.asarray(2.0)).fit(X)
+
+
+def test_traced_nonzero_weight_without_target_raises_at_run_time():
+    # Codex P1: a traced weight is not known to be zero, so it must not be
+    # silently ignored by the plain path; jit checks it at run time.
+    X, _ = _data()
+    fit = jax.jit(
+        lambda w: kl.KernelPCA(K, n_components=2, target_weight=w).fit(X).embedding
+    )
+    with pytest.raises(Exception, match="no target"):
+        jax.block_until_ready(fit(2.0))
+    assert jnp.all(jnp.isfinite(fit(0.0)))  # a traced zero is still plain KPCA

@@ -275,16 +275,6 @@ def _is_concrete_zero(value: float | Float[Array, ""]) -> bool:
         return False
 
 
-def _is_known_nonzero(value: float | Float[Array, ""]) -> bool:
-    """Whether ``value`` is known (concrete) and non-zero; traced values are not."""
-    if isinstance(value, (int, float)):
-        return value != 0
-    try:
-        return bool(jnp.asarray(value) != 0)
-    except jax.errors.ConcretizationTypeError:
-        return False
-
-
 def _require(ok: Bool[Array, ""], message: str, carry: Array) -> Array:
     """Raise ``ValueError(message)`` unless ``ok``; under ``jit``, where ``ok`` is
 
