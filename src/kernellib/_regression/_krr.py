@@ -112,8 +112,12 @@ class KRR(AbstractEstimator):
             y: Targets, ``(N,)`` or ``(N, C)``. Values at unlabelled points
                 (``mask`` false) are ignored and may be NaN.
             penalty: Optional penalty operator $M$ on the training points,
-                e.g. from `hsic_penalty` or `laplacian_penalty`. A
-                `gaussx.LowRankUpdate` must have a zero diagonal base.
+                e.g. from `hsic_penalty` or `laplacian_penalty`. It must be
+                positive semidefinite (otherwise the objective is unbounded);
+                one not tagged symmetric is symmetrised, since only
+                $(M + M^\top)/2$ enters the objective. A symmetric
+                `gaussx.LowRankUpdate` takes the Woodbury path and must have
+                a zero diagonal base.
             mask: Optional boolean mask of labelled points, shape ``(N,)``.
             key: Unused.
 
@@ -153,12 +157,7 @@ class KRR(AbstractEstimator):
             J = jnp.asarray(mask, dtype=bool)
             if J.shape != (n,):
                 raise ValueError(f"mask must have shape ({n},), got {J.shape}.")
-            try:
-                empty = not bool(jnp.any(J))
-            except jax.errors.ConcretizationTypeError:  # traced: can't check
-                empty = False
-            if empty:
-                raise ValueError("mask selects no labelled points.")
+            J = _require(jnp.any(J), "mask selects no labelled points.", J)
         Jf = J.astype(X.dtype)
         n_lab = jnp.sum(Jf) if mask is not None else n
         # Unlabelled targets are ignored; zero them so a NaN placeholder
@@ -173,7 +172,7 @@ class KRR(AbstractEstimator):
             return self._fit_woodbury(X, y, penalty, n * mu)
 
         K_op = to_operator(self.kernel, X, implicit=self.implicit)
-        M_mv = (lambda v: jnp.zeros_like(v)) if penalty is None else penalty.mv
+        M_mv = _symmetric_mv(penalty)
         lam, reg = self.regularization, mu
 
         if not self.implicit:
@@ -222,7 +221,13 @@ class KRR(AbstractEstimator):
             self.kernel, X, noise=self.regularization * n, implicit=self.implicit
         )
         K_op = to_operator(self.kernel, X, implicit=self.implicit)
-        U, w = penalty.U, scale * penalty.d
+        U = _require(
+            jnp.all(lx.diagonal(penalty.base) == 0),
+            "A low-rank penalty must have a zero diagonal base; build it with "
+            "hsic_penalty, or pass the full operator.",
+            penalty.U,
+        )
+        w = scale * penalty.d
         KV = jax.vmap(K_op.mv, in_axes=1, out_axes=1)(penalty.V)
         solve = self.solver.solve
         Ainv_U = jax.vmap(lambda u: solve(A, u), in_axes=1, out_axes=1)(U)
@@ -262,27 +267,63 @@ def _no_penalty(
 
 def _is_concrete_zero(value: float | Float[Array, ""]) -> bool:
     """Whether ``value`` is a known zero: a Python number, or a concrete array."""
+    if isinstance(value, (int, float)):
+        return value == 0
     try:
         return bool(jnp.asarray(value) == 0)
     except jax.errors.ConcretizationTypeError:  # traced: not known to be zero
         return False
 
 
+def _is_known_nonzero(value: float | Float[Array, ""]) -> bool:
+    """Whether ``value`` is known (concrete) and non-zero; traced values are not."""
+    if isinstance(value, (int, float)):
+        return value != 0
+    try:
+        return bool(jnp.asarray(value) != 0)
+    except jax.errors.ConcretizationTypeError:
+        return False
+
+
+def _require(ok: Bool[Array, ""], message: str, carry: Array) -> Array:
+    """Raise ``ValueError(message)`` unless ``ok``; under ``jit``, where ``ok`` is
+
+    traced, attach the same check to ``carry`` as an ``equinox`` runtime error.
+    """
+    try:
+        concrete = bool(ok)
+    except jax.errors.ConcretizationTypeError:
+        return eqx.error_if(carry, ~ok, message)
+    if not concrete:
+        raise ValueError(message)
+    return carry
+
+
+def _symmetric_mv(penalty: lx.AbstractLinearOperator | None):
+    """``M v``, symmetrised as ``(M + M^T) v / 2`` unless ``M`` is tagged symmetric.
+
+    The quadratic term only sees the symmetric part of ``M``, and its gradient
+    is ``K (M + M^T) K alpha / 2``.
+    """
+    if penalty is None:
+        return lambda v: jnp.zeros_like(v)
+    if lx.is_symmetric(penalty):
+        return penalty.mv
+    transpose = penalty.T
+    return lambda v: 0.5 * (penalty.mv(v) + transpose.mv(v))
+
+
 def _is_low_rank(
     penalty: lx.AbstractLinearOperator | None,
 ) -> TypeGuard[gx.LowRankUpdate]:
-    """A `gaussx.LowRankUpdate` with a zero diagonal base (checked when concrete)."""
-    if not isinstance(penalty, gx.LowRankUpdate):
-        return False
-    if not isinstance(penalty.base, lx.DiagonalLinearOperator):
-        return False
-    try:
-        nonzero = bool(jnp.any(lx.diagonal(penalty.base) != 0))
-    except jax.errors.ConcretizationTypeError:  # traced: trust the builder
-        nonzero = False
-    if nonzero:
-        raise ValueError(
-            "A low-rank penalty must have a zero diagonal base; build it with "
-            "hsic_penalty, or pass the full operator."
-        )
-    return True
+    """A symmetric-tagged `gaussx.LowRankUpdate` on a diagonal base, for Woodbury.
+
+    The base must be zero; `_fit_woodbury` checks it (eagerly, or at run time
+    under ``jit``). Untagged low-rank operators take the general path, which
+    symmetrises them.
+    """
+    return (
+        isinstance(penalty, gx.LowRankUpdate)
+        and isinstance(penalty.base, lx.DiagonalLinearOperator)
+        and lx.is_symmetric(penalty)
+    )

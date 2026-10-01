@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -215,3 +216,19 @@ def test_default_pre_image_bandwidth_survives_duplicated_samples():
     m = kl.KernelPCA(K, n_components=2, fit_inverse_transform=True).fit(X)
     assert float(kl.estimate_lengthscale(m.embedding)) == 0.0  # the case at hand
     assert bool(jnp.all(jnp.isfinite(m.inverse_transform(m.embedding))))
+
+
+@pytest.mark.parametrize("jit", [jax.jit, eqx.filter_jit])
+def test_plain_fit_works_under_jit(jit):
+    # Under jax.jit even the default 0.0 weight is traced; with no target,
+    # that must still be plain kernel PCA, not "non-zero weight, no target".
+    X, _ = _data()
+    plain = kl.KernelPCA(K, n_components=2).fit(X)
+    got = jit(lambda m, X: m.fit(X).embedding)(kl.KernelPCA(K, n_components=2), X)
+    assert jnp.allclose(jnp.abs(got), jnp.abs(plain.embedding), atol=1e-8)
+
+
+def test_known_nonzero_weight_without_target_still_raises():
+    X, _ = _data()
+    with pytest.raises(ValueError, match="no target"):
+        kl.KernelPCA(K, target_weight=jnp.asarray(2.0)).fit(X)

@@ -89,7 +89,11 @@ def hsic_penalty(
         weights = jnp.full(Q.shape[1], variance, dtype=Q.dtype)
         zero = lx.DiagonalLinearOperator(jnp.zeros(n, dtype=Q.dtype))
         return gx.LowRankUpdate(
-            base=zero, U=Q, d=weights, V=Q, tags=frozenset({lx.symmetric_tag})
+            base=zero,
+            U=Q,
+            d=weights,
+            V=Q,
+            tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
         )
     return lx.MatrixLinearOperator(
         _double_centre(kernel(S, S)) / n**2,

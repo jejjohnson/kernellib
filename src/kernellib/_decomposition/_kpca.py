@@ -55,7 +55,7 @@ from jaxtyping import Array, Bool, Float
 from kernellib._einx import einsum, rearrange, reduce
 from kernellib._heuristics import estimate_lengthscale
 from kernellib._kernels import RBF, AbstractKernel, Linear
-from kernellib._regression._krr import KRR, _is_concrete_zero
+from kernellib._regression._krr import KRR, _is_concrete_zero, _is_known_nonzero
 from kernellib._spectral import AbstractFeatureMap
 from kernellib.functional._statistics import _double_centre, center_cross_kernel
 
@@ -146,10 +146,12 @@ class KernelPCA(eqx.Module):
                 feature map) supports, or ``target_weight`` is non-zero
                 without a ``target``.
         """
-        weight_is_zero = _is_concrete_zero(self.target_weight)
-        if target is None and not weight_is_zero:
+        # Without a target there is nothing to supervise: fit plain KPCA,
+        # unless the weight is known to be non-zero. Under jax.jit even a
+        # default 0.0 is traced, so "not known to be zero" must not raise.
+        if target is None and _is_known_nonzero(self.target_weight):
             raise ValueError("target_weight is non-zero but no target was given.")
-        if target is None or weight_is_zero:
+        if target is None or _is_concrete_zero(self.target_weight):
             fitted = self._fit_plain(X)
         else:
             fitted = self._fit_supervised(X, _target_penalty(self, target))

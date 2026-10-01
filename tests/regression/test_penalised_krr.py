@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 
+import einx
 import equinox as eqx
 import gaussx as gx
 import jax
@@ -166,6 +167,7 @@ def test_errors():
         U=S,
         d=jnp.ones(1),
         V=S,
+        tags=frozenset({lx.symmetric_tag}),
     )
     with pytest.raises(ValueError, match="zero diagonal base"):
         _krr(1.0).fit(X, y, penalty=bad)
@@ -214,3 +216,83 @@ def test_concrete_array_zero_weight_is_plain_krr():
         X, y, penalty=kl.hsic_penalty(kl.Linear(), S)
     )
     assert bool(jnp.all(plain.alpha == zero.alpha))
+
+
+def _nonzero_base_penalty(S, n):
+    return gx.LowRankUpdate(
+        base=lx.DiagonalLinearOperator(jnp.ones(n)),
+        U=S,
+        d=jnp.ones(1),
+        V=S,
+        tags=frozenset({lx.symmetric_tag}),
+    )
+
+
+def test_jit_rejects_a_nonzero_low_rank_base():
+    # Under jit the base is traced; the check must still fire at run time.
+    X, y, S = _data()
+
+    @eqx.filter_jit
+    def fit(model, X, y, M):
+        return model.fit(X, y, penalty=M).alpha
+
+    with pytest.raises(Exception, match="zero diagonal base"):
+        jax.block_until_ready(
+            fit(_krr(1.0), X, y, _nonzero_base_penalty(S, X.shape[0]))
+        )
+
+
+def test_jit_rejects_an_empty_mask():
+    X, y, _ = _data()
+
+    @eqx.filter_jit
+    def fit(model, X, y, mask):
+        return model.fit(X, y, mask=mask).alpha
+
+    with pytest.raises(Exception, match="no labelled points"):
+        jax.block_until_ready(fit(_krr(1.0), X, y, jnp.zeros(X.shape[0], dtype=bool)))
+
+
+def test_hsic_penalty_is_tagged_psd_on_every_path():
+    _, _, S = _data()
+    assert lx.is_positive_semidefinite(kl.hsic_penalty(kl.Linear(), S))
+    assert lx.is_positive_semidefinite(kl.hsic_penalty(kl.RBF(0.5), S))
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+def test_untagged_penalties_are_symmetrised(implicit):
+    # Only (M + M^T) / 2 enters the objective, so a non-symmetric M must fit
+    # exactly like its symmetric part (dense and matrix-free paths).
+    X, y, _ = _data()
+    n = X.shape[0]
+    A = jax.random.normal(jax.random.key(3), (n, n)) / n
+    M = lx.MatrixLinearOperator(einx.dot("i k, j k -> i j", A, A) + 0.1 * (A - A.T))
+    M_sym = lx.MatrixLinearOperator(
+        0.5 * (M.as_matrix() + M.as_matrix().T), lx.symmetric_tag
+    )
+    kw = (
+        {"solver": gx.CGSolver(rtol=1e-12, atol=1e-12, max_steps=5000)}
+        if implicit
+        else {}
+    )
+    got = _krr(5.0, implicit=implicit, **kw).fit(X, y, penalty=M).alpha
+    want = _krr(5.0, implicit=implicit, **kw).fit(X, y, penalty=M_sym).alpha
+    assert jnp.allclose(got, want, rtol=1e-6, atol=1e-8)
+
+
+def test_non_symmetric_low_rank_takes_the_exact_general_path():
+    # A LowRankUpdate with U != V is not symmetric, so it is not sent to
+    # Woodbury: its base is part of the penalty, not an error, and only its
+    # symmetric part enters the objective.
+    X, y, S = _data()
+    n = X.shape[0]
+    W = jax.random.normal(jax.random.key(5), (n, 1)) / n
+    M = gx.LowRankUpdate(
+        base=lx.DiagonalLinearOperator(jnp.full(n, 1e-3)), U=S / n, d=jnp.ones(1), V=W
+    )
+    assert not lx.is_symmetric(M)
+    dense = M.as_matrix()
+    sym = lx.MatrixLinearOperator(0.5 * (dense + dense.T), lx.symmetric_tag)
+    assert jnp.allclose(
+        _krr(5.0).fit(X, y, penalty=M).alpha, _krr(5.0).fit(X, y, penalty=sym).alpha
+    )
