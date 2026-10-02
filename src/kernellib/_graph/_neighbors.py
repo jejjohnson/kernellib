@@ -23,7 +23,7 @@ from jaxtyping import Array, Float, Int
 from kernellib._einx import rearrange
 
 
-__all__ = ["KNNGraph", "nearest_neighbors"]
+__all__ = ["KNNGraph", "nearest_neighbors", "radius_neighbors"]
 
 Backend = Literal["exact", "pynndescent", "sklearn"]
 
@@ -96,6 +96,56 @@ def nearest_neighbors(
         return _sklearn(np.asarray(X), n_neighbors)
     raise ValueError(
         f"backend must be 'exact', 'pynndescent' or 'sklearn', got {backend!r}."
+    )
+
+
+def radius_neighbors(
+    X: Float[Array, "N D"],
+    radius: float,
+    *,
+    max_neighbors: int,
+    backend: Backend = "exact",
+    batch_size: int = 1024,
+    random_state: int | None = None,
+) -> KNNGraph:
+    """The other points within ``radius`` of every point, at most
+    ``max_neighbors`` of them.
+
+    Shapes are static, so this is a ``max_neighbors``-nearest-neighbour search
+    whose entries beyond ``radius`` are replaced by padding: index ``-1`` and
+    distance ``inf``. Rows stay nearest first, so the padding comes last.
+    `graph_from_neighbors` and `radius_graph` skip it.
+
+    Args:
+        X: Points, shape ``(N, D)``.
+        radius: Largest neighbour distance (inclusive).
+        max_neighbors: Neighbours searched per point, ``1 <= k < N``.
+        backend: See `nearest_neighbors`.
+        batch_size: Rows per block for the exact search.
+        random_state: Seed for ``"pynndescent"``.
+
+    Returns:
+        The padded graph.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> X = jnp.array([[0.0], [1.0], [1.5], [9.0]])
+        >>> g = kl.radius_neighbors(X, 1.0, max_neighbors=2)
+        >>> g.indices.tolist()
+        [[1, -1], [2, 0], [1, -1], [-1, -1]]
+    """
+    knn = nearest_neighbors(
+        X,
+        max_neighbors,
+        backend=backend,
+        batch_size=batch_size,
+        random_state=random_state,
+    )
+    inside = knn.distances <= radius
+    return KNNGraph(
+        indices=jnp.where(inside, knn.indices, -1),
+        distances=jnp.where(inside, knn.distances, jnp.inf),
     )
 
 

@@ -84,6 +84,41 @@ roughness = g.dirichlet_energy(einx.id("h w -> (h w)", image))
 B = graph.incidence_operator()  # (E, N), B^T B = L
 ```
 
+### Builders
+
+Builders run eagerly (outside `jit`) and return a `Graph` or `GridGraph`
+whose weights are differentiable. `weighting` is `"heat"`
+($\exp(-d^2/2\sigma^2)$, the default), `"connectivity"`, `"cosine"` or any
+kernellib kernel; `bandwidth="local"` gives self-tuning heat weights.
+`graph_from_edges` is the seam for edge lists from city2graph, libpysal,
+NetworkX or OpenStreetMap: pass lengths as `distances`, not as `weights`.
+
+```python
+spectral = kl.knn_graph(X, 10, weighting=kl.RBF(lengthscale=0.5))
+spatial = kl.grid_graph(cube.shape[:2])  # pixels that are adjacent
+cahill = kl.edge_weights(spatial, X, kl.RBF(lengthscale=0.5))  # adjacent AND alike
+roads = kl.graph_from_edges(src, dst, n_nodes, distances=length_m, weighting="heat")
+connected = kl.knn_graph(X, 5, ensure_connected=True)  # Borůvka bridges
+```
+
+::: kernellib.knn_graph
+
+::: kernellib.graph_from_neighbors
+
+::: kernellib.radius_graph
+
+::: kernellib.radius_neighbors
+
+::: kernellib.grid_graph
+
+::: kernellib.graph_from_adjacency
+
+::: kernellib.graph_from_edges
+
+::: kernellib.edge_weights
+
+### Graph types
+
 ::: kernellib.AbstractGraph
 
 ::: kernellib.Graph
