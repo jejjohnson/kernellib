@@ -1166,6 +1166,23 @@ kpca = kl.KernelPCA(kl.RBF(1.0), n_components=20, eigen_solver="randomized")
 kpca = kpca.fit(X, key=key)  # n = 5·10⁴
 ```
 
+
+**As implemented (K10).**
+
+- `gaussx.randomized_eigh` returns eigenpairs in ascending order; `KernelPCA`
+  reverses them.
+- The centring statistics that `transform` needs (the Gram's column means
+  and overall mean) come from one matvec with $\mathbf 1$, so the Gram is
+  never formed.
+- `oversample` is capped at $N - k$.
+- `eigen_solver="randomized"` raises with `approx=` (it decomposes the exact
+  kernel) and with a non-zero `target_weight`, because supervised and fair
+  kernel PCA stay dense.
+- Gram-only kernels use the dense operator inside the same matrix-free
+  solve.
+- `kernellib.sklearn.KernelPCA` takes `eigen_solver`, `n_power_iter`,
+  `oversample` and `random_state`.
+
 ### 6.5 Deliberately not changed
 
 - **Graph eigenmaps** need the *smallest* Laplacian eigenpairs.

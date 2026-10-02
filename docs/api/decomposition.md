@@ -41,6 +41,23 @@ kpca = kl.KernelPCA(k, n_components=40, fit_inverse_transform=True).fit(X_clean)
 X_denoised = kpca.inverse_transform(kpca.transform(X_noisy))
 ```
 
+Three ways to compute kernel PCA, by what they approximate:
+
+| Path | Kernel | Eigendecomposition | Cost | When |
+|---|---|---|---|---|
+| default (`eigen_solver="dense"`) | exact | exact `eigh` | $O(N^3)$ time, $O(N^2)$ memory | up to a few thousand points |
+| `eigen_solver="randomized"` | exact | `gaussx.randomized_eigh` on the matrix-free $HKH$ | $O(N^2(k+p)q)$ kernel work, $O(N(k+p))$ memory | tens of thousands of points, few components |
+| `approx=` a feature map | approximated by $\phi$ | exact, of $\phi(X)$ | $O(N R^2)$ | when even $N^2$ kernel evaluations are too many |
+
+The randomized error decays like $(\lambda_{k+1}/\lambda_k)^{2q}$: raise
+`n_power_iter` ($q$) for rough kernels or short lengthscales.
+
+```python
+kpca = kl.KernelPCA(
+    kl.Matern(nu=1.5, lengthscale=0.3), n_components=20, eigen_solver="randomized"
+).fit(X, key=key)  # n = 5e4: the N x N Gram is never formed
+```
+
 ::: kernellib.KernelPCA
 
 ## Neighbourhood graphs

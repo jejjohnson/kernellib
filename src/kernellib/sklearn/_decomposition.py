@@ -46,6 +46,11 @@ class KernelPCA(
         kernel: A kernellib kernel, or ``None`` for a median-heuristic `RBF`.
         approx: Optional unfitted kernellib feature map for ``O(n R^2)``
             kernel PCA.
+        eigen_solver: ``"dense"`` or ``"randomized"`` (matrix-free; see
+            `kernellib.KernelPCA`).
+        n_power_iter: Power iterations of the randomized solver.
+        oversample: Oversampling of the randomized solver.
+        random_state: Seed for the randomized solver.
 
     Attributes:
         model_: The fitted `kernellib.KernelPCA`.
@@ -67,10 +72,18 @@ class KernelPCA(
         *,
         kernel: AbstractKernel | None = None,
         approx: AbstractFeatureMap | None = None,
+        eigen_solver: str = "dense",
+        n_power_iter: int = 2,
+        oversample: int = 10,
+        random_state: int | None = None,
     ) -> None:
         self.n_components = n_components
         self.kernel = kernel
         self.approx = approx
+        self.eigen_solver = eigen_solver
+        self.n_power_iter = n_power_iter
+        self.oversample = oversample
+        self.random_state = random_state
 
     def fit(self, X: Any, y: Any = None) -> KernelPCA:
         X = validate_data(self, X, dtype=_FLOAT)
@@ -78,8 +91,13 @@ class KernelPCA(
         self.kernel_ = _default_kernel(self.kernel, X_j, _key(0))
         n_components = min(self.n_components, X.shape[0])
         self.model_ = dec.KernelPCA(
-            self.kernel_, n_components=n_components, approx=self.approx
-        ).fit(X_j)
+            self.kernel_,
+            n_components=n_components,
+            approx=self.approx,
+            eigen_solver=self.eigen_solver,  # ty: ignore[invalid-argument-type]
+            n_power_iter=self.n_power_iter,
+            oversample=self.oversample,
+        ).fit(X_j, key=_key(self.random_state))
         self.eigenvalues_ = np.asarray(self.model_.eigenvalues)
         self._n_features_out = n_components
         return self
