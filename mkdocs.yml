@@ -52,6 +52,9 @@ plugins:
         python:
           paths: [src]
           options:
+            # hadamard_transform is a re-export of gaussx's; load gaussx so
+            # the alias resolves.
+            preload_modules: [gaussx]
             docstring_style: google
             docstring_section_style: table
             show_source: true
