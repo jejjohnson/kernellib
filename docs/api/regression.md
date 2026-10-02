@@ -22,12 +22,26 @@ y_hat = model.predict(X_test)
 # matrix-free: O(N) memory, conjugate gradients
 model = kl.KRR(k, 1e-3, solver=gx.CGSolver(), implicit=True).fit(X, y)
 
+# matrix-free and preconditioned: CG iterations stay O(1) as N grows
+model = kl.KRR(
+    k, 1e-6, implicit=True, preconditioner="rpcholesky", preconditioner_rank=1000
+).fit(X, y, key=key)
+
 # tune the lengthscale on a validation set
 grad = jax.grad(lambda ell: kl.KRR(kl.RBF(ell), 1e-3).fit(X, y).loss(X_val, y_val))
 ```
 
 The ridge is scaled by the number of points: `KRR` solves
 $(K + \lambda n I)\alpha = y$, the same convention as `Falkon`.
+
+Plain CG on that system needs more iterations as $\lambda$ shrinks, since the
+condition number is $(\lambda_1 + \lambda n) / \lambda n$. With
+`preconditioner="nystrom"` or `"rpcholesky"`, `KRR` builds a rank-`r`
+preconditioner from $K$ (gaussx's `NystromPreconditioner` or randomly pivoted
+`PartialCholeskyPreconditioner`) and solves by preconditioned CG. A rank near
+the effective dimension $\sum_i \lambda_i / (\lambda_i + \lambda n)$ makes the
+iteration count independent of $\lambda$. Choose `"rpcholesky"` when kernel
+evaluations are expensive: it needs `O(N r)` of them instead of `r` full matvecs.
 
 `Falkon` is Nyström KRR for large ``N``: ``M`` centres, a preconditioned CG
 solve and a streamed ``N x M`` cross kernel, so memory is ``O(M^2)``.
@@ -45,7 +59,7 @@ model = kl.EigenPro(
 
 | Estimator | Solves | Time | Memory |
 |---|---|---|---|
-| `KRR` | $(K + \lambda n I)\alpha = y$ exactly (or by CG) | $O(N^3)$ dense, $O(N^2 t)$ CG | $O(N^2)$ dense, $O(N)$ implicit |
+| `KRR` | $(K + \lambda n I)\alpha = y$ exactly (or by CG, optionally preconditioned) | $O(N^3)$ dense, $O(N^2 t)$ CG | $O(N^2)$ dense, $O(N)$ implicit, $+O(N r)$ preconditioner |
 | `Falkon` | the Nyström system on ``M`` centres | $O(N M t + M^3)$ | $O(M^2)$ |
 | `EigenPro` | $K\alpha = y$, early-stopped by ``epochs`` | $O(N^2 \cdot \text{epochs})$ | $O(B N + m^2)$ |
 

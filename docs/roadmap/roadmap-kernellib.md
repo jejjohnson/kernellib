@@ -1096,6 +1096,24 @@ krr = kl.KRR(
 krr = krr.fit(X, y, key=key)  # n = 10⁵, never materialises K
 ```
 
+**As implemented (K9).**
+
+- With a preconditioner, `fit` requires `key`, on every path, even one
+  that would not use it.
+- The CG solve uses `rtol = atol = 1e-6` and at most 1000 steps,
+  matching the GMRES path's defaults.
+- The preconditioner applies to the plain path and to the Woodbury path
+  (a low-rank penalty without a mask), whose solves are plain KRR solves.
+  The masked or full-penalty GMRES path is non-symmetric and ignores the
+  preconditioner, and builds none.
+- `kernellib.sklearn.KernelRidge` takes `preconditioner` and
+  `preconditioner_rank`.
+- The iteration-count test runs at `n = 5000` on a dense Gram, not at
+  `n = 20 000`. Plain CG there takes thousands of matrix-free matvecs of
+  several seconds each. Iteration counts depend on the spectrum, so the
+  same regime ($\lambda = 10^{-6}$, Matérn-3/2, rank 200) is tested:
+  75 vs 1013 steps (7.4 %).
+
 ### 6.4 K10: randomized kernel PCA
 
 **The maths.** Kernel PCA diagonalises the centred Gram matrix $HKH$, with
