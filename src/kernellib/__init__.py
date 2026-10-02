@@ -137,7 +137,7 @@ from kernellib._spectral import (
 )
 
 
-__version__ = "0.0.12"
+__version__ = "0.0.13"
 
 __all__ = [
     "KRR",
