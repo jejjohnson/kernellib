@@ -242,8 +242,8 @@ def test_nonpositive_size_raises(make):
 
 
 def test_nystrom_config_errors():
-    with pytest.raises(ValueError, match="'uniform' or 'leverage'"):
-        kl.NystromFeatures(2, jax.random.key(0), selection="greedy")
+    with pytest.raises(ValueError, match="'rpcholesky' or 'greedy'"):
+        kl.NystromFeatures(2, jax.random.key(0), selection="kmeans")
     with pytest.raises(ValueError, match="uniform_mixing"):
         kl.NystromFeatures(2, jax.random.key(0), uniform_mixing=1.5)
     with pytest.raises(ValueError, match="leverage_regularization"):

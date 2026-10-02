@@ -146,6 +146,7 @@ from kernellib._spectral import (
     RandomFourierFeatures,
     draw_rff_cosine_basis,
     evaluate_rff_cosine_paths,
+    select_landmarks,
 )
 
 
@@ -263,6 +264,7 @@ __all__ = [
     "regularized_laplacian_kernel",
     "rff_operator",
     "schrodinger_eigenmap",
+    "select_landmarks",
     "spatial_spectral_potential",
     "taylor_statistics",
     "to_cross_operator",

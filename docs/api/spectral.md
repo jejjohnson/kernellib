@@ -108,6 +108,33 @@ uniform distribution to guard against that; `0` gives pure leverage sampling.
 
 ::: kernellib.NystromFeatures
 
+## Landmark selection
+
+`select_landmarks` chooses Nyström landmarks (Falkon centres, EigenPro
+subsamples, inducing points) from the data. `NystromFeatures(selection=)`,
+`Falkon(centers=)` and `EigenPro(subsample=)` all take the same four methods.
+The code default is `"uniform"` for compatibility; **`"rpcholesky"` is the
+recommended choice**. It samples each landmark in proportion to the variance
+the previous ones leave unexplained, needs `O(N M)` kernel evaluations and no
+tuning, and its Nyström error is within a small factor of the best rank-`M`
+approximation in expectation (Chen, Epperly, Tropp & Webber, 2023).
+
+| `method` | Rule | Cost |
+|---|---|---|
+| `"uniform"` | uniformly without replacement | `O(M)` |
+| `"leverage"` | approximate ridge leverage scores, mixed with uniform | `O(N M^2)` |
+| `"rpcholesky"` | randomly pivoted Cholesky (`gaussx.rp_cholesky`) | `O(N M)` kernel evals, `O(N M^2)` |
+| `"greedy"` | largest residual variance, deterministic | as `"rpcholesky"` |
+
+```python
+idx = kl.select_landmarks(
+    kl.Matern(nu=1.5, lengthscale=0.3), X, 2000, method="rpcholesky", key=key
+)
+falkon = kl.Falkon(kernel, n_inducing=2000, centers="rpcholesky").fit(X, y, key=key)
+```
+
+::: kernellib.select_landmarks
+
 ## Laplace eigenfunctions (HSGP)
 
 `LaplaceEigenfunctionFeatures` is the Hilbert-space approximation of Solin &

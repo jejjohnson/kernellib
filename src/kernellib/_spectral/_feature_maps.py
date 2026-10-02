@@ -21,11 +21,9 @@ import math
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jsl
 from geonnax.randfeat import orthogonal_blocks, rff_forward
-from jaxtyping import Array, Float, Int, PRNGKeyArray
+from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._einx import einsum, reduce
 from kernellib._kernels import AbstractKernel
 from kernellib._kernels._compose import SpectralComponents, _spectral_components
 from kernellib._operators._fastfood import (
@@ -34,6 +32,12 @@ from kernellib._operators._fastfood import (
     fastfood_params,
 )
 from kernellib._spectral._base import AbstractFeatureMap, _require_spectral
+from kernellib._spectral._landmarks import (
+    _METHODS,
+    _nystrom_features,
+    _ridge_leverage_scores,  # noqa: F401  (moved; old import path kept)
+    _select,
+)
 
 
 __all__ = [
@@ -355,11 +359,15 @@ class NystromFeatures(AbstractFeatureMap):
       ``u = 0.5`` was never worse than uniform in our tests; ``u = 0`` is
       pure leverage sampling, much better once ``n_components`` exceeds
       $d_{\mathrm{eff}}$ (raise ``leverage_regularization`` to lower it).
+    - ``selection="rpcholesky"``: randomly pivoted Cholesky, which needs no
+      tuning and is near-optimal for Nyström; recommended. ``"greedy"`` is
+      its deterministic, largest-residual variant. See `select_landmarks`.
 
     Attributes:
         n_components: Number of landmarks ``M``.
         key: PRNG key for landmark selection.
-        selection: Landmark rule, ``"uniform"`` or ``"leverage"``.
+        selection: Landmark rule, ``"uniform"``, ``"leverage"``,
+            ``"rpcholesky"`` or ``"greedy"`` (see `select_landmarks`).
         leverage_regularization: The $\lambda$ of the ridge leverage scores
             (``selection="leverage"`` only); the effective dimension, and so
             how concentrated the scores are, grows as it shrinks.
@@ -395,9 +403,10 @@ class NystromFeatures(AbstractFeatureMap):
 
     def __check_init__(self) -> None:
         _check_positive("n_components", self.n_components)
-        if self.selection not in ("uniform", "leverage"):
+        if self.selection not in _METHODS:
             raise ValueError(
-                f"selection must be 'uniform' or 'leverage', got {self.selection!r}."
+                "selection must be 'uniform', 'leverage', 'rpcholesky' or "
+                f"'greedy', got {self.selection!r}."
             )
         if not 0.0 <= self.uniform_mixing <= 1.0:
             raise ValueError(
@@ -449,67 +458,18 @@ class NystromFeatures(AbstractFeatureMap):
                 f"n_components={self.n_components} landmarks need at least as "
                 f"many inputs; got {n}."
             )
-        if self.selection == "uniform":
-            idx = jax.random.choice(self.key, n, (self.n_components,), replace=False)
-        else:
-            key_pilot, key_draw = jax.random.split(self.key)
-            m0 = min(2 * self.n_components, n)
-            pilot = jax.random.choice(key_pilot, n, (m0,), replace=False)
-            scores = _ridge_leverage_scores(
-                kernel, X, pilot, self.leverage_regularization, self.jitter
-            )
-            idx = jax.random.choice(
-                key_draw,
-                n,
-                (self.n_components,),
-                replace=False,
-                p=(1.0 - self.uniform_mixing) * scores / jnp.sum(scores)
-                + self.uniform_mixing / n,
-            )
+        idx = _select(
+            kernel,
+            X,
+            self.n_components,
+            self.selection,
+            self.key,
+            self.leverage_regularization,
+            self.uniform_mixing,
+            self.jitter,
+        )
         return dataclasses.replace(self, kernel=kernel, landmarks=X[idx])
 
     def features(self, X: Float[Array, "N D"]) -> Float[Array, "N M"]:
         assert self.kernel is not None and self.landmarks is not None
         return _nystrom_features(self.kernel, self.landmarks, X, self.jitter)
-
-
-def _nystrom_features(
-    kernel: AbstractKernel,
-    Z: Float[Array, "M D"],
-    X: Float[Array, "N D"],
-    jitter: float,
-) -> Float[Array, "N M"]:
-    """``L^{-1} k(Z, X)``, transposed, with ``K_ZZ + jitter I = L Lᵀ``."""
-    K_zz = kernel(Z, Z)
-    # Relative to the mean diagonal, with an absolute floor when that is zero
-    # (e.g. a `Distance` kernel whose only landmark is the origin).
-    scale = jnp.mean(jnp.diag(K_zz))
-    eps = jitter * jnp.where(scale > 0, scale, 1.0)
-    L = jnp.linalg.cholesky(K_zz + eps * jnp.eye(Z.shape[0], dtype=K_zz.dtype))
-    return jsl.solve_triangular(L, kernel(Z, X), lower=True).T
-
-
-def _ridge_leverage_scores(
-    kernel: AbstractKernel,
-    X: Float[Array, "N D"],
-    pilot: Int[Array, " m0"],
-    regularization: float,
-    jitter: float,
-) -> Float[Array, " N"]:
-    r"""Approximate ridge leverage scores from a pilot Nyström map.
-
-    With pilot features $\Phi$ (``N x m0``, $K \approx \Phi\Phi^\top$) the
-    push-through identity gives the leverage of $\Phi\Phi^\top$ as
-    $\phi_i^\top (\Phi^\top\Phi + \lambda n I)^{-1} \phi_i$; the Nyström
-    residual on the diagonal, over $\lambda n$, is added back. Non-negative;
-    they sum to about the effective dimension $d_{\mathrm{eff}}(\lambda)$.
-    """
-    n = X.shape[0]
-    Phi = _nystrom_features(kernel, X[pilot], X, jitter)  # (N, m0)
-    ridge = regularization * n
-    gram = einsum(Phi, Phi, "n a, n b -> a b")
-    chol = jnp.linalg.cholesky(gram + ridge * jnp.eye(gram.shape[0], dtype=gram.dtype))
-    solved = jsl.solve_triangular(chol, Phi.T, lower=True)  # (m0, N)
-    explained = reduce(solved**2, "a n -> n", "sum")
-    residual = jnp.maximum(kernel.diag(X) - reduce(Phi**2, "n a -> n", "sum"), 0.0)
-    return explained + residual / ridge

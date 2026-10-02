@@ -1009,6 +1009,23 @@ idx = kl.select_landmarks(
 falkon = kl.Falkon(kernel, n_inducing=2000, centers="rpcholesky").fit(X, y, key=key)
 ```
 
+**As implemented (K8).**
+
+- `"rpcholesky"` and `"greedy"` evaluate a column as `kernel(X, x_s)` (a
+  one-column Gram) rather than through `pairwise`, so Gram-only kernels
+  (`Sum`, `Product` of non-pointwise parts) work too.
+- `gaussx.rp_cholesky` returns pivot `-1` once the numerical rank is
+  exhausted (repeated points, say). `select_landmarks` always returns
+  `n_landmarks` distinct indices, filling those slots with unused points:
+  uniformly at random for `"rpcholesky"`, lowest index first for
+  `"greedy"`, which keeps greedy deterministic. It stays jittable.
+- `regularization=None` means `1e-3`, `NystromFeatures`' default.
+- `eigenpro_preconditioner` gains `subsample_indices=`, which `EigenPro`
+  fills from `select_landmarks`. For `"uniform"` these are the same indices
+  as before.
+- `"greedy"` does worse than `"uniform"` on clustered data (it chases
+  isolated points), so only `"rpcholesky"` is recommended.
+
 ### 6.3 K9: preconditioned KRR
 
 **The maths.** KRR solves $(K+\lambda nI)\alpha = y$. CG needs
