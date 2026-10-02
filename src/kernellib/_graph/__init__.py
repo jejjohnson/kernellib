@@ -9,9 +9,12 @@ they are positive semidefinite similarity matrices between the nodes, so they
 plug into anything in kernellib that takes a Gram matrix (``functional.hsic``,
 `KRR` via a precomputed operator, `KernelPCA` on nodes).
 
-Everything here is dense and differentiable; the ``N x N`` matrices limit it
-to graphs of a few thousand nodes. The eigenmaps' ``eigen_solver="arpack"``
-path works on the sparse graph instead.
+`Graph` and `GridGraph` store a graph sparsely: a static edge list with traced
+weights, whose Laplacian, adjacency and incidence matrices are sparse gaussx
+operators (a `gaussx.KroneckerSum` for a lattice). The adjacency-matrix
+functions and the graph kernels are dense and differentiable; their ``N x N``
+matrices limit them to graphs of a few thousand nodes. The eigenmaps'
+``eigen_solver="arpack"`` path works on the sparse graph instead.
 """
 
 from kernellib._graph._construct import adjacency_matrix
@@ -24,9 +27,14 @@ from kernellib._graph._kernels import (
 )
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._graph._neighbors import KNNGraph, nearest_neighbors
+from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGraph
 
 
 __all__ = [
+    "AbstractGraph",
+    "Graph",
+    "GraphTopology",
+    "GridGraph",
     "KNNGraph",
     "adjacency_matrix",
     "commute_time_kernel",

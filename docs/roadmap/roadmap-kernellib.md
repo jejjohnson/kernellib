@@ -258,6 +258,19 @@ Notes:
   - Every other combination falls back to `SparseOperator`. The symmetric
     normalisation is not a Kronecker sum, because degrees vary at the
     border, and neither are diagonal edges.
+  - A periodic axis needs at least 3 cells: with 2, the wrap-around edge
+    would repeat the inner one.
+  - With `connectivity="full"`, a diagonal edge takes the **mean** of the
+    weights of the axes it steps along. Unit axis weights give the usual
+    unit-weight 8- or 26-neighbour graph, and scaling every axis weight
+    scales every edge.
+- **As implemented (K2, PR 1).** `topology` and `weights` are abstract
+  fields of `AbstractGraph` rather than `edges()` being abstract: a
+  `GridGraph` derives both from its lattice (built on the host once per
+  lattice and cached), so `edges()`, the operators and the Dirichlet energy
+  are shared, concrete methods. `GridGraph(shape, *, connectivity,
+  periodic, axis_weights)` is directly constructible; `grid_graph(...,
+  spacing=)` (PR 2) is the builder.
 - **Node order is row-major (C order)**, matching
   `rearrange("h w c -> (h w) c", image)`. The old MATLAB and Python code
   used column-major order. Say so in the docstring.

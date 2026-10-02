@@ -44,6 +44,10 @@ from kernellib._dependence import (
     taylor_statistics,
 )
 from kernellib._graph import (
+    AbstractGraph,
+    Graph,
+    GraphTopology,
+    GridGraph,
     KNNGraph,
     adjacency_matrix,
     commute_time_kernel,
@@ -144,6 +148,7 @@ __all__ = [
     "RBF",
     "AbstractEstimator",
     "AbstractFeatureMap",
+    "AbstractGraph",
     "AbstractKernel",
     "AbstractPointwiseKernel",
     "AbstractStationaryKernel",
@@ -162,6 +167,9 @@ __all__ = [
     "FastFoodFeatures",
     "FastFoodParams",
     "FeatureKernel",
+    "Graph",
+    "GraphTopology",
+    "GridGraph",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KNNGraph",

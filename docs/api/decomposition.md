@@ -66,6 +66,32 @@ L = kl.graph_laplacian(W, "symmetric")
 
 ::: kernellib.graph_laplacian
 
+## Sparse graphs
+
+`Graph` stores a weighted, undirected graph as a static edge list
+(`GraphTopology`, each edge once) and one traced weight per edge. Its
+Laplacian, adjacency and incidence matrices are `gaussx.SparseOperator`s whose
+pattern is built once from the topology, so a sparse Cholesky's symbolic
+analysis is reused across reweightings, `jit` and `vmap`. `GridGraph` is a
+lattice in row-major node order that never stores its edges; with
+`connectivity="face"` its Laplacian is a nested `gaussx.KroneckerSum` of 1-D
+path (or, per periodic axis, cycle) Laplacians.
+
+```python
+g = kl.GridGraph((1024, 1024))  # 10^6 nodes, no edge list stored
+L = g.laplacian_operator()  # gx.KroneckerSum(L_1024, L_1024)
+roughness = g.dirichlet_energy(einx.id("h w -> (h w)", image))
+B = graph.incidence_operator()  # (E, N), B^T B = L
+```
+
+::: kernellib.AbstractGraph
+
+::: kernellib.Graph
+
+::: kernellib.GraphTopology
+
+::: kernellib.GridGraph
+
 ## Graph kernels
 
 Spectral functions of the Laplacian, $K = U f(\Lambda) U^\top$: positive
