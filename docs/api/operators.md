@@ -152,4 +152,7 @@ K_op = kl.fastfood_operator(X, params)  # LowRankUpdate, K ≈ Phi Phi^T
 
 ::: kernellib.fastfood_frequencies
 
+`hadamard_transform` is implemented in gaussx (`gaussx.hadamard_transform`,
+which its SRHT sketch also uses) and re-exported here unchanged.
+
 ::: kernellib.hadamard_transform
