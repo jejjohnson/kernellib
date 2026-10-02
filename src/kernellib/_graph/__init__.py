@@ -17,7 +17,16 @@ matrices limit them to graphs of a few thousand nodes. The eigenmaps'
 ``eigen_solver="arpack"`` path works on the sparse graph instead.
 """
 
-from kernellib._graph._construct import adjacency_matrix
+from kernellib._graph._construct import (
+    adjacency_matrix,
+    edge_weights,
+    graph_from_adjacency,
+    graph_from_edges,
+    graph_from_neighbors,
+    grid_graph,
+    knn_graph,
+    radius_graph,
+)
 from kernellib._graph._kernels import (
     commute_time_kernel,
     cosine_graph_kernel,
@@ -26,7 +35,7 @@ from kernellib._graph._kernels import (
     regularized_laplacian_kernel,
 )
 from kernellib._graph._laplacian import graph_laplacian
-from kernellib._graph._neighbors import KNNGraph, nearest_neighbors
+from kernellib._graph._neighbors import KNNGraph, nearest_neighbors, radius_neighbors
 from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGraph
 
 
@@ -40,8 +49,16 @@ __all__ = [
     "commute_time_kernel",
     "cosine_graph_kernel",
     "diffusion_kernel",
+    "edge_weights",
+    "graph_from_adjacency",
+    "graph_from_edges",
+    "graph_from_neighbors",
     "graph_laplacian",
+    "grid_graph",
+    "knn_graph",
     "nearest_neighbors",
+    "radius_graph",
+    "radius_neighbors",
     "random_walk_kernel",
     "regularized_laplacian_kernel",
 ]

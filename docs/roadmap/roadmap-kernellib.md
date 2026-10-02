@@ -427,6 +427,28 @@ Weighting = Literal["heat", "connectivity", "cosine"] | AbstractKernel
 `nearest_neighbors` in `_neighbors.py`. It returns a `KNNGraph` padded with
 index `-1` and distance `inf`.
 
+**As implemented (K2, PR 2).**
+
+- `grid_graph(spacing=h)` sets the axis weights to $1/h_k^2$, so the
+  unnormalised Laplacian is the finite-difference $-\Delta$ on that grid.
+- `symmetrize` has two meanings. For neighbour relations
+  (`graph_from_neighbors`, `knn_graph`), a missing direction counts as
+  weight 0, as in the dense `adjacency_matrix`, so `"min"` keeps mutual
+  neighbours only. For edge lists (`graph_from_edges`), it merges the
+  occurrences of a pair. An undirected list that gives each edge once keeps
+  every edge under any `symmetrize`.
+- `bandwidth` is for `"heat"` only; passing it with another weighting is an
+  error. A kernel carries its own lengthscale. `"local"` takes $\sigma_i$ as
+  the distance to the farthest listed neighbour, which is the $k$-th for a
+  k-NN graph.
+- Without the points (`graph_from_neighbors`, `graph_from_edges`), a kernel
+  weighting must be stationary and isotropic. It is evaluated on the
+  distance. `"cosine"` always needs the points.
+- `radius_graph` and `radius_neighbors` also take `backend` and
+  `random_state`, like `knn_graph`.
+- `adjacency_matrix` keeps working under `jit`. With traced neighbour
+  indices it builds the same matrix densely, as it did before.
+
 **Example.**
 
 ```python
