@@ -175,6 +175,27 @@ semidefinite similarities between the nodes of a graph (Smola & Kondor, 2003).
 | `random_walk_kernel` | $(a - \lambda)^p$ |
 | `cosine_graph_kernel` | $\cos(\pi\lambda/4)$ |
 | `commute_time_kernel` | $\lambda^{+}$ (pseudo-inverse) |
+| `matern_graph_kernel` | $(2\nu/\ell^2 + \lambda)^{-\nu}$, normalised to average variance $\sigma^2$ |
+
+Every graph kernel takes an adjacency matrix or any graph (`Graph`,
+`GridGraph`). They are dense: an `N x N` eigendecomposition. For a large graph,
+take the smallest eigenpairs from `laplacian_eigpairs` and weight them with
+`kernellib.functional.graph_matern_spectrum` or `graph_heat_spectrum`, which
+is a truncated, rank-`M` prior:
+
+```python
+lam, U = kl.laplacian_eigpairs(sensors, 200, normalization="symmetric")
+phi = kl.functional.graph_matern_spectrum(
+    lam, nu=1.5, lengthscale=2.0, n_nodes=sensors.n_nodes
+)
+f = einx.dot("n m, m -> n", U, jnp.sqrt(phi) * jax.random.normal(key, (200,)))
+```
+
+The graph Matérn kernel's $\nu$ is the SPDE exponent ($\kappa^2 = 2\nu/\ell^2$):
+no dimension enters it. As $\nu \to \infty$ it tends to the diffusion kernel
+with $\beta = \ell^2/2$.
+
+::: kernellib.matern_graph_kernel
 
 ::: kernellib.diffusion_kernel
 

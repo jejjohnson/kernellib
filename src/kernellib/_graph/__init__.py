@@ -32,6 +32,7 @@ from kernellib._graph._kernels import (
     commute_time_kernel,
     cosine_graph_kernel,
     diffusion_kernel,
+    matern_graph_kernel,
     random_walk_kernel,
     regularized_laplacian_kernel,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "grid_graph",
     "knn_graph",
     "laplacian_eigpairs",
+    "matern_graph_kernel",
     "n_components_graph",
     "nearest_neighbors",
     "radius_graph",

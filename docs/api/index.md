@@ -23,7 +23,7 @@ but never have to. Modules appear here as each phase of the
 | [Heuristics](heuristics.md) | `estimate_lengthscale`, `lengthscale_to_gamma`, `gamma_to_lengthscale`, `lengthscale_grid` |
 | [Dependence](dependence.md) | `hsic`, `cka`, `kernel_alignment`, `mmd_squared`, `distance_covariance_squared`, `distance_correlation_squared`, `energy_distance`, `taylor_statistics`, `TaylorStatistics`, `permutation_test`, `PermutationTestResult` |
 | [Regression](regression.md) | `AbstractEstimator`, `KRR`, `Falkon`, `EigenPro`, `falkon_preconditioner`, `falkon_solve`, `falkon_predict`, `FalkonPreconditioner`, `FalkonInfo`, `eigenpro_preconditioner`, `eigenpro_step_size`, `eigenpro_correction`, `EigenProPreconditioner` |
-| [Decomposition](decomposition.md) | `KernelPCA`, `nearest_neighbors`, `KNNGraph`, `adjacency_matrix`, `graph_laplacian`, `Graph`, `GridGraph`, `knn_graph`, `grid_graph`, `laplacian_eigpairs`, `n_components_graph`, `graph_from_edges` and the other graph builders, graph kernels, `LaplacianEigenmaps`, `SchrodingerEigenmaps`, `LocalityPreservingProjections`, potentials |
+| [Decomposition](decomposition.md) | `KernelPCA`, `nearest_neighbors`, `KNNGraph`, `adjacency_matrix`, `graph_laplacian`, `Graph`, `GridGraph`, `knn_graph`, `grid_graph`, `laplacian_eigpairs`, `n_components_graph`, `matern_graph_kernel`, `graph_from_edges` and the other graph builders, graph kernels, `LaplacianEigenmaps`, `SchrodingerEigenmaps`, `LocalityPreservingProjections`, potentials |
 | [scikit-learn](sklearn.md) | Optional `kernellib.sklearn`: `KernelRidge`, `FalkonRegressor`, `EigenProRegressor`, feature-map transformers, `HSIC`, `MMD` |
 
 ## Package overview
