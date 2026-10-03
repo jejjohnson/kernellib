@@ -106,6 +106,8 @@ def laplacian_eigpairs(
         >>> U.shape
         (90000, 4)
     """
+    if oversample < 0:
+        raise ValueError(f"oversample must be >= 0, got {oversample}.")
     if normalization not in ("unnormalized", "symmetric"):
         raise ValueError(
             "normalization must be 'unnormalized' or 'symmetric', got "
@@ -144,9 +146,11 @@ def laplacian_eigpairs(
 def n_components_graph(graph: AbstractGraph | Float[Array, "N N"]) -> int:
     """Number of connected components (an isolated node is one).
 
-    It is the multiplicity of the Laplacian's zero eigenvalue. Computed on
-    the host from the topology in ``O(N + E)`` (a lattice is always
-    connected).
+    It is the multiplicity of the Laplacian's zero eigenvalue, so an edge
+    whose weight is zero does not connect its endpoints. Computed on the
+    host in ``O(N + E)`` from the topology and the concrete weights (under
+    a JAX transform, where the weights are traced, every topology edge
+    counts).
 
     Args:
         graph: A graph, or a dense symmetric adjacency matrix.
@@ -165,18 +169,36 @@ def n_components_graph(graph: AbstractGraph | Float[Array, "N N"]) -> int:
 
 def _component_labels(graph: AbstractGraph | Float[Array, "N N"]) -> np.ndarray:
     """Connected-component label of every node, ``0 .. c - 1``."""
-    if isinstance(graph, GridGraph):
+    if isinstance(graph, GridGraph) and _all_nonzero(graph.axis_weights):
+        # Every lattice edge has weight > 0 along some axis: connected.
         return np.zeros(graph.n_nodes, dtype=np.int32)
     if isinstance(graph, AbstractGraph):
         top = graph.topology
         n = top.n_nodes
+        keep = _nonzero_mask(graph.weights)
         adjacency = sp.coo_matrix(
-            (np.ones(top.n_edges), (top.senders, top.receivers)), shape=(n, n)
+            (
+                np.ones(int(keep.sum())),
+                (top.senders[keep], top.receivers[keep]),
+            ),
+            shape=(n, n),
         )
     else:
         adjacency = sp.coo_matrix(np.asarray(graph) != 0)
     _, labels = connected_components(adjacency, directed=False)
     return labels.astype(np.int32)
+
+
+def _nonzero_mask(weights: Float[Array, " E"]) -> np.ndarray:
+    """Edges with a non-zero weight; all of them if the weights are traced."""
+    try:
+        return np.asarray(weights) != 0
+    except jax.errors.TracerArrayConversionError:
+        return np.ones(weights.shape, dtype=bool)
+
+
+def _all_nonzero(weights: Float[Array, " d"]) -> bool:
+    return bool(np.all(_nonzero_mask(weights)))
 
 
 def _kronecker_ok(graph: object, normalization: str) -> bool:
