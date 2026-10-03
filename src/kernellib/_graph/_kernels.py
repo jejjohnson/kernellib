@@ -62,45 +62,38 @@ def matern_graph_kernel(
     variance: float | Float[Array, ""] = 1.0,
     normalization: Normalization = "symmetric",
 ) -> Float[Array, "N N"]:
-    r"""Graph Matérn kernel $K = U \Phi(\Lambda) U^	op$ (Borovitskiy et al., 2021).
+    r"""Graph Matérn kernel $K = U \Phi(\Lambda) U^\top$ (Borovitskiy et al., 2021).
 
-        $\Phi(\lambda) \propto (2
-    u/\ell^2 + \lambda)^{-
-    u}$
-        (`kernellib.functional.graph_matern_spectrum`), scaled so that the
-        average marginal variance, $\operatorname{tr}(K) / N$, is ``variance``.
-        $
-    u$ is the graph smoothness, the exponent of the SPDE
-        $(\kappa^2 - \Delta)^{
-    u/2} f = \mathcal W$ with $\kappa^2 = 2
-    u/\ell^2$;
-        no dimension enters it. As $
-    u 	o \infty$ it tends to the diffusion
-        kernel with ``beta = lengthscale**2 / 2``, likewise normalised.
+    $\Phi(\lambda) \propto (2\nu/\ell^2 + \lambda)^{-\nu}$
+    (`kernellib.functional.graph_matern_spectrum`), scaled so that the
+    average marginal variance, $\operatorname{tr}(K) / N$, is ``variance``.
+    $\nu$ is the graph smoothness, the exponent of the SPDE
+    $(\kappa^2 - \Delta)^{\nu/2} f = \mathcal W$ with $\kappa^2 = 2\nu/\ell^2$;
+    no dimension enters it. As $\nu \to \infty$ it tends to the diffusion
+    kernel with ``beta = lengthscale**2 / 2``, likewise normalised.
 
-        Dense: an ``N x N`` eigendecomposition. For large graphs use
-        `laplacian_eigpairs` and the spectrum directly (a truncated prior).
+    Dense: an ``N x N`` eigendecomposition. For large graphs use
+    `laplacian_eigpairs` and the spectrum directly (a truncated prior).
 
-        Args:
-            W: Symmetric adjacency matrix, or a graph.
-            nu: Smoothness $
-    u > 0$.
-            lengthscale: $\ell > 0$.
-            variance: Average marginal variance.
-            normalization: ``"symmetric"`` (default) or ``"unnormalized"``.
+    Args:
+        W: Symmetric adjacency matrix, or a graph.
+        nu: Smoothness $\nu > 0$.
+        lengthscale: $\ell > 0$.
+        variance: Average marginal variance.
+        normalization: ``"symmetric"`` (default) or ``"unnormalized"``.
 
-        Returns:
-            ``(N, N)`` positive semidefinite kernel matrix.
+    Returns:
+        ``(N, N)`` positive semidefinite kernel matrix.
 
-        Examples:
-            >>> import jax.numpy as jnp
-            >>> import kernellib as kl
-            >>> g = kl.grid_graph((5,))  # a path of 5 nodes
-            >>> K = kl.matern_graph_kernel(g, nu=1.5, lengthscale=2.0)
-            >>> round(float(jnp.trace(K)) / 5, 6)  # average variance
-            1.0
-            >>> bool(K[0, 1] > K[0, 4] > 0)  # nearer nodes covary more
-            True
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> g = kl.grid_graph((5,))  # a path of 5 nodes
+        >>> K = kl.matern_graph_kernel(g, nu=1.5, lengthscale=2.0)
+        >>> round(float(jnp.trace(K)) / 5, 6)  # average variance
+        1.0
+        >>> bool(K[0, 1] > K[0, 4] > 0)  # nearer nodes covary more
+        True
     """
     n = W.n_nodes if isinstance(W, AbstractGraph) else W.shape[0]
     return _spectral(

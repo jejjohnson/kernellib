@@ -107,8 +107,14 @@ def graph_matern_spectrum(
     """
     nu = jnp.asarray(nu)
     kappa2 = 2.0 * nu / jnp.asarray(lengthscale) ** 2
-    log_phi = -nu * jnp.log(kappa2 + jnp.asarray(eigvals))
-    return _scaled(log_phi, variance, n_nodes)
+    # log Phi = -nu log(kappa^2) - nu log1p(lambda / kappa^2). The first term
+    # is common to every mode and cancels in the normalisation; keeping it
+    # apart stops it from swamping the small, mode-dependent second term in
+    # float32 for large nu.
+    relative = -nu * jnp.log1p(jnp.asarray(eigvals) / kappa2)
+    if n_nodes is None:
+        return variance * jnp.exp(relative - nu * jnp.log(kappa2))
+    return _scaled(relative, variance, n_nodes)
 
 
 def _scaled(
@@ -120,4 +126,7 @@ def _scaled(
     ``sum(phi) = n_nodes * variance``, computed without underflow."""
     if n_nodes is None:
         return variance * jnp.exp(log_phi)
-    return variance * n_nodes * jnp.exp(log_phi - logsumexp(log_phi))
+    # Centre before the log-sum-exp: subtracting a huge-magnitude logsumexp
+    # from huge-magnitude log weights would round the O(1) correction away.
+    centred = log_phi - jnp.max(log_phi)
+    return variance * n_nodes * jnp.exp(centred - logsumexp(centred))
