@@ -18,6 +18,17 @@ The exact path costs $O(N^3)$. With ``approx``, a feature map
 $\phi$ (Nyström, random Fourier, ...) replaces the kernel and kernel PCA
 becomes ordinary PCA of $\phi(X)$, in $O(N R^2)$.
 
+**Randomized.** With ``eigen_solver="randomized"`` the kernel is exact but
+the eigendecomposition is approximate: `gaussx.randomized_eigh`, a range
+finder with $q$ = ``n_power_iter`` power iterations, runs on the doubly
+centred, matrix-free operator $HKH$. It needs $(2q + 1)(k + p)$ matvecs
+($p$ = ``oversample``), $O(N^2 (k + p) q)$ kernel work and $O(N (k + p))$
+memory: the ``N x N`` Gram is never formed. The error is governed by
+$\lambda_{k+1}$ and damped like $(\lambda_{k+1} / \lambda_k)^{2q}$, so raise
+``n_power_iter`` for slowly decaying spectra (rough kernels, short
+lengthscales). Use ``approx`` to approximate the kernel itself when even
+$O(N^2)$ kernel evaluations are too many.
+
 **Supervised and fair kernel PCA.** Given targets $T$ with a kernel $K_T$,
 the components $Z = \tilde K A$ maximise the variance plus $\gamma$ times
 the linear-kernel HSIC between $Z$ and $T$,
@@ -45,19 +56,27 @@ inputs is fitted, and `inverse_transform` maps components to input space.
 from __future__ import annotations
 
 import dataclasses
+from typing import Literal
 
 import einx
 import equinox as eqx
+import gaussx as gx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Bool, Float
+import lineax as lx
+from jaxtyping import Array, Bool, Float, PRNGKeyArray
 
 from kernellib._einx import einsum, rearrange, reduce
 from kernellib._heuristics import estimate_lengthscale
 from kernellib._kernels import RBF, AbstractKernel, Linear
+from kernellib._operators._bridge import to_operator
 from kernellib._regression._krr import KRR, _is_concrete_zero, _require
 from kernellib._spectral import AbstractFeatureMap
-from kernellib.functional._statistics import _double_centre, center_cross_kernel
+from kernellib.functional._statistics import (
+    _double_centre,
+    center_cross_kernel,
+    centering_operator,
+)
 
 
 __all__ = ["KernelPCA"]
@@ -70,6 +89,12 @@ class KernelPCA(eqx.Module):
         kernel: The kernel.
         n_components: Number of components.
         approx: Optional unfitted feature map for the ``O(N R^2)`` path.
+        eigen_solver: ``"dense"`` (default, ``eigh`` of the centred Gram) or
+            ``"randomized"`` (`gaussx.randomized_eigh` on the matrix-free
+            $HKH$; needs a ``key`` in `fit`). Plain kernel PCA only.
+        n_power_iter: Power iterations $q$ of the randomized range finder.
+        oversample: Extra range-finder columns $p$ (capped so that
+            $k + p \le N$).
         X_train: Training inputs (exact path), ``None`` before `fit`.
         alphas: Dual coefficients ``(N, n)`` (exact path).
         eigenvalues: Eigenvalues of the centred Gram matrix (or of
@@ -102,11 +127,24 @@ class KernelPCA(eqx.Module):
         >>> kpca = kl.KernelPCA(kl.RBF(lengthscale=2.0), n_components=2).fit(X)
         >>> bool(jnp.allclose(kpca.transform(X), kpca.embedding, atol=1e-4))
         True
+
+        Matrix-free, by a randomized eigendecomposition of $HKH$:
+
+        >>> rand = kl.KernelPCA(
+        ...     kl.RBF(lengthscale=2.0), n_components=2, eigen_solver="randomized"
+        ... ).fit(X, key=jax.random.key(1))
+        >>> bool(jnp.allclose(rand.eigenvalues, kpca.eigenvalues, rtol=1e-3))
+        True
     """
 
     kernel: AbstractKernel
     n_components: int = eqx.field(default=2, static=True)
     approx: AbstractFeatureMap | None = None
+    eigen_solver: Literal["dense", "randomized"] = eqx.field(
+        default="dense", static=True
+    )
+    n_power_iter: int = eqx.field(default=2, static=True)
+    oversample: int = eqx.field(default=10, static=True)
     X_train: Float[Array, "N D"] | None = None
     alphas: Float[Array, "N n"] | None = None
     eigenvalues: Float[Array, " n"] | None = None
@@ -127,12 +165,25 @@ class KernelPCA(eqx.Module):
     def __check_init__(self) -> None:
         if self.n_components < 1:
             raise ValueError(f"n_components must be >= 1, got {self.n_components}.")
+        if self.eigen_solver not in ("dense", "randomized"):
+            raise ValueError(
+                "eigen_solver must be 'dense' or 'randomized', got "
+                f"{self.eigen_solver!r}."
+            )
+        if self.eigen_solver == "randomized" and self.approx is not None:
+            raise ValueError(
+                "eigen_solver='randomized' decomposes the exact kernel; it "
+                "cannot be combined with approx."
+            )
+        if self.n_power_iter < 0 or self.oversample < 0:
+            raise ValueError("n_power_iter and oversample must be >= 0.")
 
     def fit(
         self,
         X: Float[Array, "N D"],
         *,
         target: Float[Array, "N P"] | Float[Array, " N"] | None = None,
+        key: PRNGKeyArray | None = None,
     ) -> KernelPCA:
         """Fit the components on ``X``.
 
@@ -140,12 +191,18 @@ class KernelPCA(eqx.Module):
             X: Training inputs, shape ``(N, D)``.
             target: Targets (supervised) or protected attributes (fair) for
                 ``target_weight``; ignored when the weight is ``0``.
+            key: PRNG key for ``eigen_solver="randomized"`` (required
+                there); ignored by the dense path.
 
         Raises:
             ValueError: If ``n_components`` exceeds what the data (or the
-                feature map) supports, or ``target_weight`` is non-zero
-                without a ``target``.
+                feature map) supports, ``target_weight`` is non-zero
+                without a ``target``, or ``eigen_solver="randomized"`` is
+                used without a ``key`` or with a ``target``.
         """
+        randomized = self.eigen_solver == "randomized"
+        if randomized and key is None:
+            raise ValueError("eigen_solver='randomized' needs a PRNG key in fit.")
         # Without a target there is nothing to supervise, so the weight must
         # be 0: a ValueError when it is concrete, and a run-time check under
         # jit, where even the default 0.0 is traced. Either way the plain path
@@ -157,7 +214,12 @@ class KernelPCA(eqx.Module):
                 X,
             )
         if target is None or _is_concrete_zero(self.target_weight):
-            fitted = self._fit_plain(X)
+            fitted = self._fit_plain(X, key)
+        elif randomized:
+            raise ValueError(
+                "eigen_solver='randomized' supports plain kernel PCA only; use "
+                "'dense' for supervised or fair kernel PCA."
+            )
         else:
             fitted = self._fit_supervised(X, _target_penalty(self, target))
         if self.fit_inverse_transform:
@@ -252,7 +314,9 @@ class KernelPCA(eqx.Module):
             gram_mean=total,
         )
 
-    def _fit_plain(self, X: Float[Array, "N D"]) -> KernelPCA:
+    def _fit_plain(
+        self, X: Float[Array, "N D"], key: PRNGKeyArray | None = None
+    ) -> KernelPCA:
         n = X.shape[0]
         if self.approx is not None:
             fmap = self.approx.fit(self.kernel, X)
@@ -279,12 +343,30 @@ class KernelPCA(eqx.Module):
             raise ValueError(
                 f"n_components={self.n_components} exceeds the number of points {n}."
             )
-        K = self.kernel(X, X)
-        col = jnp.mean(K, axis=0)
-        total = jnp.mean(K)
-        Kc = K - col[None, :] - col[:, None] + total
-        lam, U = jnp.linalg.eigh(0.5 * (Kc + Kc.T))
-        lam, U = lam[::-1][: self.n_components], U[:, ::-1][:, : self.n_components]
+        if self.eigen_solver == "randomized":
+            assert key is not None  # checked in fit
+            K_op = to_operator(self.kernel, X, implicit=self.kernel.is_pointwise)
+            # K is symmetric, so its column means are its row means: one matvec.
+            col = K_op.mv(jnp.ones(n, dtype=X.dtype)) / n
+            total = jnp.mean(col)
+            # randomized_eigh returns the eigenpairs in ascending order.
+            lam, U = gx.randomized_eigh(
+                _doubly_centred(K_op, n),
+                self.n_components,
+                oversample=min(self.oversample, n - self.n_components),
+                n_power_iter=self.n_power_iter,
+                which="largest",
+                key=key,
+            )
+            lam, U = lam[::-1], U[:, ::-1]
+        else:
+            K = self.kernel(X, X)
+            col = jnp.mean(K, axis=0)
+            total = jnp.mean(K)
+            Kc = K - col[None, :] - col[:, None] + total
+            lam, U = jnp.linalg.eigh(0.5 * (Kc + Kc.T))
+            lam = lam[::-1][: self.n_components]
+            U = U[:, ::-1][:, : self.n_components]
         safe = jnp.sqrt(jnp.clip(lam, min=jnp.finfo(lam.dtype).tiny))
         return dataclasses.replace(
             self,
@@ -313,6 +395,20 @@ class KernelPCA(eqx.Module):
         Kt = self.kernel(X, self.X_train)
         Ktc = center_cross_kernel(Kt, self.gram_column_means, self.gram_mean)
         return Ktc @ self.alphas
+
+
+def _doubly_centred(K: lx.AbstractLinearOperator, n: int) -> lx.FunctionLinearOperator:
+    """``H K H`` with ``H = centering_operator(n)``, matrix-free.
+
+    ``H`` on both sides keeps it symmetric positive semidefinite (a one-sided
+    ``H K`` is neither); each ``H`` costs ``O(n)``.
+    """
+    H = centering_operator(n)
+    return lx.FunctionLinearOperator(
+        lambda v: H.mv(K.mv(H.mv(v))),
+        K.in_structure(),
+        tags=(lx.symmetric_tag, lx.positive_semidefinite_tag),
+    )
 
 
 def _target_penalty(
