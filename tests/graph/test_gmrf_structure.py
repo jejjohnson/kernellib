@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import kernellib as kl
-from kernellib._einx import einsum
+from kernellib._einx import einsum, reduce
 
 
 def _constrained_variances(R, V):
@@ -62,6 +62,18 @@ class TestNullSpace:
         # It spans the whole kernel: rank(L) = n - n_comp.
         assert np.linalg.matrix_rank(np.asarray(L)) == n - n_comp
 
+    def test_zero_weight_edges_split_components(self):
+        g = kl.graph_from_edges(
+            [0, 1, 2], [1, 2, 3], 4, weights=jnp.array([1.0, 0.0, 2.0])
+        )
+        V = kl.graph_null_space(g)
+        assert V.shape == (4, 2)
+        assert np.allclose(g.laplacian_operator().as_matrix() @ V, 0.0)
+
+    def test_grid_dtype_follows_the_axis_weights(self):
+        g = kl.GridGraph((3, 3), axis_weights=jnp.ones(2, dtype=jnp.float32))
+        assert kl.graph_null_space(g).dtype == jnp.float32
+
     def test_grid(self):
         V = kl.graph_null_space(kl.grid_graph((3, 4)))
         assert np.allclose(V, 1.0 / np.sqrt(12))
@@ -97,6 +109,28 @@ class TestStructureMatrix:
             gm = jnp.exp(jnp.mean(jnp.log(var[jnp.array(nodes)])))
             assert np.isclose(float(gm), 1.0, rtol=1e-6)
         assert np.allclose(R[7], 0.0)
+
+    @pytest.mark.slow
+    def test_zero_weight_edges_and_many_components(self):
+        # Ten disjoint weighted pairs, a zero-weight edge joining two of
+        # them, and an isolated node: every component is scaled to 1.
+        s = [*range(0, 20, 2), 1]
+        r = [*range(1, 20, 2), 2]
+        w = jnp.concatenate([jnp.arange(1.0, 11.0), jnp.zeros(1)])
+        g = kl.graph_from_edges(s, r, 21, weights=w)
+        assert kl.n_components_graph(g) == 11
+        R = kl.structure_matrix(g, scaled=True).as_matrix()
+        var = _constrained_variances(R, kl.graph_null_space(g))
+        for k in range(10):
+            pair = jnp.array([2 * k, 2 * k + 1])
+            gm = jnp.exp(jnp.mean(jnp.log(var[pair])))
+            assert np.isclose(float(gm), 1.0, rtol=1e-6)
+
+    def test_disconnected_grid_is_scaled_per_component(self):
+        g = kl.GridGraph((3, 4), axis_weights=jnp.array([0.0, 1.0]))
+        R = kl.structure_matrix(g, scaled=True)
+        assert isinstance(R, gx.SparseOperator)  # rows: not one Kronecker block
+        assert np.allclose(reduce(R.as_matrix(), "i j -> i", "sum"), 0.0)
 
     def test_grid_keeps_its_kronecker_structure(self):
         g = kl.grid_graph((5, 6), periodic=(False, True))
@@ -147,6 +181,39 @@ class TestMeshGraph:
             np.flatnonzero((g.topology.senders == 0) & (g.topology.receivers == 2))[0]
         )
         assert float(g.weights[diagonal]) == 0.0
+
+    def test_checks_run_under_jit(self):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.2], [1.0, -0.2]])
+        T = np.array([[0, 1, 2], [0, 3, 1]])
+
+        @jax.jit
+        def weights(V):
+            return kl.mesh_graph(V, T, weighting="cotangent").weights
+
+        with pytest.raises(Exception, match="not Delaunay"):
+            jax.block_until_ready(weights(V))
+        flat = jnp.zeros((4, 2))
+        with pytest.raises(Exception, match="non-degenerate"):
+            jax.block_until_ready(weights(flat))
+
+    def test_float32_right_angles_are_not_rejected(self):
+        # A translated right-triangle mesh in float32: the diagonal weights are
+        # zero in exact arithmetic and rounding noise in float32.
+        rows = np.array([[c, r] for r in range(4) for c in range(4)], dtype=np.float32)
+        V = jnp.asarray(rows * 0.37 + np.float32(123.456), dtype=jnp.float32)
+        tris = []
+        for r in range(3):
+            for c in range(3):
+                a, b, d, e = (
+                    4 * r + c,
+                    4 * r + c + 1,
+                    4 * (r + 1) + c,
+                    4 * (r + 1) + c + 1,
+                )
+                tris += [[a, b, e], [a, e, d]]
+        g = kl.mesh_graph(V, np.array(tris), weighting="cotangent")
+        assert g.weights.dtype == jnp.float32
+        assert np.all(np.asarray(g.weights) >= 0.0)
 
     def test_validation(self):
         V = jnp.zeros((3, 2))

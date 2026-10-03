@@ -66,7 +66,11 @@ def graph_null_space(graph: AbstractGraph) -> Float[Array, "N c"]:
     sizes = np.bincount(labels, minlength=n_comp)
     V = np.zeros((labels.shape[0], n_comp))
     V[np.arange(labels.shape[0]), labels] = 1.0 / np.sqrt(sizes[labels])
-    dtype = graph.weights.dtype if isinstance(graph, Graph) else None
+    dtype = (
+        graph.axis_weights.dtype
+        if isinstance(graph, GridGraph)
+        else graph.weights.dtype
+    )
     return jnp.asarray(V, dtype=dtype)
 
 
@@ -106,7 +110,9 @@ def structure_matrix(
     """
     if not scaled:
         return graph.laplacian_operator()
-    if isinstance(graph, GridGraph) and graph.connectivity == "face":
+    labels = _component_labels(graph)
+    n_comp = int(labels.max()) + 1
+    if isinstance(graph, GridGraph) and graph.connectivity == "face" and n_comp == 1:
         L = graph.laplacian_operator()
         s = gx.generalized_variance_scale(L, graph_null_space(graph))
         return GridGraph(
@@ -116,32 +122,36 @@ def structure_matrix(
             axis_weights=s * graph.axis_weights,
         ).laplacian_operator()
     top = graph.topology
-    labels = _component_labels(graph)
-    n_comp = int(labels.max()) + 1
     weights = graph.weights
-    edge_scale = jnp.ones_like(weights)
-    for c in range(n_comp):
-        nodes = np.flatnonzero(labels == c)
-        if nodes.shape[0] < 2:
-            continue  # an isolated node: no edges, nothing to scale
-        s_c = gx.generalized_variance_scale(
-            _component_laplacian(top, weights, nodes),
-            jnp.ones(nodes.shape[0], dtype=weights.dtype),
-        )
-        edge_scale = jnp.where(jnp.asarray(labels[top.senders] == c), s_c, edge_scale)
-    return graph.reweight(weights * edge_scale).laplacian_operator()
-
-
-def _component_laplacian(
-    top: GraphTopology, weights: Float[Array, " E"], nodes: np.ndarray
-) -> gx.SparseOperator:
-    """The Laplacian of the subgraph induced by ``nodes`` (one component)."""
-    local = np.full(top.n_nodes, -1)
-    local[nodes] = np.arange(nodes.shape[0])
-    inside = np.flatnonzero(local[top.senders] >= 0)
-    sub = GraphTopology(
-        local[top.senders[inside]], local[top.receivers[inside]], nodes.shape[0]
+    sizes = np.bincount(labels, minlength=n_comp)
+    # Each node's index within its component, in global order (so a
+    # component's edges keep senders < receivers): O(N) for all components.
+    order = np.argsort(labels, kind="stable")
+    local = np.empty(top.n_nodes, dtype=np.int64)
+    local[order] = np.arange(top.n_nodes) - np.repeat(np.cumsum(sizes) - sizes, sizes)
+    # Edges grouped by component, once. An edge between two components has
+    # weight 0 (else they would be one component) and is left out.
+    comp = labels[top.senders]
+    within = np.flatnonzero(comp == labels[top.receivers])
+    within = within[np.argsort(comp[within], kind="stable")]
+    bounds = np.concatenate(
+        [[0], np.cumsum(np.bincount(comp[within], minlength=n_comp))]
     )
-    L = Graph(sub, weights[inside]).laplacian_operator()
-    assert isinstance(L, gx.SparseOperator)
-    return L
+    ids, scales = [], []
+    for c in np.flatnonzero(sizes > 1):  # an isolated node has nothing to scale
+        edges = within[bounds[c] : bounds[c + 1]]
+        sub = GraphTopology(
+            local[top.senders[edges]], local[top.receivers[edges]], int(sizes[c])
+        )
+        L_c = Graph(sub, weights[edges]).laplacian_operator()
+        ids.append(c)
+        scales.append(
+            gx.generalized_variance_scale(
+                L_c, jnp.ones(int(sizes[c]), dtype=weights.dtype)
+            )
+        )
+    per_component = jnp.ones(n_comp, dtype=weights.dtype)
+    if ids:
+        per_component = per_component.at[jnp.asarray(ids)].set(jnp.stack(scales))
+    edge_scale = per_component[jnp.asarray(comp)]
+    return graph.reweight(weights * edge_scale).laplacian_operator()

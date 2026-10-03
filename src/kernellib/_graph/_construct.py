@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -566,7 +567,9 @@ def mesh_graph(
     would need $\sqrt{w_e}$), so this raises rather than clamp, which would
     silently change the operator. Use `gaussx.fem_matrices`, which holds
     the signed stiffness as a `gaussx.SparseOperator`, or re-mesh. Weights
-    within rounding error of zero (right angles on both sides) are set to 0.
+    within rounding error of zero (right angles on both sides; ``1e3``
+    machine epsilons of the largest weight) are set to 0. Under ``jit``,
+    ``grad`` or ``vmap`` the checks run at run time (`equinox.error_if`).
 
     Args:
         vertices: Vertex coordinates, ``(V, 2)`` or ``(V, 3)`` for a surface.
@@ -613,7 +616,7 @@ def mesh_graph(
     uu = einsum(u, u, "t k d, t k d -> t k")
     vv = einsum(v, v, "t k d, t k d -> t k")
     area2 = jnp.sqrt(jnp.clip(uu * vv - dot**2, min=0.0))  # |u x v|
-    _check_nondegenerate(area2)
+    area2 = _check_nondegenerate(area2)
     cot = rearrange(dot / area2, "t k -> (t k)")
     w = 0.5 * jax.ops.segment_sum(cot, pair, topology.n_edges)
     w = _check_cotangent_weights(w)
@@ -638,30 +641,44 @@ def _triangle_edges(
     )
 
 
-def _check_nondegenerate(area2: Array) -> None:
+_DEGENERATE = "mesh_graph needs non-degenerate triangles (zero area found)."
+_NOT_DELAUNAY = (
+    "cotangent weight(s) are negative: the mesh is not Delaunay (two obtuse "
+    "angles face an edge). A graph needs non-negative weights; use "
+    "gaussx.fem_matrices for the signed stiffness matrix, or re-mesh."
+)
+
+
+def _check_nondegenerate(area2: Array) -> Array:
+    """Raise on a zero-area triangle; under a JAX transform, a run-time check."""
     try:
         host = np.asarray(area2)
     except jax.errors.TracerArrayConversionError:
-        return  # traced vertices: checked when concrete
+        return eqx.error_if(area2, jnp.any(area2 <= 0.0), _DEGENERATE)
     if host.size and np.any(host <= 0.0):
-        raise ValueError("mesh_graph needs non-degenerate triangles (zero area found).")
+        raise ValueError(_DEGENERATE)
+    return area2
 
 
 def _check_cotangent_weights(w: Array) -> Array:
-    try:
-        host = np.asarray(w)
-    except jax.errors.TracerArrayConversionError:
-        return w  # traced vertices: checked when concrete
-    if not host.size:
+    """Raise on a negative weight and zero the ones within rounding of 0.
+
+    The tolerance scales with the precision of ``w`` and the largest weight,
+    so float32 cancellation on a theoretically zero weight (right angles on
+    both sides) is not mistaken for a non-Delaunay edge. Under a JAX
+    transform the check is a run-time `equinox.error_if`.
+    """
+    if not w.size:
         return w
-    tol = 1e-10 * np.max(np.abs(host))
-    if np.any(host < -tol):
-        raise ValueError(
-            f"{int(np.sum(host < -tol))} cotangent weight(s) are negative: the "
-            "mesh is not Delaunay (two obtuse angles face an edge). A graph "
-            "needs non-negative weights; use gaussx.fem_matrices for the signed "
-            "stiffness matrix, or re-mesh."
-        )
+    tol = 1e3 * jnp.finfo(w.dtype).eps * jnp.max(jnp.abs(w))
+    negative = w < -tol
+    try:
+        host = np.asarray(negative)
+    except jax.errors.TracerArrayConversionError:
+        w = eqx.error_if(w, jnp.any(negative), _NOT_DELAUNAY)
+    else:
+        if np.any(host):
+            raise ValueError(f"{int(np.sum(host))} {_NOT_DELAUNAY}")
     return jnp.where(jnp.abs(w) <= tol, 0.0, w)
 
 
