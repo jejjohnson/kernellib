@@ -60,6 +60,20 @@ class TestSpectra:
         assert float(jnp.max(jnp.abs(far - heat))) < 1e-3
         assert float(jnp.max(jnp.abs(near - heat))) > 1e-2
 
+    def test_normalisation_in_float32(self):
+        # Large common log offsets: the normalisation must still hold, and the
+        # large-nu Matern spectrum must stay close to the heat spectrum.
+        lam = jnp.linspace(0.0, 2.0, 25, dtype=jnp.float32)
+        far = graph_matern_spectrum(lam, nu=1e7, lengthscale=1.5, n_nodes=25)
+        heat = graph_heat_spectrum(lam, lengthscale=1.5, n_nodes=25)
+        assert far.dtype == jnp.float32
+        assert np.isclose(float(jnp.sum(far)), 25.0, rtol=1e-5)
+        assert float(jnp.max(jnp.abs(far - heat))) < 1e-3
+        big = graph_heat_spectrum(
+            jnp.full(10, 1e6, dtype=jnp.float32), lengthscale=10.0, n_nodes=10
+        )
+        assert np.allclose(big, 1.0, rtol=1e-5)
+
     def test_differentiable_in_the_hyperparameters(self):
         lam = jnp.linspace(0.0, 2.0, 10)
 
