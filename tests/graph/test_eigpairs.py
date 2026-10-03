@@ -173,6 +173,17 @@ class TestNComponents:
         assert kl.n_components_graph(g.to_dense()) == 2
         assert kl.n_components_graph(jnp.zeros((4, 4))) == 4
 
+    def test_zero_weight_edges_do_not_connect(self):
+        # One edge of weight 0: two components, and two zero eigenvalues.
+        g = kl.graph_from_edges([0, 1], [1, 2], 3, weights=jnp.array([0.0, 1.0]))
+        assert kl.n_components_graph(g) == 2
+        lam, _ = kl.laplacian_eigpairs(g, 3)
+        assert int(np.sum(np.abs(np.asarray(lam)) < 1e-9)) == 2
+
+    def test_zero_axis_weight_disconnects_a_grid(self):
+        g = kl.GridGraph((3, 4), axis_weights=jnp.array([0.0, 1.0]))
+        assert kl.n_components_graph(g) == 3  # three unconnected rows
+
 
 class TestValidation:
     def test_invalid_arguments(self):
@@ -189,3 +200,7 @@ class TestValidation:
             kl.laplacian_eigpairs(g, 2, method="lanczos")
         with pytest.raises(ValueError, match="n < N"):
             kl.laplacian_eigpairs(g, 30, method="arpack")
+        with pytest.raises(ValueError, match="oversample"):
+            kl.laplacian_eigpairs(
+                g, 5, method="lanczos", key=jax.random.key(0), oversample=-1
+            )
