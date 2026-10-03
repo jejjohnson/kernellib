@@ -27,6 +27,7 @@ from kernellib._graph._construct import (
     knn_graph,
     radius_graph,
 )
+from kernellib._graph._eigpairs import laplacian_eigpairs, n_components_graph
 from kernellib._graph._kernels import (
     commute_time_kernel,
     cosine_graph_kernel,
@@ -56,6 +57,8 @@ __all__ = [
     "graph_laplacian",
     "grid_graph",
     "knn_graph",
+    "laplacian_eigpairs",
+    "n_components_graph",
     "nearest_neighbors",
     "radius_graph",
     "radius_neighbors",

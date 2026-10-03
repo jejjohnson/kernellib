@@ -522,6 +522,24 @@ lam, U = kl.laplacian_eigpairs(
 )  # 10⁵ nodes, in JAX
 ```
 
+**As implemented (K3).**
+
+- `laplacian_eigpairs` takes `oversample=200`: the Krylov dimension of
+  `"lanczos"` is `n + oversample`. At the bottom of a graph spectrum the
+  eigenvalues are small and clustered, and Lanczos needs a space well beyond
+  `n`. On a 2000-node k-NN graph, a Krylov dimension of 60 gave a 500 %
+  error and 250 gave `1e-7`.
+- A `GridGraph` that is not face-connected, or not `"unnormalized"`,
+  defaults to `"dense"`.
+- `"arpack"` builds $L_{\text{sym}}$ itself for `"symmetric"`. The moved
+  `_smallest_sparse` degree scaling returns the generalised
+  ($D^{-1/2}$-scaled) eigenvectors that the eigenmaps want, not
+  orthonormal eigenvectors of $L_{\text{sym}}$.
+- `n_components_graph` uses SciPy's connected components on the topology,
+  `O(N + E)`, instead of label propagation, which needs `O(\text{diameter}
+  \cdot E)`: thousands of sweeps on a large grid. A lattice is always
+  connected.
+
 ### 4.4 Spectral graph kernels
 
 **The maths.** A spectral graph kernel is $K = U\,\Phi(\Lambda)\,U^\top$, for
