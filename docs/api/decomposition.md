@@ -153,6 +153,35 @@ lam, U = kl.laplacian_eigpairs(river_network, 128, method="lanczos", key=key)
 
 ::: kernellib.n_components_graph
 
+### GMRF structure
+
+The graph side of intrinsic GMRFs (Besag / ICAR, BYM2) in gaussx and
+pyrox-lgm. `structure_matrix(graph)` is the Besag structure $R = L$ (a
+`gaussx.SparseOperator`, or a `gaussx.KroneckerSum` on a grid), and with
+`scaled=True` it is BYM2-scaled per connected component.
+`graph_null_space` gives the sum-to-zero constraints, one per component.
+`mesh_graph(vertices, triangles, weighting="cotangent")` has the P1 FEM
+stiffness matrix as its Laplacian.
+
+```python
+counties = kl.graph_from_adjacency(queen_contiguity)
+R = kl.structure_matrix(counties, scaled=True)  # s * L, ready for BYM2
+N0 = kl.graph_null_space(counties)  # one column per island group
+mesh = kl.mesh_graph(vertices, triangles, weighting="cotangent")
+```
+
+**Covariance form and precision form on one graph.** The graph Matérn kernel
+$(2\nu/\ell^2 + \lambda)^{-\nu}$ and gaussx's SPDE precision
+$\tau^2(\kappa^2 + \lambda)^{\alpha}$ are the same prior, with $\nu = \alpha$ and
+`lengthscale = sqrt(2 * alpha) / kappa`, once both are normalised to average
+variance 1. Use `normalization="unnormalized"` on the graph side.
+
+::: kernellib.structure_matrix
+
+::: kernellib.graph_null_space
+
+::: kernellib.mesh_graph
+
 ### Graph types
 
 ::: kernellib.AbstractGraph
