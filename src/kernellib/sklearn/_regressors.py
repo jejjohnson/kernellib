@@ -82,8 +82,13 @@ class KernelRidge(_Regressor):
             median-heuristic lengthscale of the training inputs. Its fields
             are nested parameters, e.g. ``kernel__lengthscale``.
         regularization: Ridge $\lambda$.
-        solver: A gaussx solver strategy; ``None`` for dense Cholesky.
-        implicit: Matrix-free kernel operator (pair with ``gx.CGSolver()``).
+        solver: A gaussx solver strategy; ``None`` for dense Cholesky, or
+            preconditioned CG with a ``preconditioner``.
+        implicit: Matrix-free kernel operator (pair with ``gx.CGSolver()`` or
+            a ``preconditioner``).
+        preconditioner: ``"none"``, ``"nystrom"`` or ``"rpcholesky"``; see
+            `kernellib.KRR`.
+        preconditioner_rank: Rank of the preconditioner.
 
     Attributes:
         model_: The fitted `kernellib.KRR`.
@@ -114,19 +119,24 @@ class KernelRidge(_Regressor):
         regularization: float = 1e-3,
         solver: Any = None,
         implicit: bool = False,
+        preconditioner: str = "none",
+        preconditioner_rank: int = 200,
     ) -> None:
         self.kernel = kernel
         self.regularization = regularization
         self.solver = solver
         self.implicit = implicit
+        self.preconditioner = preconditioner
+        self.preconditioner_rank = preconditioner_rank
 
     def _build(self, kernel: AbstractKernel, n: int) -> AbstractEstimator:
-        kwargs = {} if self.solver is None else {"solver": self.solver}
         return KRR(
             kernel,
             regularization=self.regularization,
+            solver=self.solver,
             implicit=self.implicit,
-            **kwargs,
+            preconditioner=self.preconditioner,  # ty: ignore[invalid-argument-type]
+            preconditioner_rank=self.preconditioner_rank,
         )
 
 

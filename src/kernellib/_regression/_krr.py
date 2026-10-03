@@ -3,7 +3,7 @@ r"""Kernel ridge regression through any gaussx solver strategy."""
 from __future__ import annotations
 
 import dataclasses
-from typing import TypeGuard
+from typing import Literal, TypeGuard
 
 import einx
 import equinox as eqx
@@ -20,6 +20,12 @@ from kernellib._regression._base import AbstractEstimator, _check_targets
 
 
 __all__ = ["KRR"]
+
+Preconditioner = Literal["none", "nystrom", "rpcholesky"]
+# Tolerances of the preconditioned CG solve, matching the GMRES path's defaults.
+_CG_RTOL = 1e-6
+_CG_ATOL = 1e-6
+_CG_MAX_STEPS = 1000
 
 
 class KRR(AbstractEstimator):
@@ -38,6 +44,29 @@ class KRR(AbstractEstimator):
     by ``solver``: `gaussx.DenseSolver` (Cholesky) by default, or any other
     strategy, e.g. ``gaussx.CGSolver()`` with ``implicit=True`` for a
     matrix-free ``O(N)``-memory solve.
+
+    **Preconditioned CG.** Plain CG on $(K + \lambda n I)\alpha = y$ needs
+    $O(\sqrt\kappa)$ iterations with $\kappa = (\lambda_1 + \lambda n) /
+    \lambda n$, which explodes for small $\lambda$. With
+    ``preconditioner="nystrom"`` or ``"rpcholesky"``, `fit` builds a rank
+    ``preconditioner_rank`` preconditioner from $K$ (with the shift
+    $\lambda n$ passed separately, so the ridge is never counted twice) and
+    solves by `gaussx.PreconditionedCGSolver`. A rank near the effective
+    dimension $d_{\mathrm{eff}}(\lambda n) = \sum_i \lambda_i / (\lambda_i +
+    \lambda n)$ makes $\kappa = O(1)$. With ``implicit=True`` the kernel
+    matrix is never formed, so this scales to ``n = 10^5`` and beyond.
+
+    - ``"nystrom"``: `gaussx.NystromPreconditioner` (randomized Nyström,
+      ``preconditioner_rank`` matvecs with $K$).
+    - ``"rpcholesky"``: `gaussx.PartialCholeskyPreconditioner` with random
+      pivoting (Díaz, Epperly, Frangella, Tropp & Webber, 2023),
+      ``O(N r)`` kernel evaluations instead of ``r`` full matvecs: the
+      better choice when kernel evaluations are expensive.
+
+    ``solver=None`` (the default) means `gaussx.DenseSolver` without a
+    preconditioner, as before, and preconditioned CG with one. An explicit
+    ``solver`` is used as given, and cannot be combined with a
+    preconditioner.
 
     **Quadratic penalties.** `fit` also takes a penalty operator $M$ and a
     mask $J$ of labelled points ($l = \operatorname{tr} J$), and then
@@ -65,12 +94,17 @@ class KRR(AbstractEstimator):
       real and at least $l\lambda$: it is as well conditioned as KRR. With
       ``implicit=False`` it is solved by dense LU; with ``implicit=True``,
       matrix-free by GMRES, with the tolerances (``rtol``, ``atol``,
-      ``max_steps``) of ``solver`` when it has them.
+      ``max_steps``) of ``solver`` when it has them. A ``preconditioner``
+      applies to the Woodbury path only.
 
     Attributes:
         kernel: The kernel.
         regularization: Ridge $\lambda > 0$.
-        solver: A gaussx solver strategy.
+        solver: A gaussx solver strategy; ``None`` to choose from
+            ``preconditioner``.
+        preconditioner: ``"none"`` (default), ``"nystrom"`` or
+            ``"rpcholesky"``; the latter two need a ``key`` in `fit`.
+        preconditioner_rank: Rank of the preconditioner (capped at ``N``).
         penalty_weight: Weight $\mu \ge 0$ of the penalty passed to `fit`.
         implicit: Build the kernel matrix matrix-free
             (`ImplicitKernelOperator`); needs a pointwise kernel and a concrete
@@ -86,15 +120,46 @@ class KRR(AbstractEstimator):
         >>> model = kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-6).fit(X, y)
         >>> bool(jnp.max(jnp.abs(model.predict(X) - y)) < 1e-2)
         True
+
+        Matrix-free, with a rank-10 Nyström preconditioner for CG:
+
+        >>> import jax
+        >>> pcg = kl.KRR(
+        ...     kl.RBF(lengthscale=0.2),
+        ...     regularization=1e-6,
+        ...     implicit=True,
+        ...     preconditioner="nystrom",
+        ...     preconditioner_rank=10,
+        ... ).fit(X, y, key=jax.random.key(0))
+        >>> bool(jnp.max(jnp.abs(pcg.predict(X) - model.predict(X))) < 1e-3)
+        True
     """
 
     kernel: AbstractKernel
     regularization: float | Float[Array, ""] = 1e-3
-    solver: gx.AbstractSolverStrategy = gx.DenseSolver()
+    solver: gx.AbstractSolverStrategy | None = None
     implicit: bool = eqx.field(default=False, static=True)
     penalty_weight: float | Float[Array, ""] = 0.0
+    preconditioner: Preconditioner = eqx.field(default="none", static=True)
+    preconditioner_rank: int = eqx.field(default=200, static=True)
     X_train: Float[Array, "N D"] | None = None
     alpha: Float[Array, " N"] | Float[Array, "N C"] | None = None
+
+    def __check_init__(self) -> None:
+        if self.preconditioner not in ("none", "nystrom", "rpcholesky"):
+            raise ValueError(
+                "preconditioner must be 'none', 'nystrom' or 'rpcholesky', got "
+                f"{self.preconditioner!r}."
+            )
+        if self.preconditioner != "none" and self.solver is not None:
+            raise ValueError(
+                "Pass a solver or a preconditioner, not both: with a "
+                "preconditioner, KRR solves by preconditioned CG."
+            )
+        if self.preconditioner_rank < 1:
+            raise ValueError(
+                f"preconditioner_rank must be >= 1, got {self.preconditioner_rank}."
+            )
 
     def fit(
         self,
@@ -105,7 +170,7 @@ class KRR(AbstractEstimator):
         mask: Bool[Array, " N"] | None = None,
         key: PRNGKeyArray | None = None,
     ) -> KRR:
-        """Solve for the weights. ``key`` is unused.
+        """Solve for the weights.
 
         Args:
             X: Training inputs, shape ``(N, D)``.
@@ -119,28 +184,59 @@ class KRR(AbstractEstimator):
                 `gaussx.LowRankUpdate` takes the Woodbury path and must have
                 a zero diagonal base.
             mask: Optional boolean mask of labelled points, shape ``(N,)``.
-            key: Unused.
+            key: PRNG key for the preconditioner; required when
+                ``preconditioner`` is not ``"none"``, unused otherwise.
 
         Raises:
-            ValueError: If ``y`` or ``mask`` does not match ``X``, or a
-                low-rank ``penalty`` has a non-zero diagonal base.
+            ValueError: If ``y`` or ``mask`` does not match ``X``, a
+                low-rank ``penalty`` has a non-zero diagonal base, or
+                ``key`` is missing for a preconditioner.
         """
-        del key
         y = _check_targets(X, y)
+        if self.preconditioner != "none" and key is None:
+            raise ValueError(
+                f"preconditioner={self.preconditioner!r} needs a PRNG key in fit."
+            )
         if mask is not None or not _no_penalty(penalty, self.penalty_weight):
-            alpha = self._fit_penalised(X, y, penalty, mask)
+            alpha = self._fit_penalised(X, y, penalty, mask, key)
             return dataclasses.replace(self, X_train=X, alpha=alpha)
+        solver = self._solver(X, key)
         n = X.shape[0]
         K = to_operator(
             self.kernel, X, noise=self.regularization * n, implicit=self.implicit
         )
         if y.ndim == 1:
-            alpha = self.solver.solve(K, y)
+            alpha = solver.solve(K, y)
         else:
-            alpha = jax.vmap(
-                lambda col: self.solver.solve(K, col), in_axes=1, out_axes=1
-            )(y)
+            alpha = jax.vmap(lambda col: solver.solve(K, col), in_axes=1, out_axes=1)(y)
         return dataclasses.replace(self, X_train=X, alpha=alpha)
+
+    def _solver(
+        self, X: Float[Array, "N D"], key: PRNGKeyArray | None
+    ) -> gx.AbstractSolverStrategy:
+        """The solver strategy for ``K + lambda n I``: as given, dense, or
+        preconditioned CG with a preconditioner built from ``K`` once."""
+        if self.preconditioner == "none":
+            return gx.DenseSolver() if self.solver is None else self.solver
+        assert key is not None  # checked in fit
+        n = X.shape[0]
+        K = to_operator(self.kernel, X, implicit=self.implicit)
+        rank = min(self.preconditioner_rank, n)
+        shift = self.regularization * n
+        if self.preconditioner == "nystrom":
+            precond = gx.NystromPreconditioner.from_operator(
+                K, rank, shift=shift, key=key
+            )
+        else:
+            precond = gx.PartialCholeskyPreconditioner.from_operator(
+                K, rank, shift=shift, pivoting="random", key=key
+            )
+        return gx.PreconditionedCGSolver(
+            preconditioner=precond,
+            rtol=_CG_RTOL,
+            atol=_CG_ATOL,
+            max_steps=_CG_MAX_STEPS,
+        )
 
     def _fit_penalised(
         self,
@@ -148,6 +244,7 @@ class KRR(AbstractEstimator):
         y: Float[Array, " N"] | Float[Array, "N C"],
         penalty: lx.AbstractLinearOperator | None,
         mask: Bool[Array, " N"] | None,
+        key: PRNGKeyArray | None,
     ) -> Float[Array, " N"] | Float[Array, "N C"]:
         n = X.shape[0]
         mu = jnp.asarray(0.0 if penalty is None else self.penalty_weight)
@@ -169,7 +266,9 @@ class KRR(AbstractEstimator):
         )
 
         if mask is None and _is_low_rank(penalty):
-            return self._fit_woodbury(X, y, penalty, n * mu)
+            # A rank-r update of K + lambda n I: its solves are the plain
+            # KRR solves, so they take the same (preconditioned) solver.
+            return self._fit_woodbury(X, y, penalty, n * mu, self._solver(X, key))
 
         K_op = to_operator(self.kernel, X, implicit=self.implicit)
         M_mv = _symmetric_mv(penalty)
@@ -214,6 +313,7 @@ class KRR(AbstractEstimator):
         y: Float[Array, " N"] | Float[Array, "N C"],
         penalty: gx.LowRankUpdate,
         scale: Float[Array, ""],
+        solver: gx.AbstractSolverStrategy,
     ) -> Float[Array, " N"] | Float[Array, "N C"]:
         """``(A + Q diag(scale w) (K Q)^T) alpha = y`` with ``A = K + lambda n I``."""
         n = X.shape[0]
@@ -229,7 +329,7 @@ class KRR(AbstractEstimator):
         )
         w = scale * penalty.d
         KV = jax.vmap(K_op.mv, in_axes=1, out_axes=1)(penalty.V)
-        solve = self.solver.solve
+        solve = solver.solve
         Ainv_U = jax.vmap(lambda u: solve(A, u), in_axes=1, out_axes=1)(U)
         # Capacitance I + diag(w) (K V)^T A^{-1} U, free of 1 / w.
         weighted = einx.multiply(
