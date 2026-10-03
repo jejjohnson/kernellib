@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.15](https://github.com/jejjohnson/kernellib/compare/v0.0.14...v0.0.15) (2026-10-03)
+
+
+### Features
+
+* **graph:** add GMRF null spaces, scaled structure matrices and mesh graphs (K6) ([#139](https://github.com/jejjohnson/kernellib/issues/139)) ([60dcaa5](https://github.com/jejjohnson/kernellib/commit/60dcaa5f96009c44f425ce9004078e614b7178c8))
+* **graph:** laplacian_eigpairs and n_components_graph (K3) ([#137](https://github.com/jejjohnson/kernellib/issues/137)) ([74888ac](https://github.com/jejjohnson/kernellib/commit/74888acc9ad5c96bc8648de6ae75e9ba570a439c))
+
 ## [0.0.14](https://github.com/jejjohnson/kernellib/compare/v0.0.13...v0.0.14) (2026-10-03)
 
 
