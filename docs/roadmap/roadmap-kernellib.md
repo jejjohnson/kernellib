@@ -609,6 +609,17 @@ phi = kl.functional.graph_matern_spectrum(
 f = einx.dot("n m, m -> n", U, jnp.sqrt(phi) * jax.random.normal(key, (200,)))
 ```
 
+**As implemented (K4).**
+
+- `matern_graph_kernel` is normalised so that the average marginal variance
+  $\operatorname{tr}(K)/N$ is `variance`. Without it the raw Matérn
+  spectrum shrinks to zero as $\nu$ grows, and no $\nu \to \infty$ limit
+  exists. The diffusion-limit test compares it with the diffusion kernel
+  normalised the same way.
+- Both spectra are evaluated in log space and normalised with log-sum-exp.
+  $(2\nu/\ell^2 + \lambda)^{-\nu}$ underflows to zero in float64 for
+  $\nu \gtrsim 100$, which would make the normalised spectrum `nan`.
+
 ### 4.5 Eigenmaps (`_decomposition/_eigenmaps.py`)
 
 **The maths.** **Laplacian eigenmaps** solve

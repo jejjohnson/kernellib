@@ -6,29 +6,34 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from kernellib._graph._laplacian import Normalization, graph_laplacian
+from kernellib._graph._types import AbstractGraph
+from kernellib.functional._graph import graph_matern_spectrum
 
 
 __all__ = [
     "commute_time_kernel",
     "cosine_graph_kernel",
     "diffusion_kernel",
+    "matern_graph_kernel",
     "random_walk_kernel",
     "regularized_laplacian_kernel",
 ]
 
 
 def _spectral(
-    W: Float[Array, "N N"], fn, normalization: Normalization
+    W: Float[Array, "N N"] | AbstractGraph, fn, normalization: Normalization
 ) -> Float[Array, "N N"]:
     """``U f(Λ) Uᵀ`` for the (symmetric) Laplacian ``U Λ Uᵀ``."""
     if normalization == "random_walk":
         raise ValueError("Graph kernels need a symmetric Laplacian.")
+    if isinstance(W, AbstractGraph):
+        W = W.to_dense()
     lam, U = jnp.linalg.eigh(graph_laplacian(W, normalization))
     return (U * fn(jnp.clip(lam, min=0.0))) @ U.T
 
 
 def diffusion_kernel(
-    W: Float[Array, "N N"],
+    W: Float[Array, "N N"] | AbstractGraph,
     beta: float | Float[Array, ""] = 1.0,
     *,
     normalization: Normalization = "symmetric",
@@ -49,8 +54,66 @@ def diffusion_kernel(
     return _spectral(W, lambda lam: jnp.exp(-beta * lam), normalization)
 
 
+def matern_graph_kernel(
+    W: Float[Array, "N N"] | AbstractGraph,
+    *,
+    nu: float | Float[Array, ""],
+    lengthscale: float | Float[Array, ""],
+    variance: float | Float[Array, ""] = 1.0,
+    normalization: Normalization = "symmetric",
+) -> Float[Array, "N N"]:
+    r"""Graph Matérn kernel $K = U \Phi(\Lambda) U^	op$ (Borovitskiy et al., 2021).
+
+        $\Phi(\lambda) \propto (2
+    u/\ell^2 + \lambda)^{-
+    u}$
+        (`kernellib.functional.graph_matern_spectrum`), scaled so that the
+        average marginal variance, $\operatorname{tr}(K) / N$, is ``variance``.
+        $
+    u$ is the graph smoothness, the exponent of the SPDE
+        $(\kappa^2 - \Delta)^{
+    u/2} f = \mathcal W$ with $\kappa^2 = 2
+    u/\ell^2$;
+        no dimension enters it. As $
+    u 	o \infty$ it tends to the diffusion
+        kernel with ``beta = lengthscale**2 / 2``, likewise normalised.
+
+        Dense: an ``N x N`` eigendecomposition. For large graphs use
+        `laplacian_eigpairs` and the spectrum directly (a truncated prior).
+
+        Args:
+            W: Symmetric adjacency matrix, or a graph.
+            nu: Smoothness $
+    u > 0$.
+            lengthscale: $\ell > 0$.
+            variance: Average marginal variance.
+            normalization: ``"symmetric"`` (default) or ``"unnormalized"``.
+
+        Returns:
+            ``(N, N)`` positive semidefinite kernel matrix.
+
+        Examples:
+            >>> import jax.numpy as jnp
+            >>> import kernellib as kl
+            >>> g = kl.grid_graph((5,))  # a path of 5 nodes
+            >>> K = kl.matern_graph_kernel(g, nu=1.5, lengthscale=2.0)
+            >>> round(float(jnp.trace(K)) / 5, 6)  # average variance
+            1.0
+            >>> bool(K[0, 1] > K[0, 4] > 0)  # nearer nodes covary more
+            True
+    """
+    n = W.n_nodes if isinstance(W, AbstractGraph) else W.shape[0]
+    return _spectral(
+        W,
+        lambda lam: graph_matern_spectrum(
+            lam, nu=nu, lengthscale=lengthscale, variance=variance, n_nodes=n
+        ),
+        normalization,
+    )
+
+
 def regularized_laplacian_kernel(
-    W: Float[Array, "N N"],
+    W: Float[Array, "N N"] | AbstractGraph,
     sigma: float | Float[Array, ""] = 1.0,
     *,
     normalization: Normalization = "symmetric",
@@ -63,7 +126,7 @@ def regularized_laplacian_kernel(
 
 
 def random_walk_kernel(
-    W: Float[Array, "N N"],
+    W: Float[Array, "N N"] | AbstractGraph,
     p: int = 1,
     a: float = 2.0,
     *,
@@ -83,7 +146,9 @@ def random_walk_kernel(
 
 
 def cosine_graph_kernel(
-    W: Float[Array, "N N"], *, normalization: Normalization = "symmetric"
+    W: Float[Array, "N N"] | AbstractGraph,
+    *,
+    normalization: Normalization = "symmetric",
 ) -> Float[Array, "N N"]:
     r"""Inverse-cosine kernel $K = \cos(\pi L / 4)$ (Smola & Kondor, 2003).
 
@@ -94,7 +159,7 @@ def cosine_graph_kernel(
 
 
 def commute_time_kernel(
-    W: Float[Array, "N N"],
+    W: Float[Array, "N N"] | AbstractGraph,
     *,
     normalization: Normalization = "unnormalized",
     rtol: float = 1e-10,
