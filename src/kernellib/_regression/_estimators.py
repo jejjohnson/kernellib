@@ -21,6 +21,7 @@ from kernellib._regression._eigenpro import (
     eigenpro_step_size,
 )
 from kernellib._regression._falkon import falkon_preconditioner, falkon_solve
+from kernellib._spectral._landmarks import LandmarkMethod, select_landmarks
 
 
 __all__ = ["EigenPro", "Falkon"]
@@ -65,6 +66,10 @@ class Falkon(AbstractEstimator):
             otherwise).
         batch_size: Rows per step of the streamed ``K_nm``.
         jitter: Diagonal jitter on ``K_mm``; ``None`` for the default.
+        centers: How the centres are chosen from ``X``: ``"uniform"``
+            (default), ``"leverage"``, ``"rpcholesky"`` (recommended: no
+            tuning, near-optimal Nyström) or ``"greedy"``; see
+            `select_landmarks`.
         landmarks: The centres ``Z``, ``None`` before `fit`.
         alpha: Weights on the centres, ``None`` before `fit`.
         n_iter: CG steps taken, one per target column for ``(N, C)``
@@ -95,6 +100,7 @@ class Falkon(AbstractEstimator):
     implicit: bool = eqx.field(default=True, static=True)
     batch_size: int = eqx.field(default=1024, static=True)
     jitter: float | None = eqx.field(default=None, static=True)
+    centers: LandmarkMethod = eqx.field(default="uniform", static=True)
     landmarks: Float[Array, "M D"] | None = None
     alpha: Float[Array, " M"] | Float[Array, "M C"] | None = None
     n_iter: Int[Array, ""] | Int[Array, " C"] | None = None
@@ -118,7 +124,11 @@ class Falkon(AbstractEstimator):
         if self.n_inducing < n:
             if key is None:
                 raise ValueError("Falkon needs a PRNG key to choose its centres.")
-            Z = X[jax.random.choice(key, n, (self.n_inducing,), replace=False)]
+            Z = X[
+                select_landmarks(
+                    self.kernel, X, self.n_inducing, method=self.centers, key=key
+                )
+            ]
         else:
             Z = X
         precond = falkon_preconditioner(
@@ -195,6 +205,9 @@ class EigenPro(AbstractEstimator):
             ``N``).
         n_components: Number of damped eigendirections ``k < m``.
         decay: Spectral exponent in ``(0, 1]`` (the primitive's ``alpha``).
+        subsample: How the eigendecomposition subsample is chosen:
+            ``"uniform"`` (default), ``"leverage"``, ``"rpcholesky"`` or
+            ``"greedy"``; see `select_landmarks`.
         X_train: Training inputs, ``None`` before `fit`.
         alpha: Weights, ``None`` before `fit`.
         preconditioner: The fitted `EigenProPreconditioner`.
@@ -223,6 +236,7 @@ class EigenPro(AbstractEstimator):
     subsample_size: int = eqx.field(default=2000, static=True)
     n_components: int = eqx.field(default=100, static=True)
     decay: float = eqx.field(default=0.95, static=True)
+    subsample: LandmarkMethod = eqx.field(default="uniform", static=True)
     X_train: Float[Array, "N D"] | None = None
     alpha: Float[Array, " N"] | Float[Array, "N C"] | None = None
     preconditioner: EigenProPreconditioner | None = None
@@ -262,7 +276,9 @@ class EigenPro(AbstractEstimator):
             subsample_size=m,
             n_components=self.n_components,
             alpha=self.decay,
-            key=key_pre,
+            subsample_indices=select_landmarks(
+                self.kernel, X, m, method=self.subsample, key=key_pre
+            ),
         )
         eta = eigenpro_step_size(precond, b)
         S = precond.subsample_indices

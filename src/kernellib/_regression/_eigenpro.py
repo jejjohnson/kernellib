@@ -50,6 +50,7 @@ def eigenpro_preconditioner(
     n_components: int = 100,
     alpha: float = 0.95,
     key: jax.Array | None = None,
+    subsample_indices: Int[Array, " m"] | None = None,
 ) -> EigenProPreconditioner:
     r"""Build an EigenPro spectral preconditioner from a kernel operator.
 
@@ -64,6 +65,8 @@ def eigenpro_preconditioner(
         alpha: Spectral decay exponent in ``(0, 1]``.
         key: Optional PRNG key. If omitted, the first ``subsample_size`` points
             are used deterministically.
+        subsample_indices: The subsample itself, shape ``(subsample_size,)``,
+            e.g. from `select_landmarks`; overrides ``key``.
 
     Returns:
         EigenPro preconditioner state for kernel SGD.
@@ -93,7 +96,13 @@ def eigenpro_preconditioner(
     if subsample_size > n:
         raise ValueError("subsample_size cannot exceed the operator size.")
 
-    subsample_indices = _subsample_indices(n, subsample_size, key)
+    if subsample_indices is None:
+        subsample_indices = _subsample_indices(n, subsample_size, key)
+    elif subsample_indices.shape != (subsample_size,):
+        raise ValueError(
+            f"subsample_indices must have shape ({subsample_size},), got "
+            f"{subsample_indices.shape}."
+        )
     K_mm = _subsample_matrix(kernel_op, subsample_indices)
     m = K_mm.shape[0]
     K_mm_scaled = gx.symmetrize(K_mm) / m
