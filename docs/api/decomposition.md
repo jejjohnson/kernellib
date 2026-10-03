@@ -134,6 +134,25 @@ connected = kl.knn_graph(X, 5, ensure_connected=True)  # Borůvka bridges
 
 ::: kernellib.edge_weights
 
+### Laplacian eigenpairs
+
+`laplacian_eigpairs(graph, n)` returns the `n` smallest eigenpairs, ascending
+and sign-fixed (each eigenvector's largest-magnitude entry is positive). The
+method follows the graph's type: closed-form Kronecker eigenpairs for a
+face-connected `GridGraph` (a `2000 x 2000` grid in seconds), dense `eigh`
+otherwise. Pass `method="lanczos"` (JAX, differentiable; needs a `key`) or
+`method="arpack"` (SciPy, CPU) for large sparse graphs. A disconnected graph
+has one zero eigenvalue per component: `n_components_graph` counts them.
+
+```python
+lam, U = kl.laplacian_eigpairs(kl.grid_graph((2000, 2000)), 256)  # Kronecker
+lam, U = kl.laplacian_eigpairs(river_network, 128, method="lanczos", key=key)
+```
+
+::: kernellib.laplacian_eigpairs
+
+::: kernellib.n_components_graph
+
 ### Graph types
 
 ::: kernellib.AbstractGraph
