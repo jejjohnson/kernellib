@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.14](https://github.com/jejjohnson/kernellib/compare/v0.0.13...v0.0.14) (2026-10-03)
+
+
+### Features
+
+* **decomposition:** randomized KernelPCA via gx.randomized_eigh (K10) ([#134](https://github.com/jejjohnson/kernellib/issues/134)) ([60d098c](https://github.com/jejjohnson/kernellib/commit/60d098caffd3b3a4d7712020082eaa0ea2b41e08)), closes [#118](https://github.com/jejjohnson/kernellib/issues/118)
+* **graph:** graph builders and radius neighbours (K2, part 2) ([#130](https://github.com/jejjohnson/kernellib/issues/130)) ([a8e57fe](https://github.com/jejjohnson/kernellib/commit/a8e57fe5a335c3b341f42bd67431ed6426ab98b6)), closes [#110](https://github.com/jejjohnson/kernellib/issues/110)
+* **graph:** sparse graph types and their gaussx operators (K2, part 1) ([#127](https://github.com/jejjohnson/kernellib/issues/127)) ([5755e7a](https://github.com/jejjohnson/kernellib/commit/5755e7ae2799f9f437d5a1b3015837f0a80fc8e9))
+* **regression:** preconditioned KRR with Nystrom and RPCholesky (K9) ([#133](https://github.com/jejjohnson/kernellib/issues/133)) ([ca4e98a](https://github.com/jejjohnson/kernellib/commit/ca4e98ad55a6ab7a0d5b7a4d7a7290f7bf4bca1a)), closes [#117](https://github.com/jejjohnson/kernellib/issues/117)
+* **spectral:** select_landmarks with RPCholesky and greedy pivoting (K8) ([#131](https://github.com/jejjohnson/kernellib/issues/131)) ([2b975ce](https://github.com/jejjohnson/kernellib/commit/2b975ce90a4df36ad436f907174980300b4624cb)), closes [#116](https://github.com/jejjohnson/kernellib/issues/116)
+
 ## [0.0.13](https://github.com/jejjohnson/kernellib/compare/v0.0.12...v0.0.13) (2026-10-01)
 
 
