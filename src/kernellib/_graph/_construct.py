@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -45,6 +46,7 @@ __all__ = [
     "graph_from_neighbors",
     "grid_graph",
     "knn_graph",
+    "mesh_graph",
     "radius_graph",
 ]
 
@@ -541,6 +543,143 @@ def edge_weights(
             f"X must have one row per node ({top.n_nodes}), got {X.shape[0]}."
         )
     return Graph(top, kernel.elwise(X[top.senders], X[top.receivers]))
+
+
+def mesh_graph(
+    vertices: Float[ArrayLike, "V D"],
+    triangles: Int[ArrayLike, "T 3"],
+    *,
+    weighting: Literal["connectivity", "cotangent"] = "connectivity",
+) -> Graph:
+    r"""The edge graph of a triangle mesh.
+
+    Two vertices are joined when they share a triangle edge. With
+    ``weighting="cotangent"`` the edge weight is
+    $w_{ij} = \tfrac12(\cot\alpha_{ij} + \cot\beta_{ij})$, with
+    $\alpha_{ij}, \beta_{ij}$ the angles opposite the edge (one on a boundary
+    edge). The graph Laplacian is then the P1 finite-element stiffness
+    matrix $G$ (`gaussx.fem_matrices`), the discrete $-\Delta$ on the
+    surface. The weights are differentiable in ``vertices``.
+
+    A cotangent weight is negative when $\alpha + \beta > \pi$, i.e. the
+    mesh is not Delaunay there. $G$ is then still positive semidefinite, but
+    not a graph Laplacian with non-negative weights (its incidence matrix
+    would need $\sqrt{w_e}$), so this raises rather than clamp, which would
+    silently change the operator. Use `gaussx.fem_matrices`, which holds
+    the signed stiffness as a `gaussx.SparseOperator`, or re-mesh. Weights
+    within rounding error of zero (right angles on both sides; ``1e3``
+    machine epsilons of the largest weight) are set to 0. Under ``jit``,
+    ``grad`` or ``vmap`` the checks run at run time (`equinox.error_if`).
+
+    Args:
+        vertices: Vertex coordinates, ``(V, 2)`` or ``(V, 3)`` for a surface.
+        triangles: Vertex indices of each triangle, ``(T, 3)`` (concrete).
+        weighting: ``"connectivity"`` (1 per edge) or ``"cotangent"``.
+
+    Returns:
+        A `Graph` on the ``V`` vertices.
+
+    Raises:
+        ValueError: For malformed ``triangles``, a degenerate triangle, or a
+            negative cotangent weight.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> V = jnp.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+        >>> T = jnp.array([[0, 1, 2], [0, 2, 3]])  # a unit square, two halves
+        >>> g = kl.mesh_graph(V, T, weighting="cotangent")
+        >>> g.laplacian_operator().as_matrix()[0].tolist()
+        [1.0, -0.5, 0.0, -0.5]
+    """
+    tri = _concrete(triangles, "triangles")
+    vertices = jnp.asarray(vertices)
+    n_vertices = vertices.shape[0]
+    if tri.ndim != 2 or tri.shape[1] != 3:
+        raise ValueError(f"triangles must have shape (T, 3), got {tri.shape}.")
+    if tri.size and not np.issubdtype(tri.dtype, np.integer):
+        raise TypeError(f"triangles must be integers, got {tri.dtype}.")
+    if tri.size and (tri.min() < 0 or tri.max() >= n_vertices):
+        raise ValueError(f"Triangle indices out of range for {n_vertices} vertices.")
+    topology, pair = _triangle_edges(tri, n_vertices)
+    if weighting == "connectivity":
+        return Graph(topology, jnp.ones(topology.n_edges, dtype=vertices.dtype))
+    if weighting != "cotangent":
+        raise ValueError(
+            f"weighting must be 'connectivity' or 'cotangent', got {weighting!r}."
+        )
+    # Corner k of each triangle is opposite the edge (k+1, k+2).
+    p = vertices[tri]  # (T, 3, D)
+    u = p[:, [1, 2, 0]] - p
+    v = p[:, [2, 0, 1]] - p
+    dot = einsum(u, v, "t k d, t k d -> t k")
+    uu = einsum(u, u, "t k d, t k d -> t k")
+    vv = einsum(v, v, "t k d, t k d -> t k")
+    area2 = jnp.sqrt(jnp.clip(uu * vv - dot**2, min=0.0))  # |u x v|
+    area2 = _check_nondegenerate(area2)
+    cot = rearrange(dot / area2, "t k -> (t k)")
+    w = 0.5 * jax.ops.segment_sum(cot, pair, topology.n_edges)
+    w = _check_cotangent_weights(w)
+    return Graph(topology, w)
+
+
+def _triangle_edges(
+    triangles: np.ndarray, n_vertices: int
+) -> tuple[GraphTopology, np.ndarray]:
+    """The unique undirected edges of a triangle list, and for each corner
+    ``(t, k)`` (row-major) the index of the opposite edge ``(k+1, k+2)``.
+
+    Shared with the proximity graphs built from a Delaunay triangulation.
+    """
+    a = triangles[:, [1, 2, 0]].ravel().astype(np.int64)
+    b = triangles[:, [2, 0, 1]].ravel().astype(np.int64)
+    lo, hi = np.minimum(a, b), np.maximum(a, b)
+    keys, pair = np.unique(lo * n_vertices + hi, return_inverse=True)
+    return (
+        GraphTopology(keys // n_vertices, keys % n_vertices, n_vertices),
+        pair.ravel(),
+    )
+
+
+_DEGENERATE = "mesh_graph needs non-degenerate triangles (zero area found)."
+_NOT_DELAUNAY = (
+    "cotangent weight(s) are negative: the mesh is not Delaunay (two obtuse "
+    "angles face an edge). A graph needs non-negative weights; use "
+    "gaussx.fem_matrices for the signed stiffness matrix, or re-mesh."
+)
+
+
+def _check_nondegenerate(area2: Array) -> Array:
+    """Raise on a zero-area triangle; under a JAX transform, a run-time check."""
+    try:
+        host = np.asarray(area2)
+    except jax.errors.TracerArrayConversionError:
+        return eqx.error_if(area2, jnp.any(area2 <= 0.0), _DEGENERATE)
+    if host.size and np.any(host <= 0.0):
+        raise ValueError(_DEGENERATE)
+    return area2
+
+
+def _check_cotangent_weights(w: Array) -> Array:
+    """Raise on a negative weight and zero the ones within rounding of 0.
+
+    The tolerance scales with the precision of ``w`` and the largest weight,
+    so float32 cancellation on a theoretically zero weight (right angles on
+    both sides) is not mistaken for a non-Delaunay edge. Under a JAX
+    transform the check is a run-time `equinox.error_if`.
+    """
+    if not w.size:
+        return w
+    tol = 1e3 * jnp.finfo(w.dtype).eps * jnp.max(jnp.abs(w))
+    negative = w < -tol
+    try:
+        host = np.asarray(negative)
+    except jax.errors.TracerArrayConversionError:
+        w = eqx.error_if(w, jnp.any(negative), _NOT_DELAUNAY)
+    else:
+        if np.any(host):
+            raise ValueError(f"{int(np.sum(host))} {_NOT_DELAUNAY}")
+    return jnp.where(jnp.abs(w) <= tol, 0.0, w)
 
 
 # -- helpers -----------------------------------------------------------------

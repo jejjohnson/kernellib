@@ -914,6 +914,28 @@ mesh = kl.mesh_graph(
 )  # Laplacian == gx.fem_matrices(...)[1]
 ```
 
+**As implemented (K6).**
+
+- `graph_null_space` and `structure_matrix` live in `_graph/_structure.py`,
+  not `_laplacian.py`: `_types.py` imports from `_laplacian.py`, and these
+  need `_types`, so placing them there would make an import cycle. The
+  public names are unchanged.
+- `structure_matrix(scaled=True)` scales **each connected component**
+  separately, as R-INLA does and as `gaussx.generalized_variance_scale`
+  documents. The Laplacian is block-diagonal by component, so this is a
+  per-edge reweighting, and isolated nodes are left alone. A face-connected
+  `GridGraph` is connected and stays a `KroneckerSum` (axis weights times
+  $s$).
+- The Laplacian already carries its PSD tags, so `structure_matrix` does
+  not route through `gaussx.besag_structure`, which would wrap a
+  `KroneckerSum` and lose its structure.
+- `mesh_graph`'s cotangent weights are differentiable in the vertices.
+  Weights within $10^{-10}$ of the largest magnitude are set to exactly 0
+  (right angles on both sides). That is rounding, not clamping; a real
+  negative weight still raises.
+- The graph-Matérn ↔ SPDE test agrees to `rtol = 1e-8` on 32 × 32 with
+  $\alpha = 2$, $\kappa = 0.5$.
+
 ### 5.1 What gaussx's GMRF builders take from K2–K4
 
 | Phase | Symbol | Use in gaussx / pyrox-lgm |

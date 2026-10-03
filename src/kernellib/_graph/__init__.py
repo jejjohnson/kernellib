@@ -25,6 +25,7 @@ from kernellib._graph._construct import (
     graph_from_neighbors,
     grid_graph,
     knn_graph,
+    mesh_graph,
     radius_graph,
 )
 from kernellib._graph._eigpairs import laplacian_eigpairs, n_components_graph
@@ -38,6 +39,7 @@ from kernellib._graph._kernels import (
 )
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._graph._neighbors import KNNGraph, nearest_neighbors, radius_neighbors
+from kernellib._graph._structure import graph_null_space, structure_matrix
 from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGraph
 
 
@@ -56,14 +58,17 @@ __all__ = [
     "graph_from_edges",
     "graph_from_neighbors",
     "graph_laplacian",
+    "graph_null_space",
     "grid_graph",
     "knn_graph",
     "laplacian_eigpairs",
     "matern_graph_kernel",
+    "mesh_graph",
     "n_components_graph",
     "nearest_neighbors",
     "radius_graph",
     "radius_neighbors",
     "random_walk_kernel",
     "regularized_laplacian_kernel",
+    "structure_matrix",
 ]
