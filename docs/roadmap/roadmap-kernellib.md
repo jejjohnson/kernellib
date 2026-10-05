@@ -783,6 +783,60 @@ Z = klpp.transform(X_new)
 
 Both pass `check_estimator` (integration tier).
 
+**As implemented (K5).**
+
+- **Solver keywords.** `laplacian_eigenmap` and `schrodinger_eigenmap` take
+  `method=` and `key=`, the names `laplacian_eigpairs` uses. A dense `W`
+  with `method=None` or `"dense"` keeps the old code path. The estimators
+  keep `eigen_solver`. `"kronecker"` needs `constraint="identity"`
+  (`L_sym` of a grid is not a Kronecker sum) and is refused by
+  Schrödinger.
+- **How estimators take a graph.** `fit(X, ..., graph=g)` on
+  `LaplacianEigenmaps`, `SchrodingerEigenmaps`, LPP, SEP and both kernel
+  projections. `g` is an `AbstractGraph` or an adjacency matrix and
+  replaces the k-NN graph of `X`. Without `graph=`, `"lanczos"` turns the
+  k-NN graph into a `Graph` (`graph_from_neighbors`, weighted like
+  `adjacency_matrix`).
+- **Potentials can be lineax operators**, e.g.
+  `spatial_spectral_graph(...).laplacian_operator()`. The trace comes from
+  the operator's diagonal, or `gaussx.trace` for a `KroneckerSum`.
+  `combine_potentials` returns a diagonal if every term is one, a dense
+  matrix if every term is an array, and an operator otherwise.
+- **Schrödinger `"lanczos"` uses no spectral shift.** Krylov spaces are
+  shift-invariant, so the smallest Ritz pairs of
+  $D^{-1/2}(L+\alpha V)D^{-1/2}$ come straight from `gaussx.eig`, with
+  the same 200 oversampling. A Gershgorin bound on $\alpha V$ is not
+  available for a general operator.
+- **`spatial_spectral_graph(bandwidth=None)`** uses the median spectral
+  distance over the edges, as `spatial_spectral_potential` does.
+- **Kernel projections: centring and regularisation.**
+  - $\bar K = HKH^\top$ is centred at the degree-weighted mean in feature
+    space. This is LPP's centring, and it keeps the embedding
+    $D$-orthogonal to the constant. Without it a smooth kernel puts the
+    trivial constant solution first.
+  - The spec's $KLK\alpha = \lambda(KDK + \epsilon I)\alpha$ was
+    implemented and rejected. With an RBF kernel, the near-null directions
+    of $K$ give spurious eigenpairs with $\lambda \approx 0$ and $y
+    \approx 0$, for every $\epsilon$ tried (1e-8 to 1e-3).
+  - The ridge moves to the objective instead, as an RKHS-norm penalty.
+    With $\bar K = FF^\top$ ($F = U\Lambda^{1/2}$) and $y = F\beta$, the
+    problem is $F^\top LF\beta + \epsilon\beta = \lambda F^\top DF\beta$.
+    It is solved as the largest $1/\lambda$ of a pencil whose right-hand
+    side is positive definite.
+  - $\epsilon$ is relative to $\operatorname{tr}(F^\top DF)/p$, which is
+    $\operatorname{tr}(D\bar K)/N$ on the exact path. The default is
+    `regularization=1e-3`.
+  - `approx=` runs the same solver on $F = \bar\Phi$. At $M = N$ Nyström
+    landmarks it matches the exact path.
+  - Embeddings are scaled so that $Y^\top DY = I$, as in LPP.
+  - The `Linear`-kernel test therefore compares with degree-centred LPP,
+    not uncentred LPP.
+- **LPP via `gaussx.eigh_generalized`.** $\bar X^\top D\bar X$ is tagged
+  positive definite, so the solve is a Cholesky whitening. The result
+  equals the old inline solve to rounding (a regression test). SEP adds
+  $\alpha\bar X^\top V\bar X$ as a separate term, so `alpha=0` gives LPP
+  bit for bit.
+
 ---
 
 ## 4b. API — proximity graphs (K15)
