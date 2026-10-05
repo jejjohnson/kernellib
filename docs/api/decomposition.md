@@ -116,6 +116,11 @@ se = kl.SchrodingerEigenmaps(
 Y = se.fit(X, V, graph=spectral).embedding  # (H·W, 20), sparse throughout
 ```
 
+The [spatial-spectral Schrödinger eigenmaps example](../../spatial-spectral-eigenmaps/)
+runs this on a synthetic hyperspectral cube, and the
+[graphs and spatial models example](../../graphs-and-spatial/) covers grid
+graphs, graph Matérn priors, proximity graphs and ICAR structure matrices.
+
 **Out of sample.** The projections embed new points. SEP is LPP with a
 potential (``alpha=0`` is LPP exactly); the kernel versions work in a
 kernel's feature space, exactly ($O(N^3)$) or with ``approx=`` a feature map

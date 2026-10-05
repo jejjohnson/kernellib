@@ -39,6 +39,8 @@ project:
         - file: notebooks/matrix_free_gp.ipynb
         - file: notebooks/sklearn_workflows.ipynb
         - file: notebooks/graph_embeddings.ipynb
+        - file: notebooks/graphs_and_spatial.ipynb
+        - file: notebooks/spatial_spectral_eigenmaps.ipynb
         - file: notebooks/dependence_penalties.ipynb
         - file: notebooks/representation_similarity.ipynb
     - title: Roadmap

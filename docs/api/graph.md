@@ -20,6 +20,10 @@ The graph embeddings that are built on these graphs (`LaplacianEigenmaps`,
 `SchrodingerEigenmaps`, the projections and the Schrödinger potentials) are
 on the [Decomposition](decomposition.md) page.
 
+The [graphs and spatial models example](../../graphs-and-spatial/) walks
+through grid graphs with Kronecker eigenpairs, graph Matérn priors,
+proximity graphs and ICAR structure matrices.
+
 ## Graph types
 
 `Graph` stores a weighted, undirected graph as a static edge list
