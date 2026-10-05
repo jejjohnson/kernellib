@@ -5,9 +5,14 @@ date: 2026-09-30
 # Roadmap: graphs, GMRFs, INLA, randomized linear algebra and dependence penalties
 
 :::{note}
-**Status: draft (v0.2.0, 2026-09-30).** This is a plan, not documentation of
-shipped features. The APIs below are proposals; each phase lands as its own
-PR and issue in the repo it touches.
+**Status: draft (v0.2.0, 2026-09-30; updated 2026-10-05).** This is a plan,
+not documentation of shipped features. The APIs below are proposals; each
+phase lands as its own PR and issue in the repo it touches. Most of it has
+now shipped: gaussx G1–G14, kernellib K1–K10 and K12–K15, and pyrox-lgm
+P6–P9 (releases in the [implementation plan](roadmap-implementation.md#implementation-status); live
+status in the [tracker](https://github.com/jejjohnson/kernellib/issues/125)).
+Where implementation changed an API, the repo pages say so in "As built" or
+"As implemented" notes.
 :::
 
 ## Summary
@@ -123,7 +128,11 @@ them.
 4. **One GMRF family.** `GaussianMRF` and `IntrinsicGMRF` (G6) serve the
    manifold project's spatial priors and INLA alike.
    - Hard constraints (by kriging) are for `inla()`.
-   - Soft constraints are for NUTS.
+   - Soft constraints are for NUTS. pyrox-lgm's NumPyro face defaults to
+     `s = 1e-2` (gaussx's default `1e-3` hits NUTS's tree-depth cap).
+   - BYM2 is `BYM2GMRF`, an `IntrinsicGMRF` subclass with its exact
+     density, because the null vector of its joint precision depends on θ
+     (gaussx#508).
    - Priors with hyperpriors live only in pyrox-lgm (P7).
 5. **The noise shift is explicit.** Every preconditioner is built from the
    PSD part (`K`, or `AᵀA`) with `shift=σ²` passed separately (G13, G14,
@@ -252,3 +261,4 @@ pages.
 | 2026-09-30 | Cross-cutting decision 7: examples that train networks use pipekit-train's `TrainingLoop` (a docs-only dependency, git-pinned); small full-batch fits use optax directly |
 | 2026-09-30 | city2graph reviewed. Not a dependency; it becomes the docs-only data source for real spatial examples (decision 7). kernellib gains `graph_from_edges`, distance-to-weight conversion and `knn_graph(ensure_connected=)` in K2, and proximity graphs as K15. Gallery example 13 (OD flows) added |
 | 2026-09-30 | The waves are recomputed as earliest-start levels from the "Needs" columns (G7, K5, M1, M3–M5 and P4 move earlier), and the [implementation plan](roadmap-implementation.md) is added |
+| 2026-10-05 | Implementation findings from gaussx G4–G10, G13 and pyrox-lgm P6–P7 are folded back into the repo pages (kernellib#122): odd-`n` `rw2_structure` padding (use `n + 1` nodes and a row-selection projector); `pseudo_logdet(structure="laplacian")`; `laplace_mode` and `vb_mean_correction` take no `y` (the likelihood holds it), `BinomialLikelihood(y, n_trials)`, NB `concentration`; `theta_design(method=None)` and its derived CCD weights; lower-triangle sparse storage, `cholesky(SparseOperator)` → `SparseCholeskyFactor`, reverse-over-reverse Hessians; matrix-free conditioning of a spectral prior; `randomized_eigh(n_power_iter=0)` is more accurate than the old Rayleigh–Ritz, and there is no lazy Nyström path; `BYM2GMRF` (gaussx#508); pyrox-lgm's pins, `PCAR1Rho` on \|ρ\|, `PCBYM2Phi`'s null space and deflated SLQ, `BYM2`'s `(tau, phi)`, `SPDE`'s `range_sigma`, `Kronecker`'s fixed group τ, the NUTS soft-constraint scale and odd-`n` `RW2`. K5 and K15 are recorded as built, and the implementation plan gains a status section |

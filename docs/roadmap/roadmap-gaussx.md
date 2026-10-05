@@ -109,7 +109,7 @@ src/gaussx/
 │   ├── _sparse_cholesky.py          # SparseCholeskySolver                                (G4)
 │   ├── _sketch_precond.py           # SketchAndPrecondLSMR, sketch_and_solve              (G15)
 │   └── _nystrom_logdet.py           # NystromLogdet                                       (G17)
-├── _distributions/_gmrf.py          # GaussianMRF, IntrinsicGMRF                          (G6)
+├── _distributions/_gmrf.py          # GaussianMRF, IntrinsicGMRF, BYM2GMRF                (G6)
 ├── _gmrf/                           # NEW                                                 (G7)
 │   ├── _temporal.py                 # iid, rw1, rw2, ar1
 │   ├── _areal.py                    # besag_structure, bym2_precision, generalized_variance_scale
@@ -260,7 +260,7 @@ class SparseOperator(lx.AbstractLinearOperator):
   | `logdet` | `SparseCholeskySolver` (G4) when passed; otherwise `SLQLogdet` for large PSD |
   | `diag_inv` | Takahashi through the factor (G4); otherwise the existing Hutchinson, or XDiag (G16) |
   | `eig(rank=)` | The existing Lanczos path, which needs only `mv` |
-  | `cholesky` | A `SparseCholeskyFactor` (G4). Before G4 lands: a dense fallback below `AutoSolver.size_threshold`, an informative `NotImplementedError` above |
+  | `cholesky` | A `SparseCholeskyFactor` of the fill-reducing permuted matrix (G4), not a lineax operator. Before G4 lands: a dense fallback below `AutoSolver.size_threshold`, an informative `NotImplementedError` above |
 
 - **Preconditioning.** The existing `JacobiPreconditioner` works through
   the exact `diag`. It is usually enough for graph Laplacians plus a
@@ -436,10 +436,14 @@ def selected_inverse(op: BlockTriDiag) -> BlockTriDiag: ...  # the band of op⁻
 **Example.**
 
 ```python
-# Posterior sd of a daily RW2 trend under Gaussian noise: τ·Q + σ⁻² I stays block-tridiagonal
-H = gx.add_diagonal(tau * gx.rw2_structure(n_days), jnp.full(n_days, sigma**-2))
-trend = gx.solve(H, y / sigma**2)
-sd = jnp.sqrt(gx.diag_inv(H))  # block Takahashi: O(N), not O(N³)
+# Posterior sd of a daily RW2 trend under Gaussian noise: τ·R + σ⁻² AᵀA stays block-tridiagonal
+R = gx.rw2_structure(n_days)  # odd n_days: one padding node (G7)
+N = R.in_size()  # 2⌈n_days/2⌉
+w = jnp.zeros(N).at[:n_days].set(sigma**-2)  # AᵀΛA for the row selection A = [I | 0]
+H = gx.add_diagonal(tau * R, w)
+rhs = jnp.pad(y, (0, N - n_days)) / sigma**2  # Aᵀy / σ²
+trend = gx.solve(H, rhs)[:n_days]  # strip the padding node
+sd = jnp.sqrt(gx.diag_inv(H)[:n_days])  # block Takahashi: O(N), not O(N³)
 
 # Prior sd of a Matérn field on a 2048 × 2048 raster: two small matrix products
 Q = gx.spde_precision_grid((2048, 2048), kappa=0.05, tau=1.0, alpha=2)
@@ -547,6 +551,12 @@ class SparseCholeskySolver(AbstractSolverStrategy):  # solve / logdet through th
     entry cotangents to stored values with this factor, in one place
     (`_vjp.py`), for both backends.
   - Sampling uses the triangular-solve adjoint.
+  - **Reverse mode only.** Only custom VJPs are defined, so forward mode
+    (`jax.jvp`, `jax.jacfwd`, and `jax.hessian`, which is
+    forward-over-reverse) fails through the sparse `logdet` and `solve`.
+    Take Hessians reverse-over-reverse, `jax.jacrev(jax.jacrev(f))`,
+    which is exact; `theta_design`'s default Hessian (G9) does this
+    (gaussx#503, #504).
 - **CHOLMOD backend** (`gaussx[cholmod]`, via scikit-sparse):
   - `analyze` on the host gives the symbolic factor and AMD / METIS
     ordering. The numeric factorisation runs through
@@ -556,7 +566,10 @@ class SparseCholeskySolver(AbstractSolverStrategy):  # solve / logdet through th
     backends give identical gradients.
   - It is CPU-only, and `vmap` over it is sequential.
 - **Primitive dispatch:**
-  - `cholesky(SparseOperator)` returns a `SparseCholeskyFactor`;
+  - `cholesky(SparseOperator)` returns a `SparseCholeskyFactor` of the
+    permuted matrix `PQPᵀ = LLᵀ` at any size (its `solve`, `logdet`,
+    `selected_inverse` and `diag_inv` work in the original order), not a
+    dense lineax operator (gaussx#503, a breaking change);
   - `solve`, `logdet` and `diag_inv` go through `SparseCholeskySolver`
     when the operator is tagged PSD and the caller passes the strategy.
     There is no size heuristic: the caller knows `N`.
@@ -613,7 +626,8 @@ $\ker A$: each zero eigenvalue becomes 1, and the range is untouched.
 def pseudo_logdet(
     operator: lx.AbstractLinearOperator,
     *,
-    null_space: Float[Array, "N c"] | None = None,
+    null_space: Float[Array, "N c"] | Float[Array, " N"] | None = None,
+    structure: Literal["laplacian"] | None = None,  # the matrix-tree cofactor path
     rcond: float | None = None,
     strategy: AbstractLogdetStrategy | None = None,
 ) -> Float[Array, ""]:
@@ -712,7 +726,7 @@ class GaussianMRF(dist.Distribution):
     def marginal_variances(self) -> Float[Array, " N"]: ...  # diag_inv dispatch
     def condition_on_observations(
         self, A, noise_precision, y
-    ) -> GaussianMRF: ...  # Q + AᵀΛA; mean via one solve
+    ) -> GaussianMRF: ...  # Q + AᵀΛA, kept sparse if it can; mean via one solve
     def condition_on_constraints(
         self, A_c, e
     ) -> ConstrainedGMRF: ...  # hard linear constraints
@@ -731,7 +745,61 @@ class IntrinsicGMRF(dist.Distribution):
     constraint: Literal["none", "soft", "hard"] = "hard"
     soft_constraint_scale: float = 1e-3
     include_normalizer: bool = False  # the τ-free constant ½ log|R|₊
+
+
+class BYM2GMRF(IntrinsicGMRF):  # added in gaussx 0.6.1 (gaussx#508, #518)
+    """The BYM2 pair (b, u*) with its exact constrained density and exact draws."""
+
+    def __init__(
+        self,
+        structure_scaled,  # R* = s·R, size n
+        tau,
+        phi,
+        null_space,  # ker R*, (n, c): one sum-to-zero constraint per component
+        loc=None,  # (2n,)
+        *,
+        constraint="hard",
+        soft_constraint_scale=1e-3,
+        include_normalizer=False,
+        log_pdet=None,  # log|R*|₊, θ-free: compute once outside a θ loop
+    ): ...
 ```
+
+**`condition_on_observations` keeps what structure it can** (gaussx#505):
+
+- a `SparseOperator` prior seen through a `SparseOperator` `A` stays
+  sparse, on the union pattern (`SparseOperator.congruence`), so it keeps
+  the sparse Cholesky path;
+- a dense prior stays dense;
+- anything else (a grid `SpectralFunction` from G7's
+  `spde_precision_grid`, a `KroneckerSum`, a `BlockTriDiag` seen at
+  scattered points) becomes the **matrix-free** sum
+  `Q + (Λ^{1/2}A)ᵀ(Λ^{1/2}A)`. It solves by `solve` (CG when large) and
+  samples by perturbation–optimisation with the factors
+  `(Q^{1/2}, Λ^{1/2}A)`, where `Q^{1/2}` is the spectral root. It is not a
+  sparse operator, so G4 does not apply.
+
+**BYM2 is not an `IntrinsicGMRF` on `bym2_precision`** (gaussx#508). The
+joint precision `Q(τ, φ)` of `(b, u*)` has the null vector
+`(√(φ/τ)·1, 1)`, which depends on θ, not the fixed sum-to-zero basis on
+`u*`. So an `IntrinsicGMRF(structure=bym2_precision(...))` drops a
+θ-dependent term from `log_prob` (`(n/2) log(τ/(1−φ))`), takes a dense
+size-`2n` determinant for its normaliser, and its sampler leaves the
+`b`-part of a draw unbounded. Laplace modes are unaffected, but the
+log-marginal over θ is wrong. `BYM2GMRF` fixes it: the field lives on
+`{Vᵀu* = 0}`, and because the Schur complement of `Q`'s `b`-block is
+exactly `R*`, its log-density (Rue & Held, eq. 2.30) is
+
+$$
+\log\pi(b, u^\ast) = -\tfrac12 x^\top Qx + \tfrac n2\log\tfrac{\tau}{1-\phi}
+    \;\Big[+\ \tfrac12\log|R^\ast|_+ - \tfrac{2n-c}{2}\log 2\pi\Big].
+$$
+
+The bracket is truly θ-free (from `R*` alone, by the matrix-tree theorem).
+Draws are exact: `u*` from the constrained ICAR on `R*`, then `b` from its
+definition. It is an `IntrinsicGMRF` with `structure = Q`,
+`precision_scale = 1` and `null_space` padded with zeros on the `b` rows,
+so `laplace_mode` and `vb_mean_correction` take it unchanged.
 
 **Why factors.** Graph precision matrices come factored:
 
@@ -789,13 +857,21 @@ A = gx.SparseOperator.from_coo(
 post = prior.condition_on_observations(A, noise_precision=1 / 0.2**2, y=sst[clear_idx])
 filled = einx.rearrange(
     "(h w) -> h w", post.loc, h=H
-)  # the posterior is sparse (13-point stencil) → G4
+)  # spectral prior: the posterior Q + AᵀΛA is matrix-free (CG), not sparse
 sd = einx.rearrange("(h w) -> h w", jnp.sqrt(post.marginal_variances()), h=H)
-draws = post.sample(key, (20,))  # 20 plausible gap-filled fields
+draws = post.sample(key, (20,))  # perturbation–optimisation: one CG solve per draw
+
+# With a sparse prior (a FEM SPDE, G7) the posterior stays sparse and takes G4 instead
 
 # An ICAR field with a hard sum-to-zero constraint, one per island group
 icar = gx.IntrinsicGMRF(jnp.zeros(N), 2.0, R, null_space=kl.graph_null_space(counties))
 u = icar.sample(key)  # null_spaceᵀ u == 0 to machine precision
+
+# BYM2 on the same graph: BYM2GMRF, not IntrinsicGMRF on bym2_precision (gaussx#508)
+V = kl.graph_null_space(counties)
+R_star = gx.generalized_variance_scale(R, V) * R
+bym2 = gx.BYM2GMRF(R_star, tau=2.0, phi=0.6, null_space=V)
+lp = bym2.log_prob(bym2.sample(key))  # (2N,) draw of (b, u*); correct in (τ, φ)
 ```
 
 ### 4.7 G7: precision builders, SPDE, FEM
@@ -852,11 +928,11 @@ structure matrix arrives as an operator, from kernellib's
 |---|---|---|
 | `iid_precision(n, tau)` | `DiagonalLinearOperator` | |
 | `rw1_structure(n, *, spacing=None, cyclic=False)` | `BlockTriDiag` (`d = 1`), null space `1` | Irregular spacing uses weights `1/h`. This is the path-graph Laplacian: a test against kernellib's `grid_graph((n,))` |
-| `rw2_structure(n, *, cyclic=False)` | `BlockTriDiag` with `d = 2` blocks (pentadiagonal); null space `{1, t}` | Odd `n` is padded with one decoupled unit-precision node, and results are stripped. Irregular spacing (crw2, Lindgren & Rue 2008) is a follow-up |
+| `rw2_structure(n, *, cyclic=False)` | `BlockTriDiag` with `d = 2` blocks (pentadiagonal); null space `{1, t}` | The band needs an even size, so for **odd** `n` the operator has `n + 1` rows (`2⌈n/2⌉`): the last is a decoupled node with unit precision (gaussx#502). Use `n + 1` nodes, observe them through a row-selection projector that never touches the padding node, and strip results (`x[:n]`, `diag_inv(R)[:n]`). The node adds `log 1 = 0` to `log|R|` (`log τ` once scaled by `τ`). `cyclic=True` returns a `SparseOperator` of size exactly `n`. Irregular spacing (crw2, Lindgren & Rue 2008) is a follow-up |
 | `ar1_precision(n, rho, tau)` | `BlockTriDiag` (`d = 1`) | Marginal-precision parameterisation `τ/(1−ρ²)`. AR(p) as `d = p` blocks is a follow-up |
 | `besag_structure(laplacian_op)` | the operator, tagged PSD; the null space comes from kernellib (`graph_null_space`) | Just validation and tags |
 | `generalized_variance_scale(structure, null_space)` | scalar `s` | The geometric mean of `diag(R⁺)` under the sum-to-zero constraint (Sørbye & Rue, 2014). Uses G3 (grids, exact), or the G4 selected inverse on `R + εI` followed by the kriging correction (graphs, exact and sparse). It replaces the earlier "dense or Hutchinson" `bym2_scaling` idea; very large graphs use G16 |
-| `bym2_precision(structure_scaled, tau, phi)` | `SparseOperator` on the stacked `(b, u*)` | Riebler et al. (2016): `Q = [[τ/(1−φ)·I, −√(τφ)/(1−φ)·I], [−√(τφ)/(1−φ)·I, R* + φ/(1−φ)·I]]`. Sparse, with `R*`'s pattern plus two diagonals, fixed across `(τ, φ)` |
+| `bym2_precision(structure_scaled, tau, phi)` | `SparseOperator` on the stacked `(b, u*)` | Riebler et al. (2016): `Q = [[τ/(1−φ)·I, −√(τφ)/(1−φ)·I], [−√(τφ)/(1−φ)·I, R* + φ/(1−φ)·I]]`. Sparse, with `R*`'s pattern plus two diagonals, fixed across `(τ, φ)`. Its null vector depends on θ, so the BYM2 **distribution** is G6's `BYM2GMRF`, not an `IntrinsicGMRF` on this operator (gaussx#508) |
 | `spde_precision(C_lumped, G, kappa, tau, alpha: int)` | `SparseOperator` | `K = κ² C̃ + G`; `Q₁ = τ²K`, `Q₂ = τ² K C̃⁻¹ K`, then `Q_α = K C̃⁻¹ Q_{α−2} C̃⁻¹ K`. The pattern (the α-ring neighbourhood) is computed once on the host |
 | `spde_precision_grid(shape, kappa, tau, alpha, *, spacing=1.0, periodic=False)`; `periodic` is a `bool` or a per-axis tuple, e.g. `(False, True)` for a global lat–lon raster | `SpectralFunction(KroneckerSum(L₁, L₂, …), f)` with `f(λ) = τ² h² (κ² + λ/h²)^α` | Exact solve, logdet, `diag_inv` and sampling via factor eigenvectors: `O(Σ n_k³ + N log N)`. Boundary effects are handled by domain extension, as with meshes, and documented |
 | `matern_spde_params(range, sigma, nu, d)` | `(kappa, tau, alpha)` | `κ = √(8ν)/ρ`, `α = ν + d/2`, `τ` set for unit marginal variance (#155 appendix A) |
@@ -877,12 +953,14 @@ Non-stationary `κ(s), τ(s)` (`spde_fem.md` §8) and rational non-integer
 
 ```python
 # Temporal: a daily RW2 trend and an AR(1) nuisance
-R_trend = gx.rw2_structure(365)  # null space {1, t}
+R_trend = gx.rw2_structure(365)  # null space {1, t}; 366 nodes (odd n: padding)
 Q_ar = gx.ar1_precision(365, rho=0.8, tau=10.0)
 # Areal: BYM2 on a county graph from kernellib
 R = kl.structure_matrix(counties)
 s = gx.generalized_variance_scale(R, kl.graph_null_space(counties))
 Q_bym2 = gx.bym2_precision(s * R, tau=1.5, phi=0.7)  # sparse (b, u*) stack
+V = kl.graph_null_space(counties)
+bym2 = gx.BYM2GMRF(s * R, tau=1.5, phi=0.7, null_space=V)  # its distribution (G6)
 # Continuous space: Matérn ν = 1 on a coastline mesh, range 50 km, sd 2
 C, G = gx.fem_matrices(vertices_km, triangles)
 kappa, tau, alpha = gx.matern_spde_params(range=50.0, sigma=2.0, nu=1.0, d=2)
@@ -947,9 +1025,8 @@ class LaplaceResult(eqx.Module):
 
 
 def laplace_mode(
-    prior: GaussianMRF | IntrinsicGMRF,
-    likelihood: AbstractLikelihood,
-    y,
+    prior: GaussianMRF | IntrinsicGMRF,  # BYM2GMRF is an IntrinsicGMRF
+    likelihood: AbstractLikelihood,  # holds y: there is no separate y argument
     *,
     projector: lx.AbstractLinearOperator | None = None,
     offset=None,
@@ -984,10 +1061,20 @@ def laplace_mode(
   constraint corrections for intrinsic priors (Rue et al., 2009, eq. 3).
   Its θ-gradient is exact through the G4 VJPs.
 - **Gaussian likelihood.** One step, and exact.
-- **New likelihoods.** `BinomialLikelihood(n_trials)` and
-  `NegativeBinomialLikelihood` (log link, with the dispersion as a
-  θ-hyperparameter) join gaussx's `AbstractLikelihood` family in this
-  phase, because the INLA v1 scope promises them. Each supplies the
+- **The likelihood holds `y`.** As for every gaussx `AbstractLikelihood`,
+  the observations are a field of the likelihood
+  (`gx.PoissonLikelihood(counts)`), so `laplace_mode` and
+  `vb_mean_correction` take no `y` (gaussx#507, #509).
+- **Intrinsic priors.** With `constraint="hard"` each Newton solve is
+  kriged onto `Vᵀx = 0`; `"soft"` is not supported here. `H` must be
+  positive definite on the whole space, which holds when the observations
+  see `ker R`.
+- **New likelihoods.** `BinomialLikelihood(y, n_trials)` (logit link,
+  `n_trials` a scalar or per site) and
+  `NegativeBinomialLikelihood(y, concentration)` (log link; the
+  concentration `r` is R-INLA's `size` and NumPyro's `NegativeBinomial2`
+  concentration, a θ-hyperparameter) join gaussx's `AbstractLikelihood`
+  family in this phase, because the INLA v1 scope promises them. Each supplies the
   log-density and the site gradient and Hessian in `η` that the Newton step
   uses. Both have diagonal Hessians, so they fit the LGM class.
 - **Out of scope:** likelihoods with a non-diagonal Hessian in `η` (outside
@@ -998,17 +1085,23 @@ def laplace_mode(
 
 ```python
 # Poisson counts with an RW2 seasonal effect; θ = log τ
+R = gx.rw2_structure(365)  # 366 nodes: 365 is odd, so one padding node (G7)
+A = gx.SparseOperator.from_coo(
+    np.arange(365), np.arange(365), jnp.ones(365), (365, 366)
+)  # row selection: the padding node is never observed
+
+
 def log_marginal(log_tau):
     prior = gx.IntrinsicGMRF(
-        jnp.zeros(365),
+        jnp.zeros(366),
         jnp.exp(log_tau),
-        gx.rw2_structure(365),
-        null_space=rw2_null,
+        R,
+        null_space=rw2_null,  # (366, 2), zero on the padding row
         constraint="hard",
     )
     return gx.laplace_mode(
-        prior, gx.PoissonLikelihood(), counts
-    ).log_marginal  # H stays BlockTriDiag
+        prior, gx.PoissonLikelihood(counts), projector=A
+    ).log_marginal  # H stays BlockTriDiag: AᵀWA is diagonal
 
 
 value, grad = jax.value_and_grad(log_marginal)(0.0)  # exact: implicit diff + Takahashi
@@ -1038,8 +1131,9 @@ def theta_design(
     log_post: Callable[[Array], Array],
     mode: Float[Array, " m"],
     *,
-    method: Literal["eb", "grid", "ccd"] = "ccd",
-    hessian=None,
+    # None: grid for m ≤ 2, CCD above
+    method: Literal["eb", "grid", "ccd"] | None = None,
+    hessian: Float[Array, "m m"] | None = None,
     grid_step: float = 1.0,
     grid_threshold: float = 2.5,
     ccd_f0: float = 1.1,
@@ -1048,17 +1142,30 @@ def theta_design(
 ```
 
 - **The z-parameterisation.** `θ = θ* + V Λ^{-1/2} z`, where
-  `−∇²log π̃(θ*) = V Λ Vᵀ`. The Hessian comes from `jax.hessian` of
-  `log_post` if not given. That is exact through G8's implicit
+  `−∇²log π̃(θ*) = V Λ Vᵀ`. The Hessian, if not given, is taken
+  reverse-over-reverse (`jax.jacrev(jax.jacrev(log_post))`), because the
+  sparse log-determinant has only a VJP (G4) and `jax.hessian` is
+  forward-over-reverse. That is exact through G8's implicit
   differentiation: no smart-gradient finite differences.
+- **`method=None`** (the default) picks `"grid"` for `m ≤ 2` and `"ccd"`
+  otherwise (gaussx#492).
 - **`"eb"`**: the mode alone.
 - **`"grid"`**: axis-wise exploration in steps of `grid_step` in `z`,
   keeping points within `grid_threshold` log-units of the mode (Rue et
   al., 2009, §6.5). The default for `m ≤ 2`.
 - **`"ccd"`**: the centre, `2m` axial points, and a resolution-V
   fractional factorial `2^{m−p}`. All non-centre points lie on the sphere
-  of radius `f0·√m` in `z`, and the centre and shell weights come from Rue
-  et al. (2009), §6.5. The default for `m > 2`.
+  of radius `f0·√m` in `z`. The default for `m > 2`.
+  - **The weights are derived**, not copied from Rue et al. (2009), §6.5:
+    `Δ₀ ∝ 1 − f0⁻²` and `Δ_shell ∝ e^{m f0²/2} / ((K − 1) f0²)`, chosen so
+    that the design integrates a Gaussian posterior exactly up to its
+    second moments (tested on correlated Gaussians, `m = 1..5`). They may
+    differ in form from R-INLA's (gaussx#492).
+  - **Against R-INLA (P8).** The golden fixtures (pyrox#275) match
+    R-INLA to 1e-6 at fixed θ; every remaining gap is in the integration
+    over θ, and R-INLA's CCD is also skew-scaled. Whether to match
+    R-INLA's design or converge to the exact θ-integral is open in
+    pyrox#274.
 - Weights are corrected by the evaluated `log_post` at each point, then
   normalised.
 - Asymmetric per-direction scaling (R-INLA's "stdev.corr") is a
@@ -1074,7 +1181,7 @@ theta_star = lbfgs_minimise(
     lambda th: -log_post(th), jnp.zeros(3)
 )  # jax.grad through G8
 pts, logw = gx.theta_design(log_post, theta_star, method="ccd")  # (15, 3) and (15,)
-fits = jax.vmap(lambda th: gx.laplace_mode(prior_at(th), lik, y))(
+fits = jax.vmap(lambda th: gx.laplace_mode(prior_at(th), lik))(
     pts
 )  # one symbolic analysis, batched values
 post_mean = einx.dot("k, k n -> n", jnp.exp(logw), fits.mode)
@@ -1105,12 +1212,12 @@ KL term's covariance part does not depend on $\delta$.
 ```python
 def vb_mean_correction(
     result: LaplaceResult,
-    prior,
-    likelihood,
-    y,
+    prior: GaussianMRF | IntrinsicGMRF,
+    likelihood: AbstractLikelihood,  # holds y, as in laplace_mode
     *,
-    projector=None,
     subspace: Int[Array, " p"] | Float[Array, "N p"],
+    projector=None,
+    offset=None,
     n_iter: int = 5,
     integrator=GaussHermiteIntegrator(order=20),
 ) -> Float[Array, " N"]: ...
@@ -1135,15 +1242,9 @@ a few latent directions. `δ` maximises the variational objective
 **Example.**
 
 ```python
-res = gx.laplace_mode(prior, gx.BernoulliLikelihood(), detected, projector=A)
-mean_vb = gx.vb_mean_correction(
-    res,
-    prior,
-    gx.BernoulliLikelihood(),
-    detected,
-    projector=A,
-    subspace=fixed_effect_idx,
-)
+lik = gx.BernoulliLikelihood(detected)  # the likelihood holds y
+res = gx.laplace_mode(prior, lik, projector=A)
+mean_vb = gx.vb_mean_correction(res, prior, lik, projector=A, subspace=fixed_effect_idx)
 ```
 
 ---
@@ -1409,14 +1510,19 @@ exact factorisations or Jacobi-preconditioned CG
 the PSD part only, not the system operator. This is accepted pre-1.0,
 with a CHANGELOG entry, following the same precedent as gaussx 0.2.0.
 
-**`PreconditionedCGSolver` wiring.** The solver must pass `K` and `σ²`
-separately wherever it knows them (`SumOperator(K, σ²I)`). It must never
-build from `K + σ²I` and then add `σ²` again, which is the #345 bug. If the
-operator arrives unsplit, the solver raises and asks for an explicit
-preconditioner.
+**`PreconditionedCGSolver` wiring.** The preconditioner is built once,
+outside the solver, by `NystromPreconditioner.from_operator(K, rank,
+shift=σ²)` with `K` the PSD part, and passed in as
+`PreconditionedCGSolver(preconditioner=P)`. As built there is **no lazy
+Nyström path** that builds from the system operator inside the solve, so
+the noise cannot be counted twice (the #345 bug), and the planned "raise
+on an unsplit operator" is moot (gaussx#501).
 
-The Rayleigh–Ritz algorithm survives as `randomized_eigh(n_power_iter=0)`,
-which is what it always was.
+The old Rayleigh–Ritz algorithm is closest to
+`randomized_eigh(n_power_iter=0)`, but not identical:
+`randomized_eigh` projects onto `orth(AΩ)`, where the old preconditioner
+projected onto `orth(Ω)`. It is the same kind of algorithm and more
+accurate, not bit-identical (gaussx#500, #501).
 
 
 **Example.**
@@ -1646,9 +1752,9 @@ R-INLA posterior summaries are generated **offline** by an R script under
 | G1 | `mv`, `as_matrix`, `transpose` and `diag` against dense; CG `solve` against dense on a PSD Laplacian plus a shift; SLQ `logdet` within its own error bound (slow); Lanczos `eig(rank=)` against dense; `jit` and `grad` through `values`; `vmap` over `values`; pattern hashing is stable across processes; `add_diagonal` and `congruence` preserve the pattern; the BCOO-vs-`segment_sum` benchmark (slow) |
 | G2 | Agreement with `scipy.linalg.eigh(a, b)` for a positive definite `B`; the diagonal-`B` path equals kernellib's current `_smallest_generalized` output; a singular `B` with `A` **coupling** `range(B)` and `ker B`: the residual `‖Av − λBv‖` is at 1e-10 and the finite eigenvalues equal those of `scipy.linalg.eig(a, b)` (QZ, discarding its infinite ones); the rank warning fires; an indefinite `A₀₀` raises; `rank=` with Lanczos against dense |
 | G3 | The `BlockTriDiag` selected inverse equals the dense inverse's band on random SPD blocks (`d ∈ {1, 2, 3}`); `KroneckerSum` `diag_inv` equals dense, including `pinv=True` on a singular grid Laplacian; `A ⊗ B + cI` solve, logdet and `diag_inv` equal dense when `B` is a `SpectralFunction`, and the spectral factor is never materialised (checked by a matvec-only `B`); #344 regression |
-| G4 | The factor equals dense Cholesky of the permuted matrix; Takahashi equals the dense inverse on `pattern(L + Lᵀ)`; logdet and solve VJPs match `jax.grad` through dense, **for both `symmetric=True` (upper-triangle storage, where off-diagonal gradients are doubled) and full storage**, checked per stored value against finite differences; `vmap` over values; RCM fill on a reference 2-D mesh is recorded and bounded; CHOLMOD and JAX backends agree (integration tier, skipped without scikit-sparse) |
+| G4 | The factor equals dense Cholesky of the permuted matrix; Takahashi equals the dense inverse on `pattern(L + Lᵀ)`; logdet and solve VJPs match `jax.grad` through dense, **for both `symmetric=True` (lower-triangle storage, §4.1, where off-diagonal gradients are doubled) and full storage**, checked per stored value against finite differences; reverse-over-reverse Hessians (`jax.jacrev(jax.jacrev(...))`) match dense (there is no forward mode: only VJPs are defined); `cholesky(SparseOperator)` returns a `SparseCholeskyFactor` of the permuted matrix; `vmap` over values; RCM fill on a reference 2-D mesh is recorded and bounded; CHOLMOD and JAX backends agree (integration tier, skipped without scikit-sparse) |
 | G5 | Dense against `KroneckerSum` against `null_space` + SLQ on a grid Laplacian; two connected components (`c = 2`); invariance to the choice of null-space basis; the cofactor path equals dense on connected and disconnected graphs; RW1 closed form; RW2 against dense |
-| G6 | `log_prob` against a dense MVN from `Q⁻¹`, with and without `log_det_precision`; the intrinsic `log_prob` against the closed form on a path graph, including `(N−c)/2 · log τ`; each sampling-dispatch branch has the right covariance on a 10 × 10 grid, bounded by the estimator's own sampling distribution (slow); intrinsic samples are orthogonal to `null_space`; hard-constrained samples satisfy `A_c x = e` to machine precision; constrained marginal variances equal dense; `grad` of `log_prob` with respect to a factor scale; both classes work under `numpyro.handlers.seed` and `trace` |
+| G6 | `log_prob` against a dense MVN from `Q⁻¹`, with and without `log_det_precision`; the intrinsic `log_prob` against the closed form on a path graph, including `(N−c)/2 · log τ`; each sampling-dispatch branch has the right covariance on a 10 × 10 grid, bounded by the estimator's own sampling distribution (slow); intrinsic samples are orthogonal to `null_space`; hard-constrained samples satisfy `A_c x = e` to machine precision; constrained marginal variances equal dense; `grad` of `log_prob` with respect to a factor scale; both classes work under `numpyro.handlers.seed` and `trace`; `BYM2GMRF.log_prob` equals the dense constrained density (Rue & Held, eq. 2.30) for several `(τ, φ)` (gaussx#508) |
 | G7 | `rw1_structure` equals the path Laplacian; RW2 null space; AR(1) marginal variance `1/τ` in the interior; `bym2_precision`'s marginal of `b` has the BYM2 covariance (dense check at `n = 30`); `generalized_variance_scale` equals the dense definition and R-INLA's scaled value for the Scotland graph (golden); FEM `C` and `G` on a single triangle and a unit square equal the hand values; `fem_projector` on an icosphere recovers each vertex exactly and reproduces a linear function at random points on the sphere (to the chord error), and a non-star-shaped surface without `triangle_index` raises; grid SPDE equals the FEM SPDE on a regular right-triangle mesh with lumped mass; `matern_spde_params` gives marginal variance ≈ σ² away from the boundary (slow) |
 | G8 | Gaussian likelihood: the mode and `log_marginal` equal the exact conjugate result; binomial and negative-binomial site gradients and Hessians match `jax.grad` / `jax.hessian` of their log-densities, and their log-densities match `scipy.stats`; binomial on RW2 and negative binomial on BYM2 modes match dense Newton; Poisson on RW2: the mode matches dense Newton, and `jax.grad` of `log_marginal` with respect to `log τ` matches finite differences; Scotland BYM2 Poisson: the mode matches R-INLA's (golden, 1e-4) |
 | G9 | CCD point count and symmetry for `m = 3..6`; on a Gaussian `log_post` the weighted design recovers its mean and covariance; the grid threshold is respected |

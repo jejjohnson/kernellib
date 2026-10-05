@@ -43,6 +43,15 @@ The baseline is kernellib 0.0.11.
 | K14 | `KernelPCA` extensions: `center_cross_kernel`, supervised / fair KPCA (`target_weight`), `inverse_transform` (learned pre-image) | fairkl, manifold | — |
 | K15 | Proximity graphs for low-dimensional points: `delaunay_graph`, `gabriel_graph`, `relative_neighborhood_graph` (from the city2graph review) | manifold, INLA | K2, K6 |
 
+:::{note} Built (as of 2026-10-05)
+K1–K10 and K12–K15 have shipped: K1 and K12–K14 in v0.0.12, K2 and
+K7–K10 in v0.0.14, K3, K4 and K6 in v0.0.15, and K5 and K15 in v0.0.16.
+K11 (docs) is in progress. Each section's **As implemented** notes record
+where the shipped API differs from the plan. The live status is the
+[tracker](https://github.com/jejjohnson/kernellib/issues/125), and the
+[implementation plan](roadmap-implementation.md) lists the releases.
+:::
+
 ---
 
 ## 1. Current state
@@ -889,6 +898,20 @@ def relative_neighborhood_graph(
   - GG and RNG agree with brute-force $O(n^3)$ definitions at $n = 200$;
   - collinear or duplicate points raise clearly.
 
+**As implemented (K15).** Shipped in v0.0.16 (kernellib#145), as planned:
+
+- `scipy.spatial.Delaunay` is imported lazily, so `import kernellib`
+  stays free of `scipy.spatial`. Duplicate, near-duplicate (dropped by
+  Qhull), collinear and coplanar inputs raise a `ValueError`; `d ∉ {2, 3}`
+  raises and points to `knn_graph`.
+- A tetrahedron contributes its four faces to K6's triangle → edge helper.
+- In 3-D, the Gabriel candidates are the Delaunay neighbours of both
+  endpoints (above); the RNG test is vectorised on the host in float64.
+- The edge weights are JAX arrays, differentiable in a heat `bandwidth`;
+  the points must be concrete.
+- The tests also run in 3-D (brute force at `n = 100`) and check that
+  the Delaunay edges match SciPy's.
+
 **Example.**
 
 ```python
@@ -1728,6 +1751,8 @@ kernellib by git tag, so any phase they consume needs a release.
 
 ### K5: eigenmap extensions (needs K3 and gaussx G2 released)
 
+Built: v0.0.16 (kernellib#146); see "As implemented (K5)" in §4.8.
+
 - The §4.5–4.8 changes.
 - Tests:
   - dense and graph inputs give the same embedding (up to sign and
@@ -1805,7 +1830,7 @@ K2 has shipped.
 
 ### K15: proximity graphs (needs K2 and K6)
 
-The tests are given with the API (§4b).
+Built: v0.0.16 (kernellib#145). The tests are given with the API (§4b).
 
 ---
 
