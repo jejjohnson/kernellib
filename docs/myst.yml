@@ -25,6 +25,7 @@ project:
   bibliography:
     - bib/dependence.bib
     - bib/graphs.bib
+    - bib/regression_at_scale.bib
   toc:
     - file: index.md
     - title: Guide
@@ -39,6 +40,7 @@ project:
         - file: notebooks/similarity_measures.ipynb
         - file: notebooks/matrix_free_gp.ipynb
         - file: notebooks/sklearn_workflows.ipynb
+        - file: notebooks/regression_at_scale.ipynb
         - file: notebooks/graph_embeddings.ipynb
         - file: notebooks/graphs_and_spatial.ipynb
         - file: notebooks/spatial_spectral_eigenmaps.ipynb

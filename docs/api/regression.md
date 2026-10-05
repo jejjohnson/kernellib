@@ -327,3 +327,8 @@ residual spectrum (Ma & Belkin, 2017).
 ::: kernellib.eigenpro_correction
 
 ::: kernellib.EigenProPreconditioner
+
+The [regression at scale](../../regression-at-scale/) notebook benchmarks
+dense, CG and preconditioned `KRR`, `Falkon`, `EigenPro` and ridge on random
+features against each other as $N$ grows, and ends with a table of which to
+use for which $N$ and with what settings.
