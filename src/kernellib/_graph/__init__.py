@@ -39,6 +39,11 @@ from kernellib._graph._kernels import (
 )
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._graph._neighbors import KNNGraph, nearest_neighbors, radius_neighbors
+from kernellib._graph._proximity import (
+    delaunay_graph,
+    gabriel_graph,
+    relative_neighborhood_graph,
+)
 from kernellib._graph._structure import graph_null_space, structure_matrix
 from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGraph
 
@@ -52,8 +57,10 @@ __all__ = [
     "adjacency_matrix",
     "commute_time_kernel",
     "cosine_graph_kernel",
+    "delaunay_graph",
     "diffusion_kernel",
     "edge_weights",
+    "gabriel_graph",
     "graph_from_adjacency",
     "graph_from_edges",
     "graph_from_neighbors",
@@ -70,5 +77,6 @@ __all__ = [
     "radius_neighbors",
     "random_walk_kernel",
     "regularized_laplacian_kernel",
+    "relative_neighborhood_graph",
     "structure_matrix",
 ]

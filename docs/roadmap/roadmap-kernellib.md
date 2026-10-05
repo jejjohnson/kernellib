@@ -802,7 +802,9 @@ $$
   $x_ix_j$ contains no other point:
   $d_{ik}^2 + d_{jk}^2 \ge d_{ij}^2$ for all $k$. For a Delaunay edge, it
   suffices to check the one or two vertices opposite it in its
-  triangles (the angle there is below 90°).
+  triangles (the angle there is below 90°). In 3-D the vertices opposite
+  an edge in its tetrahedra do not suffice, so the candidates are the
+  Delaunay neighbours of $i$ or $j$, as for the RNG.
 - **Relative neighbourhood graph (RNG).** $(i,j)$ is an edge when no $k$
   is closer to both: $\max(d_{ik}, d_{jk}) \ge d_{ij}$. The candidates
   are Delaunay neighbours of $i$ or $j$.
