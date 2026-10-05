@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.16](https://github.com/jejjohnson/kernellib/compare/v0.0.15...v0.0.16) (2026-10-05)
+
+
+### Features
+
+* **decomposition:** graph-input eigenmaps, combine_potentials, SEP and kernel LPP / SEP (K5) ([#146](https://github.com/jejjohnson/kernellib/issues/146)) ([cc29fd6](https://github.com/jejjohnson/kernellib/commit/cc29fd651bdbdba91b7d9a98daa63c454c370a69))
+* **graph:** add Delaunay, Gabriel and relative-neighbourhood proximity graphs (K15) ([#145](https://github.com/jejjohnson/kernellib/issues/145)) ([fb96a39](https://github.com/jejjohnson/kernellib/commit/fb96a39f2fe24eff2062c4ee586370e24afaea2d))
+
 ## [0.0.15](https://github.com/jejjohnson/kernellib/compare/v0.0.14...v0.0.15) (2026-10-03)
 
 
