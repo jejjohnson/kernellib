@@ -45,8 +45,11 @@ $$
 
 where $v\sim\mathcal N(0,I)$ and $u^\ast$ is an ICAR scaled to unit
 generalised variance. The stacked $(b,u^\ast)$ has the sparse precision of
-`gx.bym2_precision`. The PC priors are on $\sigma$, and on $\phi$, the
-share of the variance that is spatially structured.
+`gx.bym2_precision`, and its distribution is `gx.BYM2GMRF` (an
+`IntrinsicGMRF` on that precision has the wrong density, gaussx#508).
+pyrox-lgm's θ is $(\tau,\phi)$ with $\tau = \sigma^{-2}$: a PC prior on
+$\tau$ (the same prior as an exponential on $\sigma$), and one on
+$\phi$, the share of the variance that is spatially structured.
 
 ```python
 # polygons → queen contiguity with city2graph (docs-only), → kernellib by edge list
@@ -57,17 +60,15 @@ counties = kl.graph_from_edges(u, v, len(nodes))  # connectivity weights for an 
 model = lgm.LGM(
     components=(lgm.BYM2(counties, name="region"),),
     fixed=lgm.FixedEffects(("intercept", "z")),
-    likelihood=gx.PoissonLikelihood(),
+    likelihood=lgm.Poisson(),
 )
-res = lgm.inla(
-    model, {"y": y, "offset": jnp.log(E), "region": jnp.arange(n), "z": z}, key=key
-)
+res = lgm.inla(model, {"y": y, "offset": jnp.log(E), "region": jnp.arange(n), "z": z})
 relative_risk = jnp.exp(res.random["region"].mean)
 res.hyperpar["region.phi"].quantiles(0.025, 0.5, 0.975)
 ```
 
 **What makes it fast.** The Hessian $Q + W$ keeps $Q$'s pattern, and it is
-analysed once. The θ-design is a small grid in $(\sigma,\phi)$, a few dozen points at most. Each
+analysed once. The θ-design is a small grid in $(\tau,\phi)$, a few dozen points at most. Each
 point needs a few sparse factorisations, with marginal variances from one
 Takahashi sweep. For NUTS instead of INLA, the same `lgm.BYM2(...).sample()`
 goes inside a NumPyro model (see [pyrox.md](roadmap-pyrox.md)).
@@ -152,12 +153,12 @@ block-tridiagonal precision).
 
 ```python
 model = lgm.LGM(
-    components=(lgm.RW2(n_bins=50, name="log_flux"), lgm.RW2(n_bins=30, name="wind")),
+    components=(lgm.RW2(50, name="log_flux"), lgm.RW2(30, name="wind")),
     fixed=lgm.FixedEffects(("intercept", "sza", "albedo")),
-    likelihood=gx.BernoulliLikelihood(),
+    likelihood=lgm.Bernoulli(),
 )
 res = lgm.inla(
-    model, data, strategy="vb", key=key
+    model, data, strategy="vb"
 )  # the VB mean correction matters for Bernoulli
 pod_curve = jax.nn.sigmoid(res.random["log_flux"].mean + res.fixed["intercept"].mean)
 ```
@@ -477,9 +478,9 @@ model = lgm.LGM(
         lgm.BYM2(regions, name="destination"),
     ),
     fixed=lgm.FixedEffects(("intercept", "log_distance")),
-    likelihood=gx.PoissonLikelihood(),  # or NegativeBinomialLikelihood for overdispersion (G8)
+    likelihood=lgm.Poisson(),  # or lgm.NegativeBinomial() for overdispersion (G8)
 )
-res = lgm.inla(model, flows, key=key)
+res = lgm.inla(model, flows)
 generators = res.random["origin"].mean  # excess outflow, beyond distance
 ```
 

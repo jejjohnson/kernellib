@@ -5,13 +5,47 @@ date: 2026-09-30
 # Implementation plan
 
 :::{note}
-**Status: draft (2026-09-30).** This page sequences the work that the
+**Status: in progress (updated 2026-10-05; drafted 2026-09-30).** Waves
+1–7 are mostly shipped; see [what has shipped](#implementation-status).
+The live status is the tracker,
+[kernellib#125](https://github.com/jejjohnson/kernellib/issues/125). This page sequences the work that the
 [roadmap](roadmap.md) specifies. The roadmap's repo pages are the
 specification (API, maths, tests). This page only says **in what order**,
 **what blocks what**, and **which release unblocks whom**. Everything on it
 is derived from the "Needs" columns of the repo pages. If a dependency
 changes there, regenerate the tables here.
 :::
+
+(implementation-status)=
+## Status: what has shipped
+
+The plan below is unchanged. This section records which release carried
+each phase, as of 2026-10-05. The tracker
+[kernellib#125](https://github.com/jejjohnson/kernellib/issues/125) is the
+live status (epics, phase issues, "blocked by" links, and what is ready
+next); this table is only a snapshot.
+
+| Repo | Release | Phases |
+|---|---|---|
+| gaussx | 0.5.0 | G1, G2, G3, G9, G11, G14 |
+| gaussx | 0.6.0 | G4–G8, G10, G12, G13 |
+| gaussx | 0.6.1–0.6.2 | Fixes, including `BYM2GMRF` for the BYM2 density (gaussx#508, #518), exact structured paths in `AutoSolver` and `inv_quad_logdet`, and Takahashi on diagonal-only columns |
+| kernellib | 0.0.12–0.0.13 | K1, K12–K14 (0.0.13: review follow-ups) |
+| kernellib | 0.0.14 | K2, K7–K10 |
+| kernellib | 0.0.15 | K3, K4, K6 |
+| kernellib | 0.0.16 | K5, K15; gaussx source raised to v0.6.1 (kernellib#142) |
+| pyrox-lgm | 0.1.0–0.1.1 | P6–P9 (golden R-INLA fixtures in pyrox#275) |
+
+- **In progress:** K11 (docs, kernellib#119).
+- **Not started:** gaussx G15–G17 (gaussx#511), pyrox-gp P1–P5
+  (pyrox#257), P10 (pyrox#256), manipy M0–M5, plumax X1.
+- **Milestones reached:** A (numerics fixed), B's gaussx and kernellib
+  parts, C's KRR part (K9), D's kernellib part (K1–K6, K15), and E
+  (first `inla()`; the remaining gap to R-INLA is in the integration over
+  θ, pyrox#274).
+- **What implementation changed in the specification** is folded back
+  into the repo pages (kernellib#122), as the definition of done in §1
+  asks: look for the "As built" and "As implemented" notes there.
 
 ## 1. Rules of the road
 

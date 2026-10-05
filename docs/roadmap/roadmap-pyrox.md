@@ -447,6 +447,17 @@ pyrox-gp, and keeping it separate keeps pyrox-gp's GP-centred API
 unchanged. The package boundary is enforced by the root
 `pyproject.toml`'s workspace, with no import from pyrox-gp.
 
+:::{note} As built (pyrox-lgm 0.1, pyrox#260)
+**Pins.** A uv workspace resolves one version per package, and
+kernellib v0.0.15's own `[tool.uv.sources]` pins gaussx to `v0.6.0`, which
+uv honours for a git dependency. pyrox-lgm needs gaussx `v0.6.1`
+(`BYM2GMRF`, gaussx#518), so pyrox's root `pyproject.toml` carries a
+`[tool.uv] override-dependencies` entry on gaussx `v0.6.1`, which keeps one
+gaussx for every member. kernellib v0.0.16 sources gaussx `v0.6.1`
+(kernellib#142), so the override can go once pyrox moves to kernellib
+≥ 0.0.16. Until then, move it in step with pyrox-gp's gaussx source.
+:::
+
 
 ### 3.2 P7: components
 
@@ -459,33 +470,68 @@ class AbstractComponent(eqx.Module):
     ) -> dict[
         str, tuple[dist.Distribution, Transform]
     ]: ...  # hyperpriors, unconstrained transforms
-    def prior(self, theta: dict[str, Array]) -> gx.GaussianMRF | gx.IntrinsicGMRF: ...
+    def prior(
+        self,
+        theta: dict[str, Array],
+        *,
+        constraint: Literal["hard", "soft", "none"] = "hard",
+        soft_constraint_scale: float = 1e-3,  # gaussx's default
+    ) -> gx.GaussianMRF | gx.IntrinsicGMRF: ...
+    @property
+    def n_nodes(self) -> int: ...  # latent size, including any padding node
+    @property
+    def n_index(self) -> int: ...  # addressable nodes; < n_nodes for BYM2, odd RW2
     def projector(
         self, index: Array
     ) -> gx.SparseOperator: ...  # (n_obs, n_nodes): which node(s) each row touches
     def sample(
-        self, index: Array | None = None
+        self, index: Array | None = None, *, soft_constraint_scale: float = 1e-2
     ) -> Array: ...  # NumPyro face: θ ~ hyperpriors, x ~ prior, soft constraints
 ```
 
 | Component | θ (default prior) | gaussx builder | Notes |
 |---|---|---|---|
 | `IID(n)` | τ (`PCPrecision(1, 0.01)`) | `iid_precision` | |
-| `RW1(n)`, `RW2(n)` | τ (`PCPrecision`) | `rw1_structure`, `rw2_structure` | `scale_model=True` by default (Sørbye & Rue, 2014); hard sum-to-zero in `inla()`, soft in `.sample()` |
+| `RW1(n)`, `RW2(n)` | τ (`PCPrecision`) | `rw1_structure`, `rw2_structure` | `scale_model=True` by default (Sørbye & Rue, 2014); hard sum-to-zero in `inla()`, soft in `.sample()`. Odd-`n` `RW2` carries gaussx's padding node (`n_nodes = n + 1`, `n_index = n`) |
 | `AR1(n)` | τ, ρ (`PCAR1Rho`) | `ar1_precision` | |
 | `Besag(graph)` | τ | `besag_structure(kl.structure_matrix(graph))` | One constraint per connected component (`kl.graph_null_space`) |
-| `BYM2(graph)` | σ (`PCPrecision`), φ (`PCBYM2Phi`) | `bym2_precision`, `generalized_variance_scale` | The scaling constant is exact and sparse (G7); it replaces the earlier "dense or Hutchinson" idea |
+| `BYM2(graph)` | τ (`PCPrecision`), φ (`PCBYM2Phi`) | `BYM2GMRF` (on `bym2_precision`), `generalized_variance_scale` | The scaling constant is exact and sparse (G7); it replaces the earlier "dense or Hutchinson" idea. The field is `(b, u*)`, `n_nodes = 2n`, `n_index = n` |
 | `CAR(graph)` (proper) | τ, ρ | `SparseOperator` `τ(D − ρW)` | `log|Q|` from the precomputed `L_sym` spectrum (dense for `N ≲ 10⁴`), otherwise the sparse Cholesky logdet |
 | `Leroux(graph)` | τ, ρ | `τ(ρR + (1−ρ)I)` | On a `GridGraph` it is a `KroneckerSum`, with exact everything |
-| `SPDE(mesh=(V, T) \| grid=shape, alpha=2)` | range, σ (`PCMatern`) | `fem_matrices` + `spde_precision`, or `spde_precision_grid`; `matern_spde_params` | The projector is `fem_projector` (mesh) or index selection (grid) |
+| `SPDE(mesh=(V, T) \| grid=shape, alpha=2)` | `range_sigma` = `[range, σ]` (joint `PCMatern`) | `fem_matrices` + `spde_precision`, or `spde_precision_grid`; `matern_spde_params` | The projector is `fem_projector` (mesh) or index selection (grid) |
 | `Generic(structure, null_space=None)` | τ | the user's operator | |
-| `Kronecker(time, space)` | the union of both | `gx.Kronecker` | Separable space-time, R-INLA's `group` |
+| `Kronecker(main, group)` | the union of both, with the group's τ fixed at 1 | `gx.Kronecker` | Separable space-time, R-INLA's `group` |
 
 **The NumPyro face** (`.sample()`) registers NumPyro sites, draws θ from the default (or user) hyperpriors,
 and draws `x` from the gaussx GMRF with soft constraints. So these
 components are usable inside any NumPyro model under NUTS, with or
 without `inla()`. Each areal component keeps a private cache (spectra, null spaces, scaling), built once at
 construction.
+
+:::{note} As built (pyrox-lgm 0.1, pyrox#262–#264)
+- **`BYM2`'s θ is `(tau, phi)`**, not `(σ, φ)`. `PCPrecision` on τ is the
+  same prior as an exponential on σ = τ^{-1/2}, and τ keeps one convention
+  across components. The field is `(b, u*)` with `n_nodes = 2n`, and
+  observations see `b` (`n_index = n`). Its prior is gaussx's `BYM2GMRF`,
+  because an `IntrinsicGMRF` on `bym2_precision` has the wrong density
+  (gaussx#508).
+- **`SPDE`'s joint `PCMatern`** sits under one θ key, `range_sigma`
+  = `[range, σ]`.
+- **`Kronecker(main, group)` fixes the group's τ at 1**, because only the
+  product of the two τ's is identified (R-INLA's `group`). An `AR1` group
+  keeps its ρ.
+- **The NumPyro face's soft constraint defaults to `s = 1e-2`**, not
+  gaussx's `1e-3`. On a 12 × 12 BYM2 Poisson model, `1e-3` hits NUTS's
+  tree-depth cap (1023 leapfrog steps per iteration), while `1e-2` takes
+  255, with the same posterior. Every `prior()` takes
+  `soft_constraint_scale` (default `1e-3`, as in gaussx).
+- **Odd-`n` `RW2`** carries gaussx's padding node (G7). Its `scale_model`
+  is recovered over the `n` real nodes as `s_N^{N/n}`, from the scale
+  `s_N` over all `N = n + 1` nodes (the padding node has unit variance and
+  pulls the geometric mean towards 1), and the node never enters the
+  projector. Inside `inla()` only the sum-to-zero constraint is imposed,
+  as R-INLA's `rw2` does.
+:::
 
 **Example.**
 
@@ -495,7 +541,7 @@ def disease_map(E, y, counties):
     beta0 = numpyro.sample("beta0", dist.Normal(0.0, 10.0))
     b = lgm.BYM2(
         counties, name="region"
-    ).sample()  # σ, φ from PC priors; soft sum-to-zero
+    ).sample()  # τ, φ from PC priors; soft sum-to-zero (s = 1e-2)
     numpyro.sample("y", dist.Poisson(E * jnp.exp(beta0 + b)), obs=y)
 
 
@@ -534,17 +580,24 @@ All are `numpyro.distributions.Distribution` subclasses:
 | `PCPrecision(U, alpha)` | on τ: exponential on `σ = τ^{-1/2}`, with the Jacobian | `P(σ > U) = α` |
 | `PCMatern(range0, alpha_range, sigma0, alpha_sigma, d)` | joint on `(ρ, σ)`: `(d/2)λ_ρ ρ^{−d/2−1} e^{−λ_ρ ρ^{−d/2}} · λ_σ e^{−λ_σ σ}` (Fuglstad et al., 2019) | `P(ρ < ρ₀) = α_ρ`, `P(σ > σ₀) = α_σ` |
 | `PCBYM2Phi(U, alpha, structure_spectrum)` | exponential on `d(φ) = √(2 KLD(φ))` (Riebler et al., 2016) | `P(φ < U) = α` |
-| `PCAR1Rho(U, alpha)` | Sørbye & Rue (2017), base model `ρ = 0` (or `ρ = 1`) | `P(ρ > U) = α` |
+| `PCAR1Rho(U, alpha)` | Sørbye & Rue (2017), base model `ρ = 0` (only this base is implemented), symmetric in ρ | `P(\|ρ\| > U) = α`, as R-INLA's `pc.cor0` |
 
 **`PCBYM2Phi` needs the spectrum of the scaled structure**, because
-`KLD(φ)` involves `log|(1−φ)I + φR*⁺|`. It gets that spectrum from:
+`KLD(φ)` involves `log|(1−φ)I + φR*⁺|`. The spectrum must contain the
+**null space** (the γ = 0 eigenvalues): only they send `d(φ) → ∞` as
+`φ → 1`, which makes the prior proper. `lgm.structure_spectrum(R*,
+null_space)` computes it once:
 
-- dense `eigh` for `n ≲ 5000`;
-- exact factor eigenvalues on a `GridGraph`;
-- otherwise, a **stochastic Lanczos quadrature spectral density**
-  estimated once. That uses gaussx's SLQ, and is an
-  [RandNLA](project-rnla.md) consumer. The density is then evaluated
-  in closed form for any φ.
+- dense `eigh` for `n ≤ 5000`;
+- exact factor eigenvalues on a `GridGraph` (a `KroneckerSum`);
+- otherwise, a **deflated stochastic Lanczos quadrature spectral
+  density**. One Lanczos run keeps up to `deflate` of the largest
+  eigenvalues of `R*⁺` exactly (they dominate `tr R*⁺`); probes projected
+  off the null space and those eigenvectors give the rest. Without
+  deflation, 64 probes gave `tr(R*⁺)` about 2 % off on a 25 × 20 grid
+  (γ_max = 80 against tr = 518); with it, the PC distance is within about
+  1e-4. It is an [RandNLA](project-rnla.md) consumer. The density is
+  then evaluated in closed form for any φ.
 
 **Example.**
 
@@ -553,9 +606,13 @@ sigma_prior = lgm.PCPrecision(U=1.0, alpha=0.01)  # P(σ > 1) = 0.01
 range_sd = lgm.PCMatern(
     range0=10.0, alpha_range=0.05, sigma0=2.0, alpha_sigma=0.05, d=2
 )
+# PCBYM2Phi: the spectrum of R*⁺, null space included, computed once per graph
+R_star = kl.structure_matrix(counties, scaled=True)
+spectrum = lgm.structure_spectrum(R_star, kl.graph_null_space(counties))
 phi_prior = lgm.PCBYM2Phi(
-    U=0.5, alpha=2 / 3, structure_spectrum=kl_spectrum
-)  # P(φ < 0.5) = 2/3
+    U=0.5, alpha=2 / 3, structure_spectrum=spectrum
+)  # P(φ < U) = α
+rho_prior = lgm.PCAR1Rho(U=0.5, alpha=0.1)  # P(|ρ| > 0.5) = 0.1
 ```
 
 ### 3.4 P8: `LGM` and `inla()`
