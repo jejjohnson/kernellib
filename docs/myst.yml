@@ -22,6 +22,8 @@ project:
     - name: J. Emmanuel Johnson
   references:
     api: http://127.0.0.1:8910/
+  bibliography:
+    - bib/dependence.bib
   toc:
     - file: index.md
     - title: Guide
