@@ -80,12 +80,12 @@ The planned layout (from the design doc; directories appear as their phase lands
 | `functional/` | Pure kernel functions on arrays; matrix-level `hsic`, `cka`, `mmd_squared`, `center_kernel` | 0 |
 | `_kernels/` | `AbstractKernel` ⊃ `AbstractPointwiseKernel` ⊃ `AbstractStationaryKernel`, concrete kernels, composition | 0 |
 | `_operators/` | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, Nyström / RFF / FastFood low-rank operators (moved from gaussx); `to_operator` / `to_cross_operator` bridge | 1 |
-| `_spectral/` | Spectral densities, feature maps (RFF, ORF, Nyström, FastFood, Laplace eigenfunctions) | 1 |
+| `_spectral/` | Spectral densities, feature maps (RFF, ORF, Nyström, FastFood, Laplace eigenfunctions), `select_landmarks` (`_landmarks.py`) | 1 |
 | `_heuristics.py` | Bandwidth heuristics | 1 |
 | `_regression/` | `KRR`, `Falkon`, `EigenPro` estimators, with the Falkon / EigenPro primitives moved from gaussx | 2 |
 | `_dependence/` | HSIC, CKA, MMD, permutation tests | 2 |
-| `_graph/` | k-NN search (exact JAX, optional pynndescent / sklearn), adjacency, Laplacians, graph kernels, the ARPACK eigenpair helpers | 1 |
-| `_decomposition/` | Kernel PCA; Laplacian and Schrödinger eigenmaps; LPP (`_projections.py`) | 2 |
+| `_graph/` | Graph types `Graph` / `GridGraph` (`_types.py`); k-NN and radius search, exact JAX or optional pynndescent / sklearn (`_neighbors.py`); builders and dense adjacency (`_construct.py`, `_weights.py`); Delaunay / Gabriel / RNG proximity graphs (`_proximity.py`); Laplacians (`_laplacian.py`); `laplacian_eigpairs`, `n_components_graph` (`_eigpairs.py`); graph kernels incl. graph Matérn (`_kernels.py`); GMRF `structure_matrix`, `graph_null_space` (`_structure.py`) | 1 |
+| `_decomposition/` | Kernel PCA, dense / randomized / feature-map, supervised and fair, pre-images (`_kpca.py`); Laplacian and Schrödinger eigenmaps and potentials (`_eigenmaps.py`); LPP and SEP (`_projections.py`); kernel LPP and kernel SEP (`_kernel_projections.py`) | 2 |
 
 Dependency direction is strictly one-way, layer 0 → 1 → 2.
 

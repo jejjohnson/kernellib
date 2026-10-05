@@ -32,7 +32,8 @@ Two namespaces inside kernellib:
 | Approximation | `nystrom_operator`, `rff_operator`, `fastfood_operator` | `NystromFeatures`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures` |
 | Dependence | `functional.hsic`, `functional.cka`, `functional.mmd_squared`, `functional.center_kernel` | `hsic`, `cka`, `mmd`, `permutation_test`, randomized variants |
 | Regression | Falkon and EigenPro primitives | `KRR`, `Falkon`, `EigenPro` estimators |
-| Derivatives | autodiff | `kernel_jacobian`, `derivative_gram`, `predictor_gradient` |
+| Derivatives | `jax.grad` of `pairwise` | `Derivative`, `DerivativeIndexed`, `derivative_inputs` |
+| Graphs | `adjacency_matrix`, `graph_laplacian`, `functional.graph_matern_spectrum` | `knn_graph`, `GridGraph`, `laplacian_eigpairs`, `matern_graph_kernel`, `structure_matrix` |
 
 ## The kernel contract
 
@@ -69,9 +70,17 @@ alpha = gx.solve(K, y, solver=gx.PreconditionedCGSolver(preconditioner_rank=100)
 |---|---|---|
 | `functional/`, `_kernels/`, `_operators/` | Kernel math and matrix statistics, abstractions, composition, the operators moved from gaussx, the bridge | 1 |
 | `_spectral/` | Spectral densities, feature maps including FastFood | 4 |
-| `_heuristics.py`, `_regression/`, `_dependence/`, `_decomposition/`, `_derivatives.py` | Estimators (with the moved Falkon / EigenPro primitives), dependence measures, embeddings, derivatives | 5 |
+| `_heuristics.py`, `_regression/`, `_dependence/`, `_decomposition/` | Estimators (with the moved Falkon / EigenPro primitives), dependence measures, kernel PCA and graph embeddings | 5 |
+| `_graph/` | Graph types and builders, proximity graphs, Laplacians and eigenpairs, graph kernels, GMRF structure matrices (layer 1, between the kernels and the decompositions) | roadmap K1–K6, K15 |
+| `_spectral/_landmarks.py`, `KRR.preconditioner`, `KernelPCA(eigen_solver="randomized")` | Landmark selection, preconditioned KRR, randomized kernel PCA | roadmap K8–K10 |
 
 Phase 0 is this scaffold. Phase 2 makes pyrox-gp consume kernellib. Phase 3
 removes the kernel layer from gaussx in gaussx 0.2.0, with no shims, and adds
 a low-rank fast path to `trace_product`, the one generic piece of linear
 algebra the randomized dependence measures need.
+
+The graph, randomized-kernel and dependence-penalty work after phase 5 is
+planned in the [kernellib roadmap](../roadmap/roadmap-kernellib.md). The
+randomized primitives it builds on (`randomized_eigh`, `rp_cholesky`,
+sketching operators, `hadamard_transform`) are kernel-agnostic and so are
+gaussx's; kernellib calls them.

@@ -71,6 +71,11 @@ docs = [
     "nbconvert>=7.16.6",
     "matplotlib>=3.11.1",
     "watermark>=2.6.0",
+    # Training loops in the notebooks (roadmap decision 7): small full-batch fits
+    # use optax directly; networks train with pipekit-train's equinox loop.
+    # Docs-only: nothing under src/ imports either (tests/test_imports.py).
+    "optax>=0.2.4",
+    "pipekit-train[equinox]",
     # pygments 2.20.0 dropped the None -> '' coercion for HtmlFormatter(filename=...),
     # but pymdownx.highlight 10.21.x still passes the untitled-code-block title
     # through as None. Pin until a fixed pymdown-extensions release ships.
@@ -81,6 +86,9 @@ docs = [
 # gaussx is not yet on PyPI; resolve the release tag from GitHub. The
 # `>=` floor in `dependencies` is what a PyPI release will satisfy later.
 gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.6.1" }
+# pipekit is a docs-only dependency, pinned by release tag (roadmap decision 7).
+pipekit-train = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit-train" }
+pipekit = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit" }
 
 [build-system]
 requires = ["hatchling"]

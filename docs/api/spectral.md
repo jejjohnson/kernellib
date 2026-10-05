@@ -133,6 +133,132 @@ idx = kl.select_landmarks(
 falkon = kl.Falkon(kernel, n_inducing=2000, centers="rpcholesky").fit(X, y, key=key)
 ```
 
+### The Nyström approximation
+
+Landmarks $S \subset \{1, \dots, N\}$, $|S| = M$, give the Nyström
+approximation (Williams & Seeger, 2001)
+
+$$
+\hat K = K_{:,S}\,K_{S,S}^{+}\,K_{S,:}, \qquad
+\operatorname{tr}(K - \hat K) = \sum_i \big(k(x_i, x_i)
+- k_{iS} K_{SS}^{+} k_{Si}\big),
+$$
+
+the PSD approximation that reproduces $K$ exactly on the chosen rows and
+columns. The trace error is a sum of conditional variances: $k(x_i, x_i) - k_{iS}
+K_{SS}^{+} k_{Si}$ is the variance of a GP at $x_i$ after observing it
+noise-free at the landmarks. Choosing landmarks well means making that
+residual small with few columns. `NystromFeatures` evaluates
+$\phi(x) = L^{-1}k(Z, x)$ with $K_{ZZ} + \epsilon I = LL^\top$, so that
+$\phi(x)^\top\phi(x') \approx k(x, x')$.
+
+### Ridge leverage scores (`"leverage"`)
+
+The ridge leverage score of point $i$ is
+
+$$
+\ell_i(\lambda) = \big[K (K + \lambda n I)^{-1}\big]_{ii},
+\qquad \sum_i \ell_i(\lambda) = d_{\mathrm{eff}}(\lambda),
+$$
+
+with the same $\lambda n$ ridge convention as `KRR` (``regularization``,
+default $10^{-3}$). It measures how much point $i$ is needed to fit a ridge
+regression at that $\lambda$; sampling $O(d_{\mathrm{eff}} \log
+d_{\mathrm{eff}})$ landmarks in proportion to it gives a Nyström
+approximation that preserves the KRR risk (Alaoui & Mahoney, 2015; Musco &
+Musco, 2017; Rudi et al., 2018). Exact scores cost $O(N^3)$, so they are
+approximated from a uniform pilot: Nyström features $\Phi$ on
+$m_0 = \min(2M, N)$ uniform points give
+
+$$
+\tilde\ell_i = \phi_i^\top(\Phi^\top\Phi + \lambda n I)^{-1}\phi_i
++ \frac{k(x_i, x_i) - \|\phi_i\|^2}{\lambda n},
+$$
+
+the leverage of $\Phi\Phi^\top$ (by the push-through identity) plus the
+pilot's residual variance over $\lambda n$, so points the pilot explains
+badly are not missed. This is a single pilot
+level, not Musco & Musco's recursive scheme. Landmarks are then drawn
+without replacement from
+$p_i = (1 - u)\,\tilde\ell_i / \sum_j \tilde\ell_j + u / N$, $u$ =
+``uniform_mixing`` (default $0.5$).
+
+### Randomly pivoted Cholesky (`"rpcholesky"`)
+
+RPCholesky builds a partial Cholesky factor $F$, $FF^\top = \hat K$, one
+pivot at a time, sampling each pivot in proportion to the current residual
+diagonal $d = \operatorname{diag}(K - FF^\top)$ (Chen, Epperly, Tropp &
+Webber, 2023). It touches $K$ only through its diagonal and one column per
+landmark, never the $N \times N$ matrix:
+
+```text
+d = diag(K)                                  # k(x_i, x_i), N evaluations
+F = zeros(N, M); S = []
+for t in 1..M:
+    s ~ Categorical(d / sum(d))              # greedy: s = argmax(d)
+    g = K[:, s] - F[:, :t-1] F[s, :t-1]^T    # one kernel column, N evaluations
+    F[:, t] = g / sqrt(g[s])
+    d = max(d - F[:, t]^2, 0)
+    S.append(s)
+return S                                     # F F^T = K[:, S] K[S, S]^+ K[S, :]
+```
+
+With $k \ge r/\varepsilon + r\log(1/(\varepsilon\eta))$ pivots,
+$\mathbb E\operatorname{tr}(K - \hat K) \le (1 + \varepsilon)
+\operatorname{tr}(K - [\![K]\!]_r)$, where $[\![K]\!]_r$ is the best rank-$r$
+approximation and $\eta = \operatorname{tr}(K - [\![K]\!]_r)/\operatorname{tr}K$:
+near-optimal, with no parameter to tune. Cost: $O(NM)$ kernel evaluations
+and $O(NM^2)$ flops.
+
+### Greedy pivoting (`"greedy"`)
+
+The same loop with $s = \arg\max_i d_i$: always the point with the largest
+conditional variance (pivoted Cholesky; the inducing-point rule of Burt,
+Rasmussen & van der Wilk, 2020). It is deterministic and has the same cost,
+but no error guarantee: it picks isolated points and outliers first, and on
+clustered data it can do worse than uniform sampling.
+
+### Numerics
+
+- The Cholesky methods run in the kernel's dtype. Once the largest residual
+  falls below ``N * eps * max(diag K)`` (LAPACK `?pstrf`'s rule, in
+  `gaussx.rp_cholesky`) the numerical rank is exhausted, for example with
+  duplicated inputs or a long lengthscale. The remaining landmarks are then
+  filled with unused points: uniformly at random for `"rpcholesky"`, in
+  index order for `"greedy"`. The returned indices are always $M$ distinct
+  points.
+- `NystromFeatures` and the leverage pilot add a relative jitter
+  $\epsilon = 10^{-6}$ times the mean of $\operatorname{diag}K_{ZZ}$ (an
+  absolute $10^{-6}$ when that mean is zero) before the Cholesky of
+  $K_{ZZ}$, so near-duplicate landmarks do not break it.
+- Leverage scores need $M \gtrsim d_{\mathrm{eff}}(\lambda)$. With fewer
+  landmarks than that, the scores concentrate on a few isolated points,
+  which is what ``uniform_mixing`` guards against. A $\lambda$ that is too
+  small pushes every score towards 1 (for a full-rank $K$), and the method
+towards uniform.
+- `"uniform"` evaluates no kernel; the others cost $O(NM)$ kernel
+  evaluations (`"rpcholesky"`, `"greedy"`) or $O(N M)$ evaluations plus an
+  $O(N M^2)$ solve for the pilot (`"leverage"`).
+
+### References
+
+- Williams & Seeger (2001). Using the Nyström method to speed up kernel
+  machines. NeurIPS 13.
+  [papers.nips.cc](https://papers.nips.cc/paper/1866-using-the-nystrom-method-to-speed-up-kernel-machines)
+- Alaoui & Mahoney (2015). Fast randomized kernel methods with statistical
+  guarantees. NeurIPS. [arXiv:1411.0306](https://arxiv.org/abs/1411.0306)
+- Musco & Musco (2017). Recursive sampling for the Nyström method. NeurIPS.
+  [arXiv:1605.07583](https://arxiv.org/abs/1605.07583)
+- Rudi, Calandriello, Carratino & Rosasco (2018). On fast leverage score
+  sampling and optimal learning. NeurIPS.
+  [arXiv:1810.13258](https://arxiv.org/abs/1810.13258)
+- Chen, Epperly, Tropp & Webber (2023). Randomly pivoted Cholesky: practical
+  approximation of a kernel matrix with few entry evaluations.
+  [arXiv:2207.06503](https://arxiv.org/abs/2207.06503)
+- Burt, Rasmussen & van der Wilk (2020). Convergence of sparse variational
+  inference in Gaussian processes regression. JMLR.
+  [arXiv:2008.00323](https://arxiv.org/abs/2008.00323)
+
 ::: kernellib.select_landmarks
 
 ## Laplace eigenfunctions (HSGP)

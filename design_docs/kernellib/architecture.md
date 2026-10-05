@@ -158,9 +158,13 @@ kernel-agnostic feature-map arithmetic.**
 | Bandwidth heuristics (median / mean / Silverman / Scott, subsampled, k-th neighbour) | **kernellib** | Ported from pysim |
 | `KRR`, `Falkon`, `EigenPro` estimators (fit / predict, landmark selection, training loops) | **kernellib** | |
 | HSIC / CKA / kernel alignment / MMD over *kernels and data*, randomized variants, permutation tests, input gradients | **kernellib** | Ported from pysim; every path ends in the matrix-level functions above |
-| Kernel PCA, kernel embeddings, graph kernels from adjacency | **kernellib** | Over `gaussx.eig`, `root_decomposition`, `LowRankUpdate` |
+| Kernel PCA, kernel embeddings, graph kernels from adjacency | **kernellib** | Over `gaussx.eig`, `root_decomposition`, `LowRankUpdate`; randomized KPCA over `gaussx.randomized_eigh` |
+| Graphs: neighbour search, `Graph` / `GridGraph`, builders and edge weights, proximity graphs, Laplacian and incidence operators, `laplacian_eigpairs`, graph spectra and graph kernels (incl. graph Matérn) | **kernellib** (`_graph/`) | Operators are `gaussx.SparseOperator` / `gaussx.KroneckerSum`; geonnax keeps graph *bases*, city2graph / libpysal / NetworkX stay docs-only data sources fed through `graph_from_edges` |
+| GMRF structure: Besag / BYM2-scaled `structure_matrix`, `graph_null_space` constraints, cotangent `mesh_graph` | **kernellib** (`_graph/_structure.py`) | The graph side only; the GMRF precisions, SPDE builders and constrained samplers are gaussx's (and pyrox-lgm's), which take the graph's operators |
+| Landmark selection (`select_landmarks`), preconditioned `KRR` | **kernellib** | Built on gaussx's randomized primitives (below) |
 | Kernel derivatives (∂k/∂x, Gram blocks of derivatives, derivative of a KRR predictor) | **kernellib** | Autodiff of `pairwise` |
 | Structured operators (`LowRankUpdate`, `Kronecker`, ...), solvers and strategies, preconditioners (`NystromPreconditioner`, `PartialCholeskyPreconditioner`), `trace_product`, `stable_squared_distances`, grids for interpolated operators, Gaussians, GP recipes, SSMs | **gaussx** | Kernel-agnostic. `stable_squared_distances` stays because gaussx's ensemble localization uses it and gaussx cannot import kernellib |
+| Randomized linear algebra: `randomized_eigh`, `rp_cholesky`, sketching operators, `hadamard_transform` | **gaussx** | Kernel-agnostic, so they are gaussx's; kernellib calls them (`hadamard_transform` moved to gaussx in K7 and is re-exported as `kernellib.hadamard_transform`) |
 | `Parameterized` kernel wrappers, priors, context scoping | **pyrox-gp** | Delegates the math to kernellib |
 | Basis functions on boxes, spheres, graphs; RFF forward helpers | **geonnax** | kernellib depends on it |
 
@@ -329,16 +333,22 @@ src/kernellib/
 ├── _einx.py               # einx wrappers (copied pattern from gaussx; D9 rule: no raw reshape/einsum)
 ├── _testing.py            # PSD checks, pointwise-vs-gram, finite-difference derivative asserts
 ├── functional/            # arrays in, arrays out — no kernel objects, no keys
-│   ├── _stationary.py     #   rbf, matern, rational_quadratic, periodic, cosine, white, constant; stable_rbf_kernel (moved)
+│   ├── _stationary.py     #   rbf, matern, rational_quadratic, periodic, cosine, white, constant
+│   ├── _mixed_precision.py #  stable_rbf_kernel (moved)
 │   ├── _nonstationary.py  #   linear, polynomial
 │   ├── _distances.py      #   lengthscale-scaled distances (ported expansion; see decisions log)
 │   ├── _compose.py        #   kernel_add, kernel_mul on matrices (kept for matrix callers)
-│   └── _statistics.py     #   center_kernel, centering_operator, hsic (biased / unbiased), cka, mmd_squared (moved from gaussx, extended)
+│   ├── _statistics.py     #   center_kernel, centering_operator, hsic (biased / unbiased), cka, mmd_squared (moved from gaussx, extended)
+│   ├── _graph.py          #   graph_heat_spectrum, graph_matern_spectrum (K4)
+│   └── _special.py        #   private special functions (log Bessel K for the RationalQuadratic density)
 ├── _kernels/
 │   ├── _base.py           # AbstractKernel, AbstractPointwiseKernel, AbstractStationaryKernel
 │   ├── _stationary.py     # RBF, Matern(nu static ∈ {0.5,1.5,2.5}), RationalQuadratic, Periodic, Cosine, White, Constant
 │   ├── _nonstationary.py  # Linear, Polynomial(degree static)
-│   └── _compose.py        # Sum, Product, Scaled, ActiveDims, Warped + operator sugar
+│   ├── _compose.py        # Sum, Product, Scaled, ActiveDims, Warped, Stretch, Shift, Periodised + operator sugar
+│   ├── _feature.py        # FeatureKernel, Modulated
+│   ├── _residual.py       # nystrom_kernel, Residual
+│   └── _derivative.py     # Derivative, DerivativeIndexed, derivative_inputs
 ├── _operators/
 │   ├── _kernel.py         # KernelOperator (moved from gaussx)
 │   ├── _implicit.py       # ImplicitKernelOperator (moved)
@@ -349,26 +359,45 @@ src/kernellib/
 │   ├── _utils.py          # vmap_over_batch_dims, _to_frozenset (copied from gaussx private helpers)
 │   └── _bridge.py         # to_operator, to_cross_operator
 ├── _spectral/
-│   ├── _density.py        # spectral densities per stationary kernel (moved from pyrox_gp._basis)
-│   ├── _base.py           # AbstractFeatureMap: fit(kernel[, X]) -> fitted map; __call__(X) -> Φ; operator(X) -> LowRankUpdate
-│   ├── _rff.py            # draw_rff_cosine_basis, evaluate_rff_cosine_paths (moved); RandomFourierFeatures, OrthogonalRandomFeatures over geonnax.randfeat
-│   ├── _fastfood.py       # FastFoodFeatures: draws B, Pi, G and the kernel-dependent S; operator(X) -> fastfood_operator
-│   ├── _nystrom.py        # NystromFeatures: landmark selection (uniform; leverage-score later), Φ = K_xz L_zz^{-T}; operator(X) -> nystrom_operator
+│   ├── _base.py           # AbstractFeatureMap: fit(kernel, X) -> fitted map; __call__(X) -> Φ; operator(X) -> LowRankUpdate
+│   ├── _rff.py            # draw_rff_cosine_basis, evaluate_rff_cosine_paths (moved from pyrox-gp)
+│   ├── _feature_maps.py   # RandomFourierFeatures, OrthogonalRandomFeatures (over geonnax.randfeat), FastFoodFeatures, NystromFeatures
+│   ├── _landmarks.py      # select_landmarks: uniform, ridge leverage, RPCholesky (gaussx.rp_cholesky), greedy (K8)
 │   └── _laplace.py        # HSGP-style Laplace-eigenfunction approximation over geonnax.basis.fourier_basis / fourier_eigenvalues
-├── _heuristics.py         # estimate_lengthscale(X, method=median|mean|silverman|scott, subsample, kth), sigma<->gamma, grids (pysim port)
+├── _heuristics.py         # estimate_lengthscale(X, method=median|mean|silverman|scott|gaussian, subsample, kth), sigma<->gamma, grids (pysim port)
 ├── _regression/
 │   ├── _base.py           # AbstractEstimator: config in the constructor, fit(X, y[, key]) -> fitted module, predict(X)
-│   ├── _krr.py            # KRR: any gaussx solver strategy, dense or implicit operator
-│   ├── _falkon.py         # falkon_preconditioner, falkon_solve, falkon_predict, FalkonPreconditioner (moved) + Falkon estimator
-│   └── _eigenpro.py       # eigenpro_preconditioner, eigenpro_step_size, eigenpro_correction (moved) + EigenPro estimator (the lax.scan loop)
+│   ├── _krr.py            # KRR: any gaussx solver strategy, dense or implicit operator; preconditioner="nystrom"|"rpcholesky" (K9); quadratic penalties (K13)
+│   ├── _penalties.py      # hsic_penalty, laplacian_penalty: the penalty operators M for fair KRR and LapRLS (K13)
+│   ├── _falkon.py         # falkon_preconditioner, falkon_solve, falkon_predict, FalkonPreconditioner, FalkonInfo (moved)
+│   ├── _eigenpro.py       # eigenpro_preconditioner, eigenpro_step_size, eigenpro_correction, EigenProPreconditioner (moved)
+│   └── _estimators.py     # Falkon and EigenPro estimators over the moved primitives (EigenPro is the lax.scan loop)
 ├── _dependence/
-│   ├── _hsic.py           # hsic / cka / kernel_alignment on kernels + data; approx= for Nyström / RFF / FastFood; hsic_input_gradient
-│   ├── _mmd.py            # mmd over one kernel + two samples; linear-time estimator
+│   ├── _hsic.py           # hsic / cka / kernel_alignment on kernels + data; approx= for Nyström / RFF / FastFood
+│   ├── _features.py       # fitting the approx= feature-map template per kernel
+│   ├── _mmd.py            # mmd_squared over one kernel + two samples; linear-time estimator
+│   ├── _distance.py       # distance covariance / correlation, energy distance (the Distance kernel under HSIC / CKA / MMD)
+│   ├── _taylor.py         # taylor_statistics, TaylorStatistics (kernel Taylor diagrams)
+│   ├── _streaming.py      # CKAAccumulator: mini-batch CKA over a dataset (K12)
 │   └── _permutation.py    # permutation_test(statistic, ...) for any of the above
+├── _graph/                # layer 1: graphs, Laplacians, eigenpairs, graph kernels, GMRF structure (K1–K6, K15)
+│   ├── _types.py          # GraphTopology, AbstractGraph, Graph (static edge list, traced weights), GridGraph (no stored edges)
+│   ├── _neighbors.py      # KNNGraph, nearest_neighbors (exact JAX; pynndescent / sklearn lazily), radius_neighbors
+│   ├── _construct.py      # graph_from_neighbors, knn_graph, radius_graph, grid_graph, graph_from_adjacency, graph_from_edges,
+│   │                      # edge_weights, mesh_graph; dense adjacency_matrix
+│   ├── _weights.py        # edge weightings: heat, local (self-tuning) heat, connectivity, cosine, any kernel
+│   ├── _proximity.py      # delaunay_graph, gabriel_graph, relative_neighborhood_graph (scipy.spatial.Delaunay, lazily) (K15)
+│   ├── _laplacian.py      # dense graph_laplacian (the sparse Laplacian is a method on the graph types)
+│   ├── _eigpairs.py       # laplacian_eigpairs (Kronecker / dense / lanczos / arpack), n_components_graph (K3)
+│   ├── _kernels.py        # diffusion, regularized Laplacian, random walk, cosine, commute time, graph Matérn (K4)
+│   └── _structure.py      # structure_matrix (Besag / BYM2-scaled), graph_null_space (K6)
 ├── _decomposition/
-│   ├── _kpca.py           # kernel PCA / kernel embeddings via gaussx.eig on centered operators
-│   └── _graph.py          # graph kernels from adjacency: diffusion, regularized Laplacian, random-walk, cosine (old kernellib.decomposition.graph, JAX)
-└── _derivatives.py        # kernel_jacobian, derivative Gram blocks, predictor_gradient for KRR
+│   ├── _kpca.py           # KernelPCA: dense eigh, eigen_solver="randomized" (gaussx.randomized_eigh, K10), approx= feature maps;
+│   │                      # supervised / fair target_weight, pre-images (K14)
+│   ├── _eigenmaps.py      # LaplacianEigenmaps, SchrodingerEigenmaps, the potentials, combine_potentials, spatial_spectral_graph (K5)
+│   ├── _projections.py    # LocalityPreservingProjections, SchrodingerEigenmapProjections (K5)
+│   └── _kernel_projections.py  # KernelLocalityPreservingProjections, KernelSchrodingerProjections (K5)
+└── sklearn/               # opt-in scikit-learn adapters (extra kernellib[sklearn]); never imported by the core
 ```
 
 `functional/` is the array-level namespace: pure kernel functions and the
@@ -376,10 +405,12 @@ matrix-level statistics that used to be `gaussx.hsic` and friends. The same
 names at the top level (`kernellib.hsic`) are the kernel-and-data versions.
 
 Manifold learning from the old `decomposition/` (Laplacian eigenmaps,
-Schrödinger eigenmaps, LPP, neighbour graphs) is **not** in the first
-milestone. Adjacency construction is a nearest-neighbours problem, not a
-kernel one; it can come back later on top of `graph_laplacian_eigpairs`
-from geonnax if there is demand.
+Schrödinger eigenmaps, LPP, neighbour graphs) came back into scope on
+2026-09-26 (see the decisions log), and the graph code then moved out of
+`_decomposition/` into its own layer-1 package `_graph/`: kernel-weighted
+edges use `_kernels/` (layer 0), and the decompositions (layer 2) use the
+graphs. The layout and phases (K1–K15) are in the
+[kernellib roadmap](../../docs/roadmap/roadmap-kernellib.md), §3.
 
 Dependencies:
 
@@ -868,7 +899,7 @@ equals the dense value.
 | 6 | float64 assumptions in stable Gram paths | Same as gaussx: accumulate in float64 when x64 is enabled, otherwise degrade gracefully; test both |
 | 7 | `to_operator(implicit=...)` default | Explicit `False`. No size heuristic; the caller knows their `N` |
 | 8 | pyrox-gp `frozen()` inside NumPyro tracing | Params are resolved through the existing per-call context, so a `frozen()` call inside `_kernel_context` sees one draw. Needs a regression test in pyrox-gp under `handlers.trace` and `handlers.seed` |
-| 9 | Manifold learning (eigenmaps, LPP, Schrödinger) from old kernellib | Deferred; not in scope for 0.1–0.3 |
+| 9 | Manifold learning (eigenmaps, LPP, Schrödinger) from old kernellib | **Resolved 2026-09-26**: brought into scope (decisions log), shipped in #43 and extended by the roadmap's K1–K5 with the `_graph/` package |
 | 10 | gaussx 0.2.0 removes public symbols with no shims | Accepted: no external users, pyrox-gp does not use them, and a shim would need the forbidden gaussx → kernellib import. The CHANGELOG maps every symbol to its new name |
 | 11 | FastFood scaling `S` for non-RBF kernels | RBF: `s_i ~ χ(d)` scaled by `‖G‖_F⁻¹`. Other stationary kernels: draw `s_i` from the kernel's radial spectral distribution via `sample_frequencies` norms. Documented per kernel; tested by RFF-vs-FastFood Gram agreement |
 | 12 | Should `stable_squared_distances` follow the kernels? | No (option 1): it is a distance primitive with a non-kernel consumer inside gaussx; a private copy or moving localization were both worse |
@@ -917,3 +948,4 @@ equals the dense value.
 | 2026-09-26 | `_derivatives.py` is dropped. Kernel derivatives, derivative Gram blocks, predictor gradients and HSIC input gradients are one-line compositions of `jax.grad` / `jacfwd` / `vmap` with `pairwise`, `predict` and `hsic`; a tutorial notebook documents them instead of a module wrapping them |
 | 2026-09-29 | Narrows the entry above. Derivative *helpers* stay a tutorial, but derivative *kernels* are objects, because a GP with gradient observations needs the joint covariance as a kernel that composes with `Sum`, `to_operator` and the solvers, which a recipe cannot provide (#58, prompted by mlkernels' `k.diff`). `Derivative(k, dx, dy)` is ∂ₓᵢ∂ₓ'ⱼk for fixed dimensions; `DerivativeIndexed(k)` takes rows `[x, i]` (`i = -1` value, `i = d` partial) and keeps the `(N1, N2)` Gram contract, so any mix of value and partial observations is one Gram; `derivative_inputs` builds the rows. Both are autodiff of `pairwise` and reject kernels whose GP is not mean-square differentiable (`Matern(nu=0.5)`, `White`) |
 | 2026-09-29 | pysim is retired and kernellib is its successor (supersedes "pysim itself is not changed"). Its remaining kernel-side content moves here: the `Distance` kernel with distance covariance / correlation and energy distance as HSIC / CKA / MMD under it, `taylor_statistics` for kernel Taylor diagrams, the RV coefficient documented as linear CKA, and its derivations as a notebook. Information-theory estimators stay out of scope |
+| 2026-10-05 | The graph, GMRF-structure, randomized-kernel and dependence-penalty work (phases K1–K15) is planned and recorded in the [kernellib roadmap](../../docs/roadmap/roadmap-kernellib.md), which is the reference for those decisions; this document's package layout and ownership map were refreshed to match it (K11). Graph code lives in its own layer-1 package `_graph/`; randomized primitives (`randomized_eigh`, `rp_cholesky`, sketching, `hadamard_transform`) are gaussx's |

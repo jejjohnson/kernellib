@@ -48,15 +48,87 @@ def _per_column(fn, y: Array, out_axes: Any = 1) -> Any:
 class Falkon(AbstractEstimator):
     r"""Nyström kernel ridge regression solved by Falkon (Rudi et al., 2017).
 
-    Picks ``n_inducing`` centres $Z$ uniformly from the training inputs and
-    solves $(K_{nm}^\top K_{nm} + \lambda n K_{mm})\alpha = K_{nm}^\top y$ by
-    preconditioned conjugate gradients (`falkon_preconditioner`,
-    `falkon_solve`). With ``implicit=True`` the ``N x M`` cross kernel is
-    streamed in ``batch_size`` rows and never stored: ``O(NM)`` time per
-    iteration, ``O(M^2)`` memory. With every point as a centre it is `KRR`
-    with the same ``regularization``.
+    **Problem.** KRR restricted to functions $f = \sum_{j=1}^m \alpha_j
+    k(\cdot, z_j)$ on ``M`` centres $Z \subset X$ minimises
+    $\frac1n\|y - K_{nm}\alpha\|^2 + \lambda\,\alpha^\top K_{mm}\alpha$,
+    whose normal equations are
 
-    Attributes:
+    $$
+    H\alpha = K_{nm}^\top y, \qquad H = K_{nm}^\top K_{nm} + \lambda n K_{mm},
+    $$
+
+    with the same $\lambda n$ ridge convention as `KRR`. Forming $H$ costs
+    $O(NM^2)$ and squares the conditioning of $K_{nm}$, so Falkon never forms
+    it.
+
+    **Preconditioner.** With centres sampled uniformly,
+    $K_{nm}^\top K_{nm} \approx \frac nm K_{mm}^2$, so $H \approx \frac nm
+    K_{mm}^2 + \lambda n K_{mm}$, which factors through two ``M x M``
+    upper Choleskys (`falkon_preconditioner`):
+
+    $$
+    T = \operatorname{chol}(K_{mm} + \epsilon I), \qquad
+    A = \operatorname{chol}\big(\tfrac1m T T^\top + \lambda I\big), \qquad
+    P = T^{-1} A^{-1},
+    $$
+
+    with $T^\top T = K_{mm} + \epsilon I$ and $PP^\top = n\,(\frac nm K_{mm}^2
+    + \lambda n K_{mm})^{-1}$. CG runs on $\beta = P^{-1}\alpha$ against
+    $P^\top H P\,\beta = P^\top K_{nm}^\top y$, where $K_{mm}$ cancels:
+
+    $$
+    P^\top H P = A^{-\top}\big[T^{-\top} K_{nm}^\top K_{nm} T^{-1}
+    + \lambda n I\big] A^{-1},
+    $$
+
+    and its condition number is $O(1)$ once $M \gtrsim
+    d_{\mathrm{eff}}(\lambda)$, so a few tens of iterations suffice
+    (`falkon_solve`).
+
+    ```text
+    Z  = X[select_landmarks(kernel, X, M, method=centers)]   # or X if M >= N
+    T  = chol_upper(K(Z, Z) + eps I)
+    A  = chol_upper(T T^T / M + lambda I)
+    b  = A^-T T^-T K_nm^T y
+    beta = CG(v -> A^-T [T^-T K_nm^T K_nm T^-1 (A^-1 v) + lambda n A^-1 v], b,
+              max_iter, tol)            # K_nm streamed, never stored
+    alpha = T^-1 A^-1 beta
+    predict(x) = K(x, Z) alpha
+    ```
+
+    **Cost.** $O(M^3)$ once for the two Choleskys, then per CG step one
+    matvec each with $K_{nm}$ and $K_{nm}^\top$ ($O(NM)$ kernel evaluations)
+    and four triangular solves ($O(M^2)$): $O(NMt + M^3)$ time for $t$
+    iterations, $O(M^2)$ memory with ``implicit=True`` (the ``N x M`` cross
+    kernel is streamed in ``batch_size`` rows), $O(NM)$ without. With every
+    point as a centre it is `KRR` with the same ``regularization``.
+
+    **Numerics.**
+
+    - $K_{mm}$ gets a diagonal jitter $\epsilon$, by default
+      ``M * eps * max(diag(K_mm))`` floored at the dtype's smallest normal
+      number (``jitter`` overrides it), so a numerically singular $K_{mm}$
+      (duplicated centres, long lengthscales) still factors.
+    - Everything runs in the promoted dtype of the kernel matrix and
+      ``regularization``, at least float32. CG stops when every component
+      of the preconditioned residual is below ``tol * (max|b| + |b_i|)``;
+      ``max_iter`` is a budget, not a failure: the iterate at the budget
+      is returned without raising, and ``n_iter`` / ``converged`` report
+      what happened. In float32 the default ``tol=1e-6`` is near machine
+      precision, so ``converged`` is often ``False`` with an accurate fit.
+    - $\lambda$ is not validated, so it must be positive. As
+      $\lambda \to 0$, $\frac1m TT^\top + \lambda I$ is dominated by the
+      jitter, $P$ stops approximating $H^{-1}$, and CG at a fixed budget
+      degrades quietly: no error, just a worse fit. The threshold is
+      relative to the dtype's precision, so float32 breaks down at a much
+      larger $\lambda$ than float64. Use float64 for small $\lambda$, and
+      check ``converged`` and a validation loss.
+    - The $\frac nm K_{mm}^2$ approximation assumes uniformly sampled
+      centres. Other ``centers`` methods give better centres, but the
+      preconditioner is not reweighted for them, so CG may need a few more
+      iterations.
+
+        Attributes:
         kernel: The kernel.
         n_inducing: Number of centres ``M`` (capped at ``N``).
         regularization: Ridge $\lambda > 0$, scaled by ``n`` as in `KRR`.
@@ -90,6 +162,13 @@ class Falkon(AbstractEstimator):
         (30, 1)
         >>> bool(model.loss(X, y) < 1e-4)
         True
+
+    References:
+        - Rudi, Carratino & Rosasco (2017). FALKON: An optimal large scale
+          kernel method. NeurIPS. [arXiv:1705.10958](https://arxiv.org/abs/1705.10958)
+        - Meanti, Carratino, Rosasco & Rudi (2020). Kernel methods through
+          the roof: handling billions of points efficiently. NeurIPS.
+          [arXiv:2006.10350](https://arxiv.org/abs/2006.10350)
     """
 
     kernel: AbstractKernel
@@ -177,27 +256,101 @@ class Falkon(AbstractEstimator):
 class EigenPro(AbstractEstimator):
     r"""Kernel regression by EigenPro-preconditioned SGD (Ma & Belkin, 2017).
 
-    Fits the interpolating solution of $K\alpha = y$ (no ridge; early
-    stopping by ``epochs`` is the regulariser) by mini-batch SGD on
-    $\frac{1}{2n}\|K\alpha - y\|^2$ in function space. Plain kernel SGD is
-    throttled by the top eigenvalues of the kernel operator; EigenPro damps
-    the top ``n_components`` eigendirections, estimated on a subsample
-    (`eigenpro_preconditioner`), so the step size (`eigenpro_step_size`) is
-    set by the residual spectrum and is typically orders of magnitude
-    larger. Each step costs ``O(B N)`` kernel evaluations; nothing ``N x N``
-    is formed.
+    **Problem.** Fits the interpolating solution of $K\alpha = y$ (no ridge;
+    early stopping by ``epochs`` is the regulariser) by mini-batch SGD on
+    $\frac{1}{2n}\|K\alpha - y\|^2$ in function space, $f = \sum_i \alpha_i
+    k(\cdot, x_i)$. Plain kernel SGD converges at a rate set by
+    $\lambda_1 / \lambda_{\min}$ of the kernel's integral operator, and its
+    largest stable step is about $2/\lambda_1$, which is tiny because kernel
+    spectra decay fast. EigenPro flattens the top of the spectrum so the
+    step is set by $\lambda_{q+1}$ instead.
 
-    Per mini-batch $B$ with residuals $g = K_{BX}\alpha - y_B$:
+    **Preconditioner.** On an ``m``-point subsample $S$ (chosen by
+    ``subsample``), $K_{SS}/m = V \Lambda V^\top$ estimates the operator's
+    eigenpairs $\lambda_1 \ge \lambda_2 \ge \dots$, with RKHS-normalised
+    Nyström eigenfunctions $e_i(x) = k(x, S) V_{:,i} / \sqrt{m\lambda_i}$.
+    With $q$ = ``n_components`` and $a$ = ``decay``,
+
+    $$
+    P = I - \sum_{i \le q}\Big(1 - \big(\tfrac{\lambda_{q+1}}{\lambda_i}
+    \big)^{a}\Big)\, e_i \otimes e_i ,
+    $$
+
+    which maps $\lambda_i \mapsto \lambda_i^{1-a}\lambda_{q+1}^{a}$ for
+    $i \le q$ and leaves the rest alone; $a = 1$ is Ma & Belkin's
+    $P = I - \sum_{i\le q}(1 - \lambda_{q+1}/\lambda_i)\, e_i \otimes e_i$,
+    which flattens the top $q$ eigenvalues to $\lambda_{q+1}$. The default
+    $a = 0.95$ stops slightly short of that, so the preconditioned
+    spectrum keeps its order. The stored weights are
+    $D_i = (1 - (\lambda_{q+1}/\lambda_i)^a)/\lambda_i$
+    (`eigenpro_preconditioner`).
+
+    **Step size.** With $\lambda_P = \lambda_1 (\lambda_{q+1}/\lambda_1)^a$
+    the top preconditioned eigenvalue and $\beta = \max_i k_P(x_i, x_i)$ the
+    largest preconditioned kernel diagonal over the training points,
+    `eigenpro_step_size` takes Ma & Belkin's
+
+    $$
+    \eta = \begin{cases} b/\beta, & b < \beta/\lambda_P,\\[2pt]
+    2b / (\beta + (b-1)\lambda_P), & \text{otherwise,} \end{cases}
+    $$
+
+    so for large batches $\eta \to 2/\lambda_P \approx 2/\lambda_{q+1}$,
+    against $2/\lambda_1$ for plain SGD: a speed-up of about
+    $\lambda_1/\lambda_{q+1}$. In terms of the eigenvalues
+    $\sigma_i = m\lambda_i$ of the unnormalised $K_{SS}$ this is
+    $\eta \approx 2m/\sigma_{q+1}$.
+
+    **Update.** Per mini-batch $B$ with residuals $g = K_{BX}\alpha - y_B$:
 
     $$
     \alpha_B \leftarrow \alpha_B - \tfrac{\eta}{b}\, g, \qquad
     \alpha_S \leftarrow \alpha_S + \tfrac{\eta}{b\,m}\, V D V^\top K_{SB}\, g,
     $$
 
-    with $S$ the ``m``-point subsample and $V$, $D$ the preconditioner's
-    eigenvectors and weights (`eigenpro_correction`).
+    the second term being the preconditioner's correction on the subsample
+    (`eigenpro_correction`).
 
-    Attributes:
+    ```text
+    S = select_landmarks(kernel, X, m, method=subsample)
+    lam, V = eigh(K(S, S) / m)                 # descending
+    D = (1 - (lam[q] / lam[:q])**a) / lam[:q]; V = V[:, :q]
+    beta = max_i [k(x_i, x_i) - sum_j D_j (K(x_i, S) V_j)^2 / m]
+    eta = step_size(beta, lam_P, b)
+    alpha = 0
+    for epoch in range(epochs):
+        for B in batches(permutation(N), b):   # N // b batches
+            g = K(X_B, X) alpha - y_B
+            alpha[B] -= eta / b * g
+            alpha[S] += eta / (b m) * V D V^T K(S, X_B) g
+    predict(x) = K(x, X) alpha
+    ```
+
+    **Cost.** Setup: $O(m^2)$ kernel evaluations and an $O(m^3)$ dense
+    ``eigh``, plus $O(Nm)$ kernel evaluations for $\beta$ (streamed in
+    row chunks). Each step: $O(bN)$ kernel evaluations for $K_{BX}\alpha$
+    and $O(bm + mq)$ for the correction, so $O(N^2)$ kernel evaluations
+    per epoch. Memory: $O(bN + m^2)$; nothing ``N x N`` is formed.
+
+    **Numerics.**
+
+    - The eigenvalues are floored at the dtype's ``eps`` and the ratio
+      $\lambda_{q+1}/\lambda_i$ is clipped to 1, so a numerically singular
+      $K_{SS}$ does not produce negative or infinite weights; $\beta$ is
+      floored at ``eps`` too.
+    - $\eta \propto 1/\lambda_{q+1}$: taking ``n_components`` so large
+      that $\lambda_{q+1}$ reaches the noise floor of the ``eigh``
+      (relative ``eps`` of the dtype, about $10^{-7}$ in float32) gives an
+      unreliable, very large step and SGD can diverge. A subsample that is
+      too small misestimates the spectrum in the same way: keep
+      ``n_components`` well below ``subsample_size``.
+    - There is no ridge: with noisy targets, more epochs fit the noise.
+      Treat ``epochs`` as the regularisation parameter.
+    - Each epoch uses ``N // b`` full batches of a fresh permutation, so
+      up to ``b - 1`` points (different ones each epoch) are skipped per
+      epoch.
+
+        Attributes:
         kernel: The kernel.
         epochs: Passes over the data.
         batch_size: Mini-batch size ``b`` (capped at ``N``).
@@ -228,6 +381,14 @@ class EigenPro(AbstractEstimator):
         >>> model = model.fit(X, y, key=jax.random.key(1))
         >>> bool(model.loss(X, y) < 1e-3)
         True
+
+    References:
+        - Ma & Belkin (2017). Diving into the shallows: a computational
+          perspective on large-scale shallow learning. NeurIPS.
+          [arXiv:1703.10622](https://arxiv.org/abs/1703.10622)
+        - Ma & Belkin (2019). Kernel machines that adapt to GPUs for
+          effective large batch training (EigenPro 2.0). SysML.
+          [arXiv:1806.06144](https://arxiv.org/abs/1806.06144)
     """
 
     kernel: AbstractKernel

@@ -2,7 +2,8 @@
 
 kernellib sits below the probabilistic-modelling layer (pyrox-gp) and must be
 usable without it. Importing the package in a fresh interpreter must not pull
-in NumPyro or scikit-learn; the modelling and legacy dependencies stay out.
+in NumPyro or scikit-learn; the modelling and legacy dependencies stay out, and
+so do the docs-only training tools (pipekit, pipekit-train, optax).
 """
 
 from __future__ import annotations
@@ -13,7 +14,17 @@ import sys
 import pytest
 
 
-FORBIDDEN_ON_IMPORT = ("numpyro", "sklearn", "pynndescent", "numba")
+# pipekit / pipekit-train and optax are docs-group dependencies for the
+# notebooks' training loops (roadmap decision 7); the library never imports them.
+FORBIDDEN_ON_IMPORT = (
+    "numpyro",
+    "sklearn",
+    "pynndescent",
+    "numba",
+    "pipekit",
+    "pipekit_train",
+    "optax",
+)
 
 
 @pytest.mark.slow
