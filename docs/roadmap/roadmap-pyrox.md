@@ -574,6 +574,14 @@ phi_prior = lgm.PCBYM2Phi(
 The same weights give the marginal likelihood,
 $\tilde\pi(y) \approx \sum_k\tilde\pi(y\mid\theta_k)\,\pi(\theta_k)\,\Delta_k$.
 
+:::{note} As built (pyrox-lgm 0.1, pyrox#266)
+The code below is the shipped API, which differs from the plan in a few places:
+
+- `likelihood` takes pyrox-lgm's own observation models (`lgm.Gaussian`, `Poisson`, `Bernoulli`, `Binomial`, `NegativeBinomial`), not a bare `gx.AbstractLikelihood`. They own the likelihood's hyperparameters and priors, so those can join θ.
+- The marginal likelihood is the Gaussian approximation over θ, corrected by the design's ratio to that Gaussian. The plain weighted sum above was 0.15 off on the RW2 test; the corrected value is within 0.02 of brute force.
+- The inner fits are a loop over design points through module-level compiled functions, not a `vmap`. A point that needs a larger Newton budget is retried and reweighted on its own.
+:::
+
 ```python
 class FixedEffects(eqx.Module):
     names: tuple[str, ...] = eqx.field(static=True)
@@ -583,7 +591,7 @@ class FixedEffects(eqx.Module):
 class LGM(eqx.Module):
     components: tuple[AbstractComponent, ...]
     fixed: FixedEffects | None
-    likelihood: gx.AbstractLikelihood  # its hyperparameters join θ
+    likelihood: AbstractObservation  # lgm.Gaussian(), lgm.Poisson(), …; its θ joins
 
     def latent_prior(
         self, theta
@@ -592,18 +600,21 @@ class LGM(eqx.Module):
         self, data
     ) -> gx.SparseOperator: ...  # [A_1 | … | A_k | X], fixed-effect columns last
     def log_posterior_theta(
-        self, theta, data
-    ) -> Array: ...  # gx.laplace_mode(...).log_marginal + Σ log π(θ)
+        self, u, data, *, projector=None, max_newton=50
+    ) -> Array: ...  # gx.laplace_mode(...).log_marginal + log π(u), u unconstrained
 
 
 def inla(
     model: LGM,
     data: Mapping[str, Array],
     *,
-    strategy: Literal["vb", "gaussian"] = "vb",
+    strategy: Literal["vb", "gaussian", "sla"] = "vb",  # "sla" added in P9
     integration: Literal["auto", "eb", "grid", "ccd"] = "auto",
-    key: PRNGKeyArray,
+    key: PRNGKeyArray | None = None,  # reserved: the design is deterministic
     max_newton: int = 50,
+    theta_init: Array | None = None,
+    max_theta_iter: int = 200,
+    theta_tol: float = 1e-5,
     verbose: bool = False,
 ) -> INLAResult: ...
 ```
@@ -619,8 +630,10 @@ The pipeline:
    selected-inverse logdet VJP.
 3. **Design.** Call `gx.theta_design` with `"auto"`: `"eb"` if the user
    asks, `"grid"` for `m ≤ 2`, `"ccd"` otherwise.
-4. **Inner fits.** `vmap` `laplace_mode` over the design points: same
-   pattern, same symbolic factorisation, batched values.
+4. **Inner fits.** Run `laplace_mode` at each design point: same
+   pattern, same symbolic factorisation, new values. As built, this is a
+   loop through module-level compiled functions, so a repeat fit reuses
+   every compilation (the POD toy runs in 1.4 s warm).
 5. **Per-θ marginals.** For each θ-point, the Gaussian marginals of `x`
    are the mode and the Takahashi variances. Apply
    `gx.vb_mean_correction` when `strategy="vb"`, which is R-INLA's
@@ -633,14 +646,23 @@ The pipeline:
 `INLAResult` provides:
 
 - `.fixed`, `.random[name]`, `.hyperpar`: arrays of summary statistics;
+- `.linear_predictor`, `.predictor_means`, `.predictor_variances`: the
+  linear predictor's marginals (added in P9);
+- `.latent_skewness`: zero, except under `strategy="sla"` (added in P9);
+- `.diagnostics()`: DIC, WAIC, CPO and PIT (added in P9);
 - `.log_marginal_likelihood`;
 - `.sample_latent(key, n)`: mixture sampling via each θ-point's factor;
 - `.predict(new_data)`;
 - `.to_xarray()` behind the `xarray` extra (#155 open question 3).
 
 **Failure handling.** θ-points whose inner Newton did not converge are
-re-run with more iterations and then dropped with a warning. The result
-records how many were dropped.
+re-run with four times the iterations, then dropped with a warning. The
+result records how many were dropped. As built, the θ-mode search is
+stricter:
+
+- it rejects an unconverged inner fit at any iterate;
+- if the mode's own fit fails, the whole fit re-runs at the larger budget, and then raises;
+- missing `theta_tol` within `max_theta_iter` also raises.
 
 **Example.**
 
@@ -649,10 +671,10 @@ records how many were dropped.
 model = lgm.LGM(
     components=(lgm.BYM2(counties, name="region"),),
     fixed=lgm.FixedEffects(("intercept", "pct_agri")),
-    likelihood=gx.PoissonLikelihood(),
+    likelihood=lgm.Poisson(),
 )
 data = {"y": cases, "offset": jnp.log(expected), "region": region_idx, "pct_agri": agri}
-res = lgm.inla(model, data, key=key)
+res = lgm.inla(model, data)
 res.fixed["pct_agri"]  # posterior mean, sd, quantiles of the covariate effect
 res.hyperpar["region.phi"]  # how much of the variation is spatially structured
 
@@ -664,40 +686,92 @@ sst_model = lgm.LGM(
         ),
     ),
     fixed=lgm.FixedEffects(("intercept",)),
-    likelihood=gx.GaussianLikelihood(),
+    likelihood=lgm.Gaussian(),
 )
 ```
 
 ### 3.5 P9: ergonomics and extensions
 
-**The maths.** **CPO** uses the harmonic identity
+:::{note} As built (pyrox-lgm, pyrox#267, #269, #270)
+Shipped as planned, with three changes, all described below:
+
+- CPO and PIT use a Gaussian cavity rather than the raw harmonic identity.
+- `strategy="sla"` produces skew-normal marginals.
+- `FixedEffects` covariates can be JAX values, which the hybrid needs.
+:::
+
+**The maths.** **CPO** is leave-one-out without refitting:
 
 $$
-\mathrm{CPO}_i = \pi(y_i\mid y_{-i}) = \Big(\int\frac{\pi(\eta_i\mid y)}{\pi(y_i\mid\eta_i)}\,d\eta_i\Big)^{-1},
+\mathrm{CPO}_i = \pi(y_i\mid y_{-i}) = \Big(\int\frac{\pi(\eta_i\mid y)}{\pi(y_i\mid\eta_i)}\,d\eta_i\Big)^{-1}.
 $$
 
-a 1-D integral against the Gaussian marginal of $\eta_i$, whose variance
-comes from Takahashi. That is leave-one-out without refitting.
+As built, dividing a Gaussian marginal by $\pi(y_i\mid\eta_i)$ itself
+diverges for most likelihoods: $1/\pi$ grows like $e^{e^\eta}$ for a
+Poisson. So the site is removed at the order of the Laplace approximation,
+as R-INLA does, using a Gaussian cavity. With $g_i$ and $W_i$ the gradient
+and negative Hessian of $\log\pi(y_i\mid\eta)$ at the mean $m_i$, and
+$v_i$ the variance of $\eta_i$ from Takahashi:
 
-**PIT** is $P(Y_i\le y_i\mid y_{-i})$, from the same integral.
+$$
+\pi(\eta_i\mid y_{-i}) \approx \mathcal N\big(m_i - g_i c_i,\ c_i\big),
+\qquad c_i = \frac{v_i}{1 - W_i v_i}.
+$$
+
+CPO is the predictive density of $y_i$ under that cavity, integrated on
+the marginal's own Gauss–Hermite nodes. It is exact for a Gaussian
+likelihood at fixed θ.
+
+**PIT** is $P(Y_i\le y_i\mid y_{-i})$ under the same cavity. Both mix over
+the design with leave-one-out weights $\propto w_k/\mathrm{CPO}_{ik}$.
 
 **WAIC** needs the posterior mean and variance of
-$\log\pi(y_i\mid\eta_i)$ under the same marginals.
+$\log\pi(y_i\mid\eta_i)$ under the predictor marginals; **DIC** needs the
+mean deviance and the deviance at the posterior mean.
+
+**Simplified Laplace.** The Laplace marginal
+$\pi(x_i) \propto \pi(x,y)/\pi_G(x_{-i}\mid x_i)$ is taken at the Gaussian
+conditional mean and expanded to third order in the standardised $z$ (Rue,
+Martino & Chopin, 2009, §3.2.3):
+
+$$
+-\tfrac12 z^2 + \gamma_1 z + \tfrac16\gamma_3 z^3,\qquad
+\gamma_1 = \tfrac12\sum_j d_j\,(s_j^2 b_{ij} - b_{ij}^3),\qquad
+\gamma_3 = \sum_j d_j\, b_{ij}^3.
+$$
+
+Here $d_j$ is the third derivative of $\log\pi(y_j\mid\eta_j)$ at the mode,
+$b_{ij} = \operatorname{cov}(x_i,\eta_j)/\sigma_i$ and $s_j^2 = \operatorname{var}(\eta_j)$.
+The mean shifts by $\sigma_i(\gamma_1 + \gamma_3/2)$, and the skewness is
+$\gamma_3$. Each marginal becomes the skew-normal with those moments.
 
 - **`f(...)` sugar.**
-  `f("region", model="bym2", graph=W, hyper={...})` constructs the
-  component and binds it to a data column. It is sugar over the
-  constructors, not a string-formula parser.
-- **Diagnostics.** DIC and WAIC come from the per-θ Gaussians. CPO and
-  PIT come from the predictor marginals via Takahashi, as R-INLA computes
-  them, with no refits.
-- **Simplified Laplace.** A skewness correction from the third derivative
-  of `log p(y|η)`, per site, as an optional `strategy="sla"`. Full Laplace
-  is only a slow validation reference, in tests.
-- **MCMC-INLA hybrid.** A notebook: NUTS over non-LGM parameters, with
-  `numpyro.factor(model.log_posterior_theta(...))` as the potential. This
-  is possible only because that function has exact gradients (Gómez-Rubio
-  & Rue, 2018).
+  `f(column, model, *, n=None, graph=None, hyper=None, **kwargs)` builds a
+  component named after the data column it indexes:
+  - `"iid"`, `"rw1"`, `"rw2"`, `"ar1"` (sized by `n`);
+  - `"besag"`, `"bym2"`, `"car"`, `"leroux"` (on `graph`);
+  - `"spde"` and `"generic"`.
+
+  `hyper` keys map onto the constructors' prior arguments. It is sugar over
+  the constructors, not a string-formula parser.
+- **Diagnostics.** `lgm.diagnostics(result)` or `result.diagnostics()`
+  returns `Diagnostics(cpo, pit, log_score, waic, p_waic, dic, p_d)`, with
+  no refits. Observation models gain `site_log_prob` / `site_cdf`, with
+  closed-form CDFs for the count likelihoods. A custom observation model
+  needs `site_distribution` only for the diagnostics.
+- **Simplified Laplace.** `inla(..., strategy="sla")`:
+  - costs one sparse solve per observation, for `cov(x, η) = Σ Aᵀ`;
+  - produces skew-normal mixture summaries and `INLAResult.latent_skewness`;
+  - leaves a Gaussian likelihood unchanged.
+
+  Full Laplace is only a slow validation reference, in tests.
+- **MCMC-INLA hybrid.** The notebook `lgm_mcmc_inla.ipynb` runs NUTS over
+  a non-LGM parameter and θ, with
+  `numpyro.factor(model.log_posterior_theta(u, data_at(phi)))` as the
+  potential (Gómez-Rubio & Rue, 2018). This needs that function's exact
+  gradients, and covariates that may depend on the sampled parameter. It
+  agrees with INLA run on a grid of that parameter and averaged by
+  marginal likelihood.
 
 ---
 
@@ -759,5 +833,5 @@ P1–P5's tests are listed with each section above. P6–P9:
 | P6 | Scaffold `packages/pyrox-lgm` (pyproject, `__init__`, API test, import guard, docs stub) | Workspace `uv sync`; the import guard (no pyrox-gp import) |
 | P7 | Components, NumPyro face, PC priors | Each PC prior's calibration statement holds (`P(σ > U) = α` by quadrature); `PCBYM2Phi`'s SLQ spectrum agrees with dense at `n = 500`; `.sample()` under `handlers.seed` / `trace` has the right sites; NUTS on a 12 × 12 grid BYM2 Poisson has no divergences (integration) |
 | P8 | `LGM`, `inla()`, `INLAResult` | Golden R-INLA fixtures (generated offline, as in gaussx.md §6): RW2 Gaussian on a sine (exact), AR(1), Scotland BYM2 Poisson, SPDE Poisson on a small mesh, Bernoulli POD toy (rw2 + fixed effects). Latent means within 1e-3 relative; hyperparameter posterior medians within 5 %; log marginal likelihood within 0.1. Benchmark: POD toy under 5 s on CPU (#155's target) |
-| P9 | Sugar, diagnostics, SLA, hybrid notebook | CPO equals brute-force leave-one-out on a tiny problem; SLA moves marginal skewness towards the full-Laplace reference |
+| P9 | Sugar, diagnostics, SLA, hybrid notebook | CPO equals brute-force leave-one-out on a tiny problem; SLA moves marginal skewness towards the full-Laplace reference. **Done:** CPO / PIT equal the exact leave-one-out at fixed θ (Gaussian) and match Poisson refits within 0.3 %; SLA means within 0.03 sd and skewness within 0.05 of full Laplace (pyrox#267, #269, #270) |
 | P10 | pyrox-gp doc retarget, `boundaries.md`, pyrox#50 | Docs build |
