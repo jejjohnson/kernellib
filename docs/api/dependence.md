@@ -74,6 +74,15 @@ similarity = acc.result()
 
 `CKAAccumulator` is a pytree, so it also works as a ``jax.lax.scan`` carry.
 
+The [Comparing representations with CKA](../../representation-similarity/)
+notebook compares the layers of neural networks with linear, RBF and
+debiased CKA, and uses `CKAAccumulator` on a large evaluation set.
+
+Dependence measures also work as penalties: the
+[Dependence penalties](../../dependence-penalties/) notebook fits fair
+kernel ridge regression with `hsic_penalty`, trains a network with a `cka`
+penalty, and covers LapRLS and supervised / fair kernel PCA.
+
 ## Distance-based statistics
 
 For a walk-through from correlation to these measures, see the
