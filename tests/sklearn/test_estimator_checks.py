@@ -9,6 +9,7 @@ from kernellib.sklearn import (
     EigenProRegressor,
     FalkonRegressor,
     FastFoodFeatures,
+    KernelLocalityPreservingProjections,
     KernelPCA,
     KernelRidge,
     LaplaceEigenfunctionFeatures,
@@ -17,6 +18,7 @@ from kernellib.sklearn import (
     NystromFeatures,
     OrthogonalRandomFeatures,
     RandomFourierFeatures,
+    SchrodingerEigenmapProjections,
     SchrodingerEigenmaps,
 )
 
@@ -52,6 +54,8 @@ DECOMPOSITION = [
     LocalityPreservingProjections(n_components=2, n_neighbors=5),
     LaplacianEigenmaps(n_components=2, n_neighbors=5),
     SchrodingerEigenmaps(n_components=2, n_neighbors=5, alpha=5.0),
+    SchrodingerEigenmapProjections(n_components=2, n_neighbors=5, alpha=5.0),
+    KernelLocalityPreservingProjections(n_components=2, n_neighbors=5),
 ]
 
 

@@ -1,4 +1,5 @@
-"""scikit-learn adapters for kernel PCA, LPP and the graph eigenmaps."""
+"""scikit-learn adapters for kernel PCA, LPP / SEP, kernel LPP and the graph
+eigenmaps."""
 
 from __future__ import annotations
 
@@ -20,9 +21,11 @@ from kernellib.sklearn._base import _default_kernel, _KernelParamsMixin, _key
 
 
 __all__ = [
+    "KernelLocalityPreservingProjections",
     "KernelPCA",
     "LaplacianEigenmaps",
     "LocalityPreservingProjections",
+    "SchrodingerEigenmapProjections",
     "SchrodingerEigenmaps",
 ]
 
@@ -159,6 +162,174 @@ class LocalityPreservingProjections(
             random_state=self.random_state,
         ).fit(jnp.asarray(X))
         self.projection_ = np.asarray(self.model_.projection)
+        self._n_features_out = n_components
+        return self
+
+    def transform(self, X: Any) -> np.ndarray:
+        check_is_fitted(self)
+        X = validate_data(self, X, reset=False, dtype=_FLOAT)
+        return np.asarray(self.model_.transform(jnp.asarray(X)))
+
+
+def _partial_labels(y: Any, n: int) -> np.ndarray:
+    """Partial labels as ints, ``-1`` for unlabelled; all ``-1`` for ``None``."""
+    labels = np.full(n, -1) if y is None else np.asarray(y).astype(int)
+    if labels.shape != (n,):
+        raise ValueError(f"y must have shape ({n},), got {labels.shape}.")
+    return labels
+
+
+class SchrodingerEigenmapProjections(
+    ClassNamePrefixFeaturesOutMixin, TransformerMixin, BaseEstimator
+):
+    """Semi-supervised Schrödinger eigenmap projections
+    (`kernellib.SchrodingerEigenmapProjections`).
+
+    A linear graph embedding with an out-of-sample ``transform``, steered by
+    partial labels: ``fit(X, y)`` takes ``y`` in scikit-learn's
+    semi-supervised convention (``-1`` for unlabelled) and pulls points
+    sharing a label together (`label_potential`). With ``y=None`` (or no
+    class with two labelled points) it is `LocalityPreservingProjections`.
+    The other parameters and attributes are as in
+    `LocalityPreservingProjections`.
+
+    Args:
+        alpha: Weight of the label potential, relative to the graph's scale.
+
+    Examples:
+        >>> import numpy as np
+        >>> from kernellib.sklearn import SchrodingerEigenmapProjections
+        >>> rng = np.random.default_rng(0)
+        >>> X = rng.normal(size=(60, 3))
+        >>> y = np.full(60, -1)
+        >>> y[:5], y[5:10] = 0, 1
+        >>> sep = SchrodingerEigenmapProjections(alpha=10.0).fit(X, y)
+        >>> sep.transform(X[:4]).shape
+        (4, 2)
+    """
+
+    def __init__(
+        self,
+        n_components: int = 2,
+        *,
+        alpha: float = 1.0,
+        n_neighbors: int = 10,
+        weighting: Literal["heat", "connectivity"] = "heat",
+        bandwidth: float | None = None,
+        neighbors_backend: Literal["exact", "pynndescent", "sklearn"] = "exact",
+        random_state: int | None = None,
+    ) -> None:
+        self.n_components = n_components
+        self.alpha = alpha
+        self.n_neighbors = n_neighbors
+        self.weighting = weighting
+        self.bandwidth = bandwidth
+        self.neighbors_backend = neighbors_backend
+        self.random_state = random_state
+
+    def fit(self, X: Any, y: Any = None) -> SchrodingerEigenmapProjections:
+        X = validate_data(self, X, dtype=_FLOAT)
+        n = X.shape[0]
+        _check_n_samples(n, 2, type(self).__name__)
+        V = dec.label_potential(jnp.asarray(_partial_labels(y, n)))
+        # No usable labels: the potential vanishes and SEP reduces to LPP.
+        alpha = self.alpha if float(jnp.trace(V)) > 0.0 else 0.0
+        n_components = min(self.n_components, X.shape[1])
+        self.model_ = dec.SchrodingerEigenmapProjections(
+            n_components=n_components,
+            n_neighbors=min(self.n_neighbors, n - 1),
+            alpha=alpha,
+            weighting=self.weighting,
+            bandwidth=self.bandwidth,
+            neighbors_backend=self.neighbors_backend,
+            random_state=self.random_state,
+        ).fit(jnp.asarray(X), V)
+        self.projection_ = np.asarray(self.model_.projection)
+        self._n_features_out = n_components
+        return self
+
+    def transform(self, X: Any) -> np.ndarray:
+        check_is_fitted(self)
+        X = validate_data(self, X, reset=False, dtype=_FLOAT)
+        return np.asarray(self.model_.transform(jnp.asarray(X)))
+
+
+class KernelLocalityPreservingProjections(
+    ClassNamePrefixFeaturesOutMixin, _KernelParamsMixin, TransformerMixin, BaseEstimator
+):
+    """Kernel locality preserving projections
+    (`kernellib.KernelLocalityPreservingProjections`) as a transformer.
+
+    Args:
+        n_components: Output dimension (capped at ``n_samples - 1``).
+        kernel: A kernellib kernel, or ``None`` for a median-heuristic `RBF`.
+        approx: Optional unfitted kernellib feature map for the
+            ``O(n M^2)`` path.
+        n_neighbors: Neighbours per point (capped at ``n_samples - 1``).
+        weighting: ``"heat"`` or ``"connectivity"``.
+        bandwidth: Heat-kernel width, or ``None`` for the median distance.
+        regularization: RKHS-norm ridge, relative (see the kernellib class).
+        neighbors_backend: ``"exact"``, ``"pynndescent"`` or ``"sklearn"``.
+        random_state: Seed for the approximate neighbours.
+
+    Attributes:
+        model_: The fitted kernellib model.
+        kernel_: The kernel used.
+        eigenvalues_: The generalised eigenvalues.
+        n_features_in_: Number of input features.
+
+    Examples:
+        >>> import numpy as np
+        >>> from kernellib.sklearn import KernelLocalityPreservingProjections
+        >>> X = np.random.default_rng(0).normal(size=(50, 3))
+        >>> KernelLocalityPreservingProjections(n_components=2).fit_transform(
+        ...     X
+        ... ).shape
+        (50, 2)
+    """
+
+    def __init__(
+        self,
+        n_components: int = 2,
+        *,
+        kernel: AbstractKernel | None = None,
+        approx: AbstractFeatureMap | None = None,
+        n_neighbors: int = 10,
+        weighting: Literal["heat", "connectivity"] = "heat",
+        bandwidth: float | None = None,
+        regularization: float = 1e-3,
+        neighbors_backend: Literal["exact", "pynndescent", "sklearn"] = "exact",
+        random_state: int | None = None,
+    ) -> None:
+        self.n_components = n_components
+        self.kernel = kernel
+        self.approx = approx
+        self.n_neighbors = n_neighbors
+        self.weighting = weighting
+        self.bandwidth = bandwidth
+        self.regularization = regularization
+        self.neighbors_backend = neighbors_backend
+        self.random_state = random_state
+
+    def fit(self, X: Any, y: Any = None) -> KernelLocalityPreservingProjections:
+        X = validate_data(self, X, dtype=_FLOAT)
+        n = X.shape[0]
+        _check_n_samples(n, 3, type(self).__name__)
+        X_j = jnp.asarray(X)
+        self.kernel_ = _default_kernel(self.kernel, X_j, _key(0))
+        n_components = min(self.n_components, n - 1)
+        self.model_ = dec.KernelLocalityPreservingProjections(
+            self.kernel_,
+            n_components=n_components,
+            n_neighbors=min(self.n_neighbors, n - 1),
+            weighting=self.weighting,
+            bandwidth=self.bandwidth,
+            regularization=self.regularization,
+            approx=self.approx,
+            neighbors_backend=self.neighbors_backend,
+            random_state=self.random_state,
+        ).fit(X_j)
+        self.eigenvalues_ = np.asarray(self.model_.eigenvalues)
         self._n_features_out = n_components
         return self
 

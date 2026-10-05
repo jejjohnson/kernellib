@@ -13,14 +13,18 @@ JAX can do with it.
 - Transformers: `RandomFourierFeatures`, `OrthogonalRandomFeatures`,
   `FastFoodFeatures`, `NystromFeatures`, `LaplaceEigenfunctionFeatures`.
 - Dependence: `HSIC` (and CKA), `MMD`.
-- Decomposition: `KernelPCA`, `LocalityPreservingProjections` (transformers),
-  `LaplacianEigenmaps`, `SchrodingerEigenmaps` (``fit_transform`` only).
+- Decomposition: `KernelPCA`, `LocalityPreservingProjections`,
+  `SchrodingerEigenmapProjections`, `KernelLocalityPreservingProjections`
+  (transformers), `LaplacianEigenmaps`, `SchrodingerEigenmaps`
+  (``fit_transform`` only).
 """
 
 from kernellib.sklearn._decomposition import (
+    KernelLocalityPreservingProjections,
     KernelPCA,
     LaplacianEigenmaps,
     LocalityPreservingProjections,
+    SchrodingerEigenmapProjections,
     SchrodingerEigenmaps,
 )
 from kernellib.sklearn._dependence import HSIC, MMD
@@ -44,6 +48,7 @@ __all__ = [
     "EigenProRegressor",
     "FalkonRegressor",
     "FastFoodFeatures",
+    "KernelLocalityPreservingProjections",
     "KernelPCA",
     "KernelRidge",
     "LaplaceEigenfunctionFeatures",
@@ -52,5 +57,6 @@ __all__ = [
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "RandomFourierFeatures",
+    "SchrodingerEigenmapProjections",
     "SchrodingerEigenmaps",
 ]

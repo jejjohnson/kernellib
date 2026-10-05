@@ -348,3 +348,37 @@ class TestDecomposition:
             SkSE(potential="spatial").fit(X, y)
         with pytest.raises(ValueError, match="n_samples = 2"):
             SkSE().fit(X[:2])
+
+    def test_schrodinger_projections_use_partial_labels(self):
+        from kernellib.sklearn import (
+            LocalityPreservingProjections as SkLPP,
+            SchrodingerEigenmapProjections as SkSEP,
+        )
+
+        X, _ = _data(n=80, d=4)
+        y = np.full(80, -1)
+        y[:10] = 0
+        sep = SkSEP(alpha=5.0).fit(X, y)
+        ref = kl.SchrodingerEigenmapProjections(alpha=5.0).fit(
+            jnp.asarray(X), kl.label_potential(jnp.asarray(y))
+        )
+        assert np.allclose(sep.transform(X), np.asarray(ref.transform(X)))
+        assert sep.get_feature_names_out()[0] == "schrodingereigenmapprojections0"
+        # Without labels it is LPP.
+        assert np.allclose(SkSEP().fit(X).transform(X), SkLPP().fit(X).transform(X))
+        with pytest.raises(ValueError, match="y must have shape"):
+            SkSEP().fit(X, y[:5])
+
+    def test_kernel_lpp_matches_kernellib_and_takes_nested_params(self):
+        from kernellib.sklearn import KernelLocalityPreservingProjections as SkKLPP
+
+        X, _ = _data(n=60, d=3)
+        model = SkKLPP(n_components=2, kernel=kl.RBF(lengthscale=1.0)).fit(X)
+        ref = kl.KernelLocalityPreservingProjections(
+            kl.RBF(lengthscale=1.0), n_components=2
+        ).fit(jnp.asarray(X))
+        assert np.allclose(model.transform(X), np.asarray(ref.transform(X)))
+        model.set_params(kernel__lengthscale=0.3)
+        assert float(model.kernel.lengthscale) == pytest.approx(0.3)
+        pipe = make_pipeline(StandardScaler(), SkKLPP(n_components=2), Ridge())
+        assert np.isfinite(pipe.fit(X, X[:, 0]).score(X, X[:, 0]))

@@ -65,14 +65,21 @@ The regressors, transformers and decomposition adapters pass scikit-learn's
 
 ## Decomposition
 
-`KernelPCA` and `LocalityPreservingProjections` are transformers.
-`LaplacianEigenmaps` and `SchrodingerEigenmaps` are transductive, like
-``sklearn.manifold.SpectralEmbedding``: ``fit`` / ``fit_transform`` only.
-`SchrodingerEigenmaps.fit(X, y)` takes partial labels, ``-1`` for unlabelled.
+`KernelPCA`, `LocalityPreservingProjections`,
+`SchrodingerEigenmapProjections` and `KernelLocalityPreservingProjections`
+are transformers. `LaplacianEigenmaps` and `SchrodingerEigenmaps` are
+transductive, like ``sklearn.manifold.SpectralEmbedding``: ``fit`` /
+``fit_transform`` only. `SchrodingerEigenmaps.fit(X, y)` and
+`SchrodingerEigenmapProjections.fit(X, y)` take partial labels, ``-1`` for
+unlabelled.
 
 ::: kernellib.sklearn.KernelPCA
 
 ::: kernellib.sklearn.LocalityPreservingProjections
+
+::: kernellib.sklearn.SchrodingerEigenmapProjections
+
+::: kernellib.sklearn.KernelLocalityPreservingProjections
 
 ::: kernellib.sklearn.LaplacianEigenmaps
 
