@@ -34,6 +34,8 @@ grad = jax.grad(lambda ell: kl.KRR(kl.RBF(ell), 1e-3).fit(X, y).loss(X_val, y_va
 The ridge is scaled by the number of points: `KRR` solves
 $(K + \lambda n I)\alpha = y$, the same convention as `Falkon`.
 
+### Preconditioned KRR
+
 Plain CG on that system needs more iterations as $\lambda$ shrinks, since the
 condition number is $(\lambda_1 + \lambda n) / \lambda n$. With
 `preconditioner="nystrom"` or `"rpcholesky"`, `KRR` builds a rank-`r`
@@ -42,6 +44,28 @@ preconditioner from $K$ (gaussx's `NystromPreconditioner` or randomly pivoted
 the effective dimension $\sum_i \lambda_i / (\lambda_i + \lambda n)$ makes the
 iteration count independent of $\lambda$. Choose `"rpcholesky"` when kernel
 evaluations are expensive: it needs `O(N r)` of them instead of `r` full matvecs.
+
+| Field | Values | Default |
+|---|---|---|
+| `preconditioner` | `"none"`, `"nystrom"`, `"rpcholesky"` | `"none"` |
+| `preconditioner_rank` | rank `r` (capped at `N`) | `200` |
+
+A preconditioner needs a `key` in `fit` (both constructions are randomized)
+and replaces `solver`: passing both is an error. Combine it with
+`implicit=True` so that $K$ is never formed:
+
+```python
+model = kl.KRR(
+    kl.Matern(nu=1.5, lengthscale=0.3),
+    regularization=1e-7,
+    implicit=True,
+    preconditioner="nystrom",
+    preconditioner_rank=500,
+).fit(X, y, key=jax.random.key(0))  # n = 1e5: O(N r) memory
+```
+
+### Falkon and EigenPro
+
 
 `Falkon` is Nyström KRR for large ``N``: ``M`` centres, a preconditioned CG
 solve and a streamed ``N x M`` cross kernel, so memory is ``O(M^2)``.
