@@ -134,6 +134,26 @@ connected = kl.knn_graph(X, 5, ensure_connected=True)  # Borůvka bridges
 
 ::: kernellib.edge_weights
 
+### Proximity graphs
+
+For spatial points in 2-D or 3-D, the Delaunay, Gabriel and relative
+neighbourhood graphs need no `k`: they are nested,
+EMST ⊆ RNG ⊆ GG ⊆ DT, so each is connected, with $O(N)$ edges. The
+triangulation is `scipy.spatial.Delaunay` (imported lazily), and `weighting`
+applies to the edge lengths as in `graph_from_edges`. For higher dimensions
+use `knn_graph`.
+
+```python
+stations = kl.gabriel_graph(station_xy, weighting="connectivity")  # no k to tune
+prior = kl.structure_matrix(stations)  # an ICAR on irregular monitoring sites
+```
+
+::: kernellib.delaunay_graph
+
+::: kernellib.gabriel_graph
+
+::: kernellib.relative_neighborhood_graph
+
 ### Laplacian eigenpairs
 
 `laplacian_eigpairs(graph, n)` returns the `n` smallest eigenpairs, ascending
