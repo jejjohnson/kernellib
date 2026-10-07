@@ -157,9 +157,10 @@ class KRR(AbstractEstimator):
             target column; ``None`` before `fit` or for a direct solve.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(0.0, 1.0, 20)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(0.0, 1.0, 20))
         >>> y = jnp.sin(6.0 * X[:, 0])
         >>> model = kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-6).fit(X, y)
         >>> bool(jnp.max(jnp.abs(model.predict(X) - y)) < 1e-2)

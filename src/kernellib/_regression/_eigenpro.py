@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import einx
 import equinox as eqx
 import gaussx as gx
 import jax
@@ -12,6 +13,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
+from kernellib._einx import einsum, reduce
 from kernellib._operators._implicit import ImplicitKernelOperator
 from kernellib._operators._kernel import KernelOperator
 
@@ -202,9 +204,14 @@ def eigenpro_correction(
         Eigenspace correction over the subsampled points, shape ``(m, C)``.
     """
     step_size_arr = jnp.asarray(step_size, dtype=gradient.dtype)
-    projected_gradient = precond.V.T @ (K_batch_sub.T @ gradient)
-    weight_shape = (-1,) + (1,) * (projected_gradient.ndim - 1)
-    weighted_gradient = precond.D.reshape(weight_shape) * projected_gradient
+    projected_gradient = einsum(
+        precond.V,
+        einsum(K_batch_sub, gradient, "b m, b ... -> m ..."),
+        "m k, m ... -> k ...",
+    )
+    weighted_gradient = einx.multiply(
+        "k, k ... -> k ...", precond.D, projected_gradient
+    )
     return step_size_arr * (precond.V @ weighted_gradient)
 
 
@@ -323,7 +330,7 @@ def _residual_kernel_diagonal(
         # Build only K_{x_chunk, m} — never the full K_nm.
         K_chunk = rows(start)
         projections = K_chunk @ V  # (chunk, k)
-        removed = jnp.sum(weights * projections**2, axis=1) / m
+        removed = reduce(weights * projections**2, "c k -> c", "sum") / m
         chunk_residual = jax.lax.dynamic_slice_in_dim(diag, start, chunk) - removed
         return jnp.maximum(max_so_far, jnp.max(chunk_residual)), None
 
@@ -355,7 +362,7 @@ def _cross_kernel_row_fn(
             K_block = _implicit_kernel_matrix(kernel_op, X_rows, X_sub)
             if kernel_op.noise_var != 0.0:
                 row_idx = start + jnp.arange(chunk)
-                mask = row_idx[:, None] == subsample_indices[None, :]
+                mask = einx.equal("c, m -> c m", row_idx, subsample_indices)
                 K_block = K_block + kernel_op.noise_var * mask.astype(K_block.dtype)
             return K_block
 

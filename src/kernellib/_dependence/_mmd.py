@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from kernellib import functional as F
+from kernellib._einx import rearrange, reduce
 from kernellib._kernels import AbstractKernel, Distance
 from kernellib._spectral import AbstractFeatureMap
 
@@ -86,7 +87,7 @@ def mmd_squared(
     if approx is not None:
         fitted = approx.fit(kernel, jnp.concatenate([X, Y]))
         Phi_x, Phi_y = fitted(X), fitted(Y)
-        sx, sy = jnp.sum(Phi_x, axis=0), jnp.sum(Phi_y, axis=0)
+        sx, sy = reduce(Phi_x, "m f -> f", "sum"), reduce(Phi_y, "n f -> f", "sum")
         if estimator == "biased":
             return jnp.sum((sx / m - sy / n) ** 2)
         within_x = (jnp.sum(sx**2) - jnp.sum(Phi_x**2)) / (m * (m - 1))
@@ -108,7 +109,7 @@ def _anchor_pooled(
     `Distance` kernel: MMD is invariant to it, the rounding is not."""
     if not isinstance(kernel, Distance):
         return X, Y
-    offset = jnp.mean(jnp.concatenate([X, Y]), axis=0)
+    offset = reduce(jnp.concatenate([X, Y]), "n d -> d", "mean")
     return X - offset, Y - offset
 
 
@@ -121,7 +122,7 @@ def _mmd_linear(
 
     def k(a: Float[Array, " D"], b: Float[Array, " D"]) -> Float[Array, ""]:
         # One entry of the Gram matrix: works for Gram-only kernels too.
-        return kernel(a[None], b[None])[0, 0]
+        return kernel(rearrange(a, "d -> 1 d"), rearrange(b, "d -> 1 d"))[0, 0]
 
     h = jax.vmap(lambda a1, a2, b1, b2: k(a1, a2) + k(b1, b2) - k(a1, b2) - k(a2, b1))(
         x1, x2, y1, y2

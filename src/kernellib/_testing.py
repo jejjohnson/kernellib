@@ -12,6 +12,8 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Bool, Float
 
+from kernellib._einx import einsum
+
 
 __all__ = [
     "random_pd_matrix",
@@ -55,4 +57,4 @@ def random_pd_matrix(
         True
     """
     A = jr.normal(key, (n, n), dtype=dtype)
-    return A @ A.T + 0.1 * jnp.eye(n, dtype=dtype)
+    return einsum(A, A, "i k, j k -> i j") + 0.1 * jnp.eye(n, dtype=dtype)
