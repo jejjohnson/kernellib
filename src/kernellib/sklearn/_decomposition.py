@@ -344,14 +344,21 @@ class _Eigenmap(BaseEstimator):
 
     def _config(self, n: int) -> dict[str, Any]:
         _check_n_samples(n, 3, type(self).__name__)
+        n_components = min(self.n_components, n - 2)  # ty: ignore[unresolved-attribute]
+        solver = self.eigen_solver  # ty: ignore[unresolved-attribute]
+        if solver == "lobpcg" and 5 * (n_components + 1) >= n:
+            # LOBPCG needs 5 k < N; like sklearn's SpectralEmbedding, solve a
+            # graph this small densely.
+            solver = "dense"
         return {
-            "n_components": min(self.n_components, n - 2),  # ty: ignore[unresolved-attribute]
+            "n_components": n_components,
             "n_neighbors": min(self.n_neighbors, n - 1),  # ty: ignore[unresolved-attribute]
             "weighting": self.weighting,  # ty: ignore[unresolved-attribute]
             "bandwidth": self.bandwidth,  # ty: ignore[unresolved-attribute]
             "constraint": self.constraint,  # ty: ignore[unresolved-attribute]
             "neighbors_backend": self.neighbors_backend,  # ty: ignore[unresolved-attribute]
-            "eigen_solver": self.eigen_solver,  # ty: ignore[unresolved-attribute]
+            "eigen_solver": solver,
+            "max_iter": self.max_iter,  # ty: ignore[unresolved-attribute]
             "random_state": self.random_state,  # ty: ignore[unresolved-attribute]
         }
 
@@ -371,8 +378,13 @@ class LaplacianEigenmaps(_Eigenmap):
         bandwidth: Heat-kernel width, or ``None`` for the median distance.
         constraint: ``"degree"`` or ``"identity"``.
         neighbors_backend: ``"exact"``, ``"pynndescent"`` or ``"sklearn"``.
-        eigen_solver: ``"dense"`` or ``"arpack"``.
-        random_state: Seed for the approximate neighbours and ARPACK.
+        eigen_solver: ``"dense"``, ``"arpack"`` or ``"lobpcg"`` (sparse,
+            JAX; needs ``jax_enable_x64``). Like
+            ``sklearn.manifold.SpectralEmbedding``, ``"lobpcg"`` falls back
+            to ``"dense"`` when ``n_samples <= 5 * (n_components + 1)``.
+        max_iter: Iteration cap of ``"lobpcg"``; ignored otherwise.
+        random_state: Seed for the approximate neighbours, ARPACK and
+            LOBPCG.
 
     Attributes:
         embedding_: ``(n_samples, n_components)``.
@@ -397,7 +409,8 @@ class LaplacianEigenmaps(_Eigenmap):
         bandwidth: float | None = None,
         constraint: Literal["degree", "identity"] = "degree",
         neighbors_backend: Literal["exact", "pynndescent", "sklearn"] = "exact",
-        eigen_solver: Literal["dense", "arpack"] = "dense",
+        eigen_solver: Literal["dense", "arpack", "lobpcg"] = "dense",
+        max_iter: int = 1000,
         random_state: int | None = None,
     ) -> None:
         self.n_components = n_components
@@ -407,6 +420,7 @@ class LaplacianEigenmaps(_Eigenmap):
         self.constraint = constraint
         self.neighbors_backend = neighbors_backend
         self.eigen_solver = eigen_solver
+        self.max_iter = max_iter
         self.random_state = random_state
 
     def fit(self, X: Any, y: Any = None) -> LaplacianEigenmaps:
@@ -429,8 +443,8 @@ class SchrodingerEigenmaps(_Eigenmap):
     (`barrier_potential`). With ``y=None`` (or no labelled points) it is
     `LaplacianEigenmaps`. The other parameters (``n_components``,
     ``n_neighbors``, ``weighting``, ``bandwidth``, ``constraint``,
-    ``neighbors_backend``, ``eigen_solver``, ``random_state``) and the fitted
-    attributes (``embedding_``, ``eigenvalues_``, ``model_``,
+    ``neighbors_backend``, ``eigen_solver``, ``max_iter``, ``random_state``)
+    and the fitted attributes (``embedding_``, ``eigenvalues_``, ``model_``,
     ``n_features_in_``) are as in `LaplacianEigenmaps`.
 
     Args:
@@ -459,7 +473,8 @@ class SchrodingerEigenmaps(_Eigenmap):
         bandwidth: float | None = None,
         constraint: Literal["degree", "identity"] = "degree",
         neighbors_backend: Literal["exact", "pynndescent", "sklearn"] = "exact",
-        eigen_solver: Literal["dense", "arpack"] = "dense",
+        eigen_solver: Literal["dense", "arpack", "lobpcg"] = "dense",
+        max_iter: int = 1000,
         random_state: int | None = None,
     ) -> None:
         self.n_components = n_components
@@ -471,6 +486,7 @@ class SchrodingerEigenmaps(_Eigenmap):
         self.constraint = constraint
         self.neighbors_backend = neighbors_backend
         self.eigen_solver = eigen_solver
+        self.max_iter = max_iter
         self.random_state = random_state
 
     def fit(self, X: Any, y: Any = None) -> SchrodingerEigenmaps:

@@ -187,6 +187,6 @@ class TestLPP:
         with pytest.raises(RuntimeError, match="not fitted"):
             kl.LocalityPreservingProjections().transform(jnp.ones((2, 2)))
         with pytest.raises(ValueError, match="eigen_solver"):
-            kl.LaplacianEigenmaps(eigen_solver="lobpcg")
+            kl.LaplacianEigenmaps(eigen_solver="bogus")
         with pytest.raises(ValueError, match="constraint"):
             kl.LaplacianEigenmaps(constraint="similarity")
