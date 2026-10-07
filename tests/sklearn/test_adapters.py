@@ -14,6 +14,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 import kernellib as kl
+from kernellib._einx import einsum
 from kernellib.sklearn import (
     HSIC,
     MMD,
@@ -315,6 +316,29 @@ class TestDecomposition:
         assert Y.shape == (80, 2) and not hasattr(le, "transform")
         ref = kl.LaplacianEigenmaps(n_components=2).fit(jnp.asarray(X))
         assert np.allclose(np.abs(Y), np.abs(np.asarray(ref.embedding)), atol=1e-8)
+
+    def test_eigenmaps_lobpcg(self):
+        from kernellib.sklearn import (
+            LaplacianEigenmaps as SkLE,
+            SchrodingerEigenmaps as SkSE,
+        )
+
+        X, _ = _data(n=80, d=3)
+        y = np.full(80, -1)
+        y[:8] = 0
+        for est in (SkLE, SkSE):
+            dense = est(n_components=2).fit(X, y)
+            model = est(n_components=2, eigen_solver="lobpcg", max_iter=2000)
+            model = model.fit(X, y)
+            assert int(model.model_.n_iter) > 0
+            assert np.allclose(model.eigenvalues_, dense.eigenvalues_, atol=1e-8)
+            Q1, _ = np.linalg.qr(model.embedding_)
+            Q2, _ = np.linalg.qr(dense.embedding_)
+            cos = np.linalg.svd(einsum(Q1, Q2, "n i, n j -> i j"), compute_uv=False)
+            assert np.min(cos) > 0.999
+        # 5 (k + 1) >= N: solved densely, as sklearn's SpectralEmbedding does.
+        small = SkLE(n_components=2, eigen_solver="lobpcg").fit(X[:12])
+        assert small.model_.eigen_solver == "dense"
 
     def test_schrodinger_uses_partial_labels(self):
         from kernellib.sklearn import SchrodingerEigenmaps as SkSE

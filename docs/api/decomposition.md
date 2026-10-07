@@ -69,7 +69,7 @@ dense path is JAX (differentiable in the edge weights); ``eigen_solver`` (or
 ``method=`` in the functions) also takes the sparse methods of
 `laplacian_eigpairs`: ``"lanczos"`` (JAX), ``"arpack"`` (SciPy, CPU) and, for
 Laplacian eigenmaps of a lattice under the identity constraint,
-``"kronecker"``.
+``"kronecker"``; and ``"lobpcg"`` (sparse JAX, see below).
 
 | Embedding | Problem | New points |
 |---|---|---|
@@ -127,6 +127,57 @@ raises a `RuntimeError` rather than return a wrong embedding. Each
 restart costs time and memory ($N \times$ the Krylov dimension), so for a
 large cube with a large $\alpha$, `eigen_solver="arpack"` (SciPy, on the
 CPU) is the robust choice.
+
+**LOBPCG.** ``eigen_solver="lobpcg"`` (``method="lobpcg"``) is the
+sparse solver that stays in JAX: the graph is a
+``jax.experimental.sparse.BCOO``, and
+``jax.experimental.sparse.linalg.lobpcg_standard`` runs on it with block
+matvecs and small ``eigh`` calls, on the device and under ``jit``, with no
+SciPy and no $N \times N$ matrix.
+
+| `eigen_solver` | Graph | Runs | Memory | `jit` / gradients | dtype |
+|---|---|---|---|---|---|
+| `"dense"` | dense $N \times N$ | JAX `eigh` | $O(N^2)$ | yes / yes | any |
+| `"lanczos"` | sparse operator | JAX, `gaussx.eig` | $O(N \cdot$ Krylov dim$)$ | yes / no | any |
+| `"arpack"` | SciPy CSR | SciPy `eigsh`, CPU | $O(N k)$ | no / no | any |
+| `"lobpcg"` | BCOO | JAX, `lobpcg_standard` | $O(N k + \lvert E \rvert)$ | yes / no | float64 only |
+
+LOBPCG finds the *largest* eigenpairs of a standard problem, so it runs on
+the shift-and-flip of $S = D^{-1/2}(L + \alpha V)D^{-1/2}$: if
+$\operatorname{spec}(S) \subset [0, c]$, the top $k$ eigenpairs
+$(\theta_i, u_i)$ of $cI - S$ are the bottom $k$ of $S$, with
+$\lambda_i = c - \theta_i$ and $y_i = D^{-1/2} u_i$. For Laplacian
+eigenmaps $S = L_{\mathrm{sym}}$ and $c = 2$ is exact, so the operator is
+$I + D^{-1/2} W D^{-1/2}$; a potential adds $\alpha$ times the Gershgorin
+bound $\max_i \sum_j |(D^{-1/2} V D^{-1/2})_{ij}|$ to $c$.
+
+- **float64 only.** The wanted eigenvalues of $L_{\mathrm{sym}}$ are tiny
+  (about $3 \times 10^{-5}$ for a 20 000-point Swiss roll), and after the
+  shift they sit at $2 - \lambda$, next to the bulk. float32 LOBPCG cannot
+  separate them and returns a *wrong* embedding (subspace overlap 0.09 with
+  ARPACK), not an imprecise one, so without
+  `jax.config.update("jax_enable_x64", True)` it raises a `ValueError`.
+- **Iterations.** It stops when every pair meets LOBPCG's own eps-level
+  tolerance, or at `max_iter` (default 1000); `n_iter` on the fitted model
+  records which. The count grows with $N$ and with $c$, because the relative
+  gap $(\theta_k - \theta_{k+1}) / (\theta_1 - \theta_{\min})$ shrinks:
+  a 10-NN Swiss roll takes about 260 iterations at $N = 1000$, 420 at
+  $N = 5000$ and 840 at $N = 20\,000$. A strong potential (large $c$) can
+  take thousands; there `"arpack"` is better. The returned pairs get the
+  same residual check as `"lanczos"` and raise a `RuntimeError` if it fails
+  (raise `max_iter`). Shift-invert or a preconditioner would cut the
+  iterations, but `lobpcg_standard` supports neither.
+- **Limits.** It needs $5 k < N$, with $k$ the number of pairs (one more
+  than `n_components` when the first is dropped); use `"dense"` below that.
+  It has no gradients. A dense $(N, N)$ potential (`label_potential`) makes
+  each matvec $O(N^2)$; pass a sparse lineax potential (e.g.
+  `spatial_spectral_graph(...).laplacian_operator()`) to stay sparse.
+
+```python
+jax.config.update("jax_enable_x64", True)
+le = kl.LaplacianEigenmaps(n_components=2, eigen_solver="lobpcg").fit(X)
+le.embedding, le.n_iter
+```
 
 The [spatial-spectral Schrödinger eigenmaps example](../../spatial-spectral-eigenmaps/)
 runs this on a synthetic hyperspectral cube, and the

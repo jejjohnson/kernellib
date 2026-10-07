@@ -40,6 +40,12 @@ bound for a Laplacian, the largest Ritz value for a Schrödinger operator
 A failing run is repeated with twice the Krylov oversample, up to
 ``_MAX_OVERSAMPLE``; if it still fails, a ``RuntimeError`` is raised rather
 than a wrong embedding returned (use ``"arpack"``).
+
+**LOBPCG.** ``eigen_solver="lobpcg"`` keeps the graph a
+``jax.experimental.sparse.BCOO`` and runs ``lobpcg_standard`` on the
+shift-and-flip $cI - S$ (LOBPCG finds the largest eigenpairs), on the
+device and under ``jit``. It needs float64 and ``5 k < N``, and is checked
+like Lanczos (``_lobpcg_eigenmap``).
 """
 
 from __future__ import annotations
@@ -57,6 +63,8 @@ import lineax as lx
 import numpy as np
 import scipy.sparse as sp
 from jax.core import Tracer
+from jax.experimental import sparse as jsparse
+from jax.experimental.sparse.linalg import lobpcg_standard
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from kernellib._einx import rearrange, reduce
@@ -90,17 +98,22 @@ __all__ = [
 ]
 
 Constraint = Literal["degree", "identity"]
-Solver = Literal["dense", "kronecker", "lanczos", "arpack"]
+Solver = Literal["dense", "kronecker", "lanczos", "arpack", "lobpcg"]
 # A potential: its diagonal, a dense matrix, or a (sparse) lineax operator.
 Potential = Float[Array, " N"] | Float[Array, "N N"] | lx.AbstractLinearOperator
 GraphLike = Float[Array, "N N"] | AbstractGraph
 
-_SOLVERS = ("dense", "kronecker", "lanczos", "arpack")
+_SOLVERS = ("dense", "kronecker", "lanczos", "arpack", "lobpcg")
 # Krylov margin of the "lanczos" paths, as in laplacian_eigpairs; a run whose
 # residuals fail `_check_eigpairs` is repeated with twice the margin, up to
 # _MAX_OVERSAMPLE (three doublings), before raising.
 _OVERSAMPLE = 200
 _MAX_OVERSAMPLE = 1600
+# Iteration cap of "lobpcg" (its `m`). LOBPCG stops early once every pair
+# meets its eps-level tolerance, so the cap only costs on graphs that need it:
+# a 10-NN Swiss roll converges in ~260 iterations at N = 1000, ~420 at
+# N = 5000 and ~840 at N = 20 000 (#91).
+_LOBPCG_MAX_ITER = 1000
 
 
 # -- matrix level ------------------------------------------------------------
@@ -132,6 +145,7 @@ def laplacian_eigenmap(
     drop_first: bool = True,
     method: Solver | None = None,
     key: PRNGKeyArray | None = None,
+    max_iter: int = _LOBPCG_MAX_ITER,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     r"""Laplacian eigenmap of a weighted graph: smallest solutions of
     $L y = \lambda D y$.
@@ -143,7 +157,9 @@ def laplacian_eigenmap(
     (where a face-connected `GridGraph` gets the Kronecker path).
     ``"lanczos"`` is checked as in `schrodinger_eigenmap`, with the
     Gershgorin bound $c$ ($2$, or $2 \max_i d_i$ for the identity
-    constraint) as the scale.
+    constraint) as the scale. ``"lobpcg"`` is as in `schrodinger_eigenmap`
+    with $\alpha = 0$: LOBPCG on $2I - L_{\mathrm{sym}} = I + D^{-1/2} W
+    D^{-1/2}$.
 
     Args:
         W: Symmetric adjacency matrix ``(N, N)``, or an `AbstractGraph`.
@@ -151,18 +167,22 @@ def laplacian_eigenmap(
         constraint: ``"degree"`` ($Y^\top D Y = I$) or ``"identity"``.
         drop_first: Drop the trivial constant solution ($\lambda = 0$).
         method: ``"dense"``, ``"kronecker"`` (identity constraint only),
-            ``"lanczos"``, ``"arpack"``, or ``None`` for the default of
-            `laplacian_eigpairs`.
-        key: PRNG key; required by ``"lanczos"``, seeds ``"arpack"``.
+            ``"lanczos"``, ``"arpack"``, ``"lobpcg"``, or ``None`` for the
+            default of `laplacian_eigpairs`.
+        key: PRNG key; required by ``"lanczos"`` and ``"lobpcg"``, seeds
+            ``"arpack"``.
+        max_iter: Iteration cap of ``"lobpcg"``.
 
     Returns:
         ``(eigenvalues, embedding)``, shapes ``(n,)`` and ``(N, n)``.
 
     Raises:
         ValueError: For an invalid ``constraint`` or ``method``, or
-            ``"kronecker"`` with the degree constraint.
+            ``"kronecker"`` with the degree constraint; for ``"lobpcg"``
+            without x64, without a ``key`` or on a graph with
+            ``N <= 5 (n_components + drop_first)``.
         RuntimeError: If ``"lanczos"`` has not converged at the largest
-            Krylov space it tries.
+            Krylov space it tries, or ``"lobpcg"`` within ``max_iter``.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -194,6 +214,17 @@ def laplacian_eigenmap(
         raise ValueError(
             "method='kronecker' solves L u = lambda u: it needs constraint='identity'."
         )
+    if method == "lobpcg":
+        lam, Y, _ = _lobpcg_eigenmap(
+            W,
+            None,
+            n_components,
+            constraint=constraint,
+            drop_first=drop_first,
+            key=key,
+            max_iter=max_iter,
+        )
+        return lam, Y
     start = int(drop_first)
     normalization = "symmetric" if constraint == "degree" else "unnormalized"
     if method == "lanczos":
@@ -219,6 +250,7 @@ def schrodinger_eigenmap(
     drop_first: bool = True,
     method: Solver | None = None,
     key: PRNGKeyArray | None = None,
+    max_iter: int = _LOBPCG_MAX_ITER,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     r"""Schrödinger eigenmap: smallest solutions of $(L + \alpha V) y = \lambda D y$.
 
@@ -239,6 +271,27 @@ def schrodinger_eigenmap(
     instead of returning wrong eigenpairs. ``"arpack"`` is the robust
     fallback.
 
+    ``"lobpcg"`` keeps the graph a ``jax.experimental.sparse.BCOO`` and runs
+    `jax.experimental.sparse.linalg.lobpcg_standard`, on the device and
+    under ``jit``, with no SciPy and no ``N x N`` matrix (unless the
+    potential is one). LOBPCG finds the *largest* eigenpairs, so it runs on
+    the shift-and-flip $cI - S$ of $S = D^{-1/2}(L + \alpha V)D^{-1/2}$, with
+    $c \ge \lambda_{\max}(S)$: $2$ for the Laplacian part plus $\alpha$
+    times the Gershgorin bound of $D^{-1/2} V D^{-1/2}$. Then
+    $\lambda_i = c - \theta_i$ and $y_i = D^{-1/2} u_i$. It needs float64
+    (``jax_enable_x64``): the wanted eigenvalues sit within about $10^{-4}$
+    of 0 in a spectrum of width $c$, and float32 LOBPCG cannot separate them
+    from the bulk, so it returns a *wrong* embedding rather than an imprecise
+    one. It needs ``5 (n_components + drop_first) < N``. It stops when every
+    pair has converged to the dtype's eps, or after ``max_iter`` iterations.
+    The iterations needed grow with $N$ and with $c$, since the relative gap
+    of the wanted eigenvalues shrinks: a 10-NN Swiss roll takes about 420 at
+    $N = 5000$ and 840 at $N = 20\,000$, but a barrier potential with
+    ``alpha=1`` at $N = 5000$ ($c \approx 195$) takes several thousand, where
+    ``"arpack"`` is the better choice. The result passes the same residual
+    check as ``"lanczos"`` or raises a ``RuntimeError`` (raise
+    ``max_iter``). No gradients.
+
     Args:
         W: Symmetric adjacency matrix ``(N, N)``, or an `AbstractGraph`.
         potential: $V$, either its diagonal ``(N,)`` (a barrier potential, see
@@ -256,18 +309,22 @@ def schrodinger_eigenmap(
             potentials that are Laplacians (the constant vector stays a
             $\lambda = 0$ solution); a barrier potential removes it, so pass
             ``False`` to keep all solutions.
-        method: ``"dense"``, ``"lanczos"``, ``"arpack"``, or ``None``
-            (``"dense"``).
-        key: PRNG key; required by ``"lanczos"``, seeds ``"arpack"``.
+        method: ``"dense"``, ``"lanczos"``, ``"arpack"``, ``"lobpcg"``, or
+            ``None`` (``"dense"``).
+        key: PRNG key; required by ``"lanczos"`` and ``"lobpcg"``, seeds
+            ``"arpack"``.
+        max_iter: Iteration cap of ``"lobpcg"``.
 
     Returns:
         ``(eigenvalues, embedding)``.
 
     Raises:
         ValueError: For an invalid ``constraint`` or ``method`` (including
-            ``"kronecker"``), or ``"lanczos"`` without a ``key``.
+            ``"kronecker"``), ``"lanczos"`` or ``"lobpcg"`` without a
+            ``key``, or ``"lobpcg"`` without x64 or with
+            ``N <= 5 (n_components + drop_first)``.
         RuntimeError: If ``"lanczos"`` has not converged at the largest
-            Krylov space it tries.
+            Krylov space it tries, or ``"lobpcg"`` within ``max_iter``.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -294,9 +351,22 @@ def schrodinger_eigenmap(
     if method == "kronecker":
         raise ValueError(
             "method='kronecker' does not apply to Schrödinger eigenmaps: the "
-            "potential breaks the Kronecker structure. Use 'dense', 'lanczos' "
-            "or 'arpack'."
+            "potential breaks the Kronecker structure. Use 'dense', 'lanczos', "
+            "'arpack' or 'lobpcg'."
         )
+    if method == "lobpcg":
+        lam, Y, _ = _lobpcg_eigenmap(
+            W,
+            potential,
+            n_components,
+            alpha=alpha,
+            normalize_potential=normalize_potential,
+            constraint=constraint,
+            drop_first=drop_first,
+            key=key,
+            max_iter=max_iter,
+        )
+        return lam, Y
     L, degree = _laplacian_and_degree(W)
     if normalize_potential:
         alpha = alpha * jnp.sum(degree) / jnp.maximum(_trace(potential), 1e-30)
@@ -585,8 +655,8 @@ def _check_constraint(constraint: str) -> None:
 def _check_method(method: str | None) -> None:
     if method is not None and method not in _SOLVERS:
         raise ValueError(
-            "method must be 'dense', 'kronecker', 'lanczos', 'arpack' or None, "
-            f"got {method!r}."
+            "method must be 'dense', 'kronecker', 'lanczos', 'arpack', 'lobpcg' "
+            f"or None, got {method!r}."
         )
 
 
@@ -800,6 +870,203 @@ def _lanczos_until_converged(
         oversample *= 2
 
 
+# -- LOBPCG ------------------------------------------------------------------
+
+# A term of a potential: ("diag", (N,)), ("dense", (N, N)) or ("sparse", BCOO).
+# A pytree with a static kind, so the jitted solve is cached across calls.
+_Term = tuple[str, Array | jsparse.BCOO]
+
+
+def _potential_terms(V: Potential) -> list[_Term]:
+    """A potential as a sum of diagonal, dense and BCOO terms.
+
+    Lineax compositions (sums, scalings, tags) are unpacked, so a sparse
+    potential stays sparse. Summing the entrywise absolute values term by
+    term over-estimates $|V|$, which keeps the Gershgorin bound a bound.
+    """
+    if isinstance(V, lx.TaggedLinearOperator):
+        return _potential_terms(V.operator)
+    if isinstance(V, lx.AddLinearOperator):
+        return _potential_terms(V.operator1) + _potential_terms(V.operator2)
+    if isinstance(V, lx.MulLinearOperator):
+        return [
+            (kind, value * V.scalar) for kind, value in _potential_terms(V.operator)
+        ]
+    if isinstance(V, gx.SparseOperator):
+        return [("sparse", V.to_bcoo())]
+    if isinstance(V, lx.DiagonalLinearOperator):
+        V = lx.diagonal(V)
+    elif isinstance(V, lx.MatrixLinearOperator):
+        V = V.matrix
+    elif isinstance(V, lx.AbstractLinearOperator):
+        raise ValueError(
+            "eigen_solver='lobpcg' takes a potential that is an array, or a "
+            "lineax sum / scaling of diagonal, matrix and gaussx.SparseOperator "
+            f"terms; got {type(V).__name__}. Pass V.as_matrix() or use "
+            "'arpack'."
+        )
+    V = jnp.asarray(V)
+    return [("diag" if V.ndim == 1 else "dense", V)]
+
+
+def _term_mv(term: _Term, x: Array, *, absolute: bool = False) -> Array:
+    """``V x`` (or ``|V| x``, entrywise) for a vector or an ``(N, k)`` block."""
+    kind, V = term
+    if isinstance(V, jsparse.BCOO):
+        if absolute:
+            V = jsparse.BCOO((jnp.abs(V.data), V.indices), shape=V.shape)
+        return V @ x
+    V = jnp.abs(V) if absolute else V
+    if kind == "diag":
+        return einx.multiply("N, N ... -> N ...", V, x)
+    return V @ x
+
+
+def _term_trace(term: _Term) -> Array:
+    kind, V = term
+    if isinstance(V, jsparse.BCOO):
+        rows, cols = V.indices[:, 0], V.indices[:, 1]
+        return jnp.sum(jnp.where(rows == cols, V.data, 0.0))
+    return jnp.sum(V) if kind == "diag" else jnp.trace(V)
+
+
+def _schrodinger_mv(
+    A: Float[Array, "N N"] | jsparse.BCOO,
+    degree: Float[Array, " N"],
+    s: Float[Array, " N"],
+    terms: list[_Term],
+    alpha: Float[Array, ""],
+    x: Array,
+) -> Array:
+    r"""$S x = s (D - W + \alpha V) s x$, for a vector or an ``(N, k)`` block."""
+    z = einx.multiply("N, N ... -> N ...", s, x)
+    out = einx.multiply("N, N ... -> N ...", degree, z) - A @ z
+    for term in terms:
+        out = out + alpha * _term_mv(term, z)
+    return einx.multiply("N, N ... -> N ...", s, out)
+
+
+@eqx.filter_jit
+def _shifted_lobpcg(
+    A: Float[Array, "N N"] | jsparse.BCOO,
+    degree: Float[Array, " N"],
+    s: Float[Array, " N"],
+    terms: list[_Term],
+    alpha: Float[Array, ""],
+    c: Float[Array, ""],
+    X0: Float[Array, "N k"],
+    max_iter: int,
+) -> tuple[Float[Array, " k"], Float[Array, "N k"], Int[Array, ""]]:
+    """The ``k`` smallest eigenpairs of ``S``, ascending, as the top of
+    ``cI - S``; and the iteration count."""
+
+    def shifted(x: Array) -> Array:
+        return c * x - _schrodinger_mv(A, degree, s, terms, alpha, x)
+
+    theta, U, n_iter = lobpcg_standard(shifted, X0, m=max_iter)
+    order = jnp.argsort(-theta)
+    return c - theta[order], U[:, order], n_iter
+
+
+def _lobpcg_eigenmap(
+    W: GraphLike,
+    potential: Potential | None,
+    n_components: int,
+    *,
+    alpha: float | Float[Array, ""] = 0.0,
+    normalize_potential: bool = True,
+    constraint: Constraint = "degree",
+    drop_first: bool = True,
+    key: PRNGKeyArray | None,
+    max_iter: int = _LOBPCG_MAX_ITER,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"], Int[Array, ""]]:
+    r"""Smallest solutions of $(L + \alpha V) y = \lambda B y$ by LOBPCG.
+
+    $B = D$ (``"degree"``) or $I$. With $s = \mathrm{diag}(B)^{-1/2}$ and
+    $S = s (L + \alpha V) s$, the wanted pairs are the bottom of $S$, and
+    `jax.experimental.sparse.linalg.lobpcg_standard` finds the top of a
+    standard problem only, so it runs on the shift-and-flip $cI - S$:
+    $\lambda_i = c - \theta_i$, $y_i = s\,u_i$. $c$ bounds $\lambda_{\max}(S)$
+    (Weyl): $2$ for $s L s = L_{\mathrm{sym}}$ (``2 max(d)``, Gershgorin, for
+    the identity constraint), plus $|\alpha|$ times the Gershgorin bound of
+    $s V s$. The graph is a BCOO (`AbstractGraph.to_bcoo`), so memory is
+    $O(N k + |E|)$, and the whole solve traces under ``jit``.
+
+    The wanted eigenvalues sit near 0 of a spectrum of width $c$, so the
+    relative gap is small: float32 cannot separate them from the bulk and
+    returns a wrong embedding (#91), hence the float64 requirement; and the
+    iteration count grows with $N$ and with $c$ (a strong potential).
+    Shift-invert or a preconditioner would fix the latter, but
+    ``lobpcg_standard`` has neither. ``tol`` stays at its default (dtype
+    eps): the criterion is relative and scaled by $10 N$, so a
+    "tighter-looking" ``1e-9`` is looser and stops early. The returned pairs
+    are checked by `_check_eigpairs`. No gradients.
+
+    Returns:
+        ``(eigenvalues, embedding, n_iter)``.
+
+    Raises:
+        ValueError: Without ``jax_enable_x64``; without a ``key``; unless
+            ``0 < 5 (n_components + drop_first) < N``; or for a potential
+            operator it cannot unpack.
+        RuntimeError: If the returned pairs have not converged (raise
+            ``max_iter``).
+    """
+    if jax.dtypes.canonicalize_dtype(jnp.float64) != jnp.float64:
+        raise ValueError(
+            "eigen_solver='lobpcg' needs float64: the smallest graph eigenvalues "
+            "crowd near 0 and float32 LOBPCG returns a wrong embedding (#91). "
+            'Enable x64 with jax.config.update("jax_enable_x64", True), or use '
+            "eigen_solver='dense' or 'arpack'."
+        )
+    if key is None:
+        raise ValueError("method='lobpcg' needs a PRNG key.")
+    n_nodes = W.n_nodes if isinstance(W, AbstractGraph) else jnp.shape(W)[0]
+    k = n_components + int(drop_first)
+    if not 0 < 5 * k < n_nodes:
+        raise ValueError(
+            f"eigen_solver='lobpcg' needs 5 * {k} eigenpairs < N = {n_nodes} "
+            "(a limit of jax.experimental.sparse.linalg.lobpcg_standard); "
+            "use eigen_solver='dense' for a graph this small."
+        )
+    f64 = jnp.float64
+    A: Float[Array, "N N"] | jsparse.BCOO
+    if isinstance(W, AbstractGraph):
+        bcoo = W.to_bcoo()
+        A = jsparse.BCOO((bcoo.data.astype(f64), bcoo.indices), shape=bcoo.shape)
+        degree = W.degree().astype(f64)
+    else:
+        A = jnp.asarray(W, f64)
+        degree = reduce(A, "i j -> i", "sum")
+    terms = [] if potential is None else _potential_terms(potential)
+    terms = [
+        (kind, V.astype(f64) if isinstance(V, jsparse.BCOO) else jnp.asarray(V, f64))
+        for kind, V in terms
+    ]
+    alpha = jnp.asarray(alpha, f64)
+    if terms and normalize_potential:
+        trace_v = sum(_term_trace(term) for term in terms)
+        alpha = alpha * jnp.sum(degree) / jnp.maximum(trace_v, 1e-30)
+    if constraint == "degree":
+        s, c = _degree_scale(degree), jnp.asarray(2.0, f64)
+    else:
+        s, c = jnp.ones_like(degree), 2.0 * jnp.max(degree)
+    for term in terms:
+        c = c + jnp.abs(alpha) * jnp.max(s * _term_mv(term, s, absolute=True))
+    X0 = jax.random.normal(key, (n_nodes, k), f64)
+    lam, U, n_iter = _shifted_lobpcg(A, degree, s, terms, alpha, c, X0, max_iter)
+    lam, U = _check_eigpairs(
+        lambda x: _schrodinger_mv(A, degree, s, terms, alpha, x),
+        lam,
+        U,
+        c,
+        solver=f"eigen_solver='lobpcg' (max_iter={max_iter})",
+        hint="Raise max_iter, or use eigen_solver='arpack' (SciPy, CPU).",
+    )
+    start = int(drop_first)
+    return lam[start:], einx.multiply("N, N n -> N n", s, U[:, start:]), n_iter
+
+
 # -- estimators --------------------------------------------------------------
 
 
@@ -844,15 +1111,19 @@ class LaplacianEigenmaps(_GraphEmbedding):
         constraint: ``"degree"`` or ``"identity"``.
         neighbors_backend: ``"exact"``, ``"pynndescent"`` or ``"sklearn"``.
         eigen_solver: ``"dense"`` (JAX, differentiable), ``"arpack"``
-            (sparse, SciPy, for large ``N``), ``"lanczos"`` (sparse, JAX) or
-            ``"kronecker"`` (a face-connected `GridGraph` passed to `fit`,
-            identity constraint): the methods of `laplacian_eigpairs`.
-        random_state: Seed for the approximate neighbours, ARPACK and
-            Lanczos.
+            (sparse, SciPy, for large ``N``), ``"lanczos"`` (sparse, JAX),
+            ``"lobpcg"`` (sparse BCOO, JAX, jittable; float64 only, see
+            `schrodinger_eigenmap`) or ``"kronecker"`` (a face-connected
+            `GridGraph` passed to `fit`, identity constraint).
+        max_iter: Iteration cap of ``"lobpcg"``; ignored otherwise.
+        random_state: Seed for the approximate neighbours, ARPACK, Lanczos
+            and LOBPCG's initial block.
         embedding: ``(N, n_components)``, ``None`` before `fit`.
         eigenvalues: ``(n_components,)``, ``None`` before `fit`.
         graph: The `KNNGraph`, or the graph passed to `fit`; ``None`` before
             `fit`.
+        n_iter: LOBPCG iterations taken (``max_iter`` when it hit the cap,
+            which is normal on large graphs); ``None`` for the other solvers.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -872,10 +1143,12 @@ class LaplacianEigenmaps(_GraphEmbedding):
     constraint: Constraint = eqx.field(default="degree", static=True)
     neighbors_backend: Backend = eqx.field(default="exact", static=True)
     eigen_solver: Solver = eqx.field(default="dense", static=True)
+    max_iter: int = eqx.field(default=_LOBPCG_MAX_ITER, static=True)
     random_state: int | None = eqx.field(default=None, static=True)
     embedding: Float[Array, "N n"] | None = None
     eigenvalues: Float[Array, " n"] | None = None
     graph: KNNGraph | GraphLike | None = None
+    n_iter: Int[Array, ""] | None = None
 
     def __check_init__(self) -> None:
         _check_common(self)
@@ -888,6 +1161,29 @@ class LaplacianEigenmaps(_GraphEmbedding):
         Raises:
             ValueError: If ``graph`` does not have one node per row of ``X``.
         """
+        if self.eigen_solver == "lobpcg":
+            fitted: KNNGraph | GraphLike
+            if graph is not None:
+                _check_graph(graph, X.shape[0])
+                fitted = target = graph
+            else:
+                fitted = self._graph(X)
+                target = self._sparse_graph(fitted)
+            lam, Y, n_iter = _lobpcg_eigenmap(
+                target,
+                None,
+                self.n_components,
+                constraint=self.constraint,
+                key=self._key(),
+                max_iter=self.max_iter,
+            )
+            return dataclasses.replace(
+                self,
+                embedding=Y,
+                eigenvalues=lam,
+                graph=fitted,
+                n_iter=n_iter,
+            )
         if graph is not None:
             _check_graph(graph, X.shape[0])
             lam, Y = laplacian_eigenmap(
@@ -942,10 +1238,10 @@ class SchrodingerEigenmaps(_GraphEmbedding):
 
     With ``alpha = 0`` it is `LaplacianEigenmaps`. The graph and solver
     settings (``n_components``, ``n_neighbors``, ``weighting``, ``bandwidth``,
-    ``constraint``, ``neighbors_backend``, ``eigen_solver``, ``random_state``)
-    are as in `LaplacianEigenmaps`, except that ``"kronecker"`` does not
-    apply. Several potentials combine into one with `combine_potentials`
-    (then ``alpha=1.0, normalize_potential=False``).
+    ``constraint``, ``neighbors_backend``, ``eigen_solver``, ``max_iter``,
+    ``random_state``) and ``n_iter`` are as in `LaplacianEigenmaps`, except
+    that ``"kronecker"`` does not apply. Several potentials combine into one
+    with `combine_potentials` (then ``alpha=1.0, normalize_potential=False``).
 
     Attributes:
         alpha: Weight of the potential.
@@ -980,10 +1276,12 @@ class SchrodingerEigenmaps(_GraphEmbedding):
     constraint: Constraint = eqx.field(default="degree", static=True)
     neighbors_backend: Backend = eqx.field(default="exact", static=True)
     eigen_solver: Solver = eqx.field(default="dense", static=True)
+    max_iter: int = eqx.field(default=_LOBPCG_MAX_ITER, static=True)
     random_state: int | None = eqx.field(default=None, static=True)
     embedding: Float[Array, "N n"] | None = None
     eigenvalues: Float[Array, " n"] | None = None
     graph: KNNGraph | GraphLike | None = None
+    n_iter: Int[Array, ""] | None = None
 
     def __check_init__(self) -> None:
         _check_common(self)
@@ -1011,6 +1309,32 @@ class SchrodingerEigenmaps(_GraphEmbedding):
         if not isinstance(potential, lx.AbstractLinearOperator):
             potential = jnp.asarray(potential)
         _check_potential(potential, n)
+        if self.eigen_solver == "lobpcg":
+            fitted: KNNGraph | GraphLike
+            if graph is not None:
+                _check_graph(graph, n)
+                fitted = target = graph
+            else:
+                fitted = self._graph(X)
+                target = self._sparse_graph(fitted)
+            lam, Y, n_iter = _lobpcg_eigenmap(
+                target,
+                potential,
+                self.n_components,
+                alpha=self.alpha,
+                normalize_potential=self.normalize_potential,
+                constraint=self.constraint,
+                drop_first=self.drop_first,
+                key=self._key(),
+                max_iter=self.max_iter,
+            )
+            return dataclasses.replace(
+                self,
+                embedding=Y,
+                eigenvalues=lam,
+                graph=fitted,
+                n_iter=n_iter,
+            )
         if graph is not None:
             _check_graph(graph, n)
             lam, Y = self._embed(graph, potential, self.eigen_solver)
@@ -1066,6 +1390,8 @@ def _check_common(model: eqx.Module) -> None:
     solver = getattr(model, "eigen_solver", "dense")
     if solver not in _SOLVERS:
         raise ValueError(
-            "eigen_solver must be 'dense', 'kronecker', 'lanczos' or 'arpack', "
-            f"got {solver!r}."
+            "eigen_solver must be 'dense', 'kronecker', 'lanczos', 'arpack' or "
+            f"'lobpcg', got {solver!r}."
         )
+    if getattr(model, "max_iter", 1) < 1:
+        raise ValueError("max_iter must be >= 1.")

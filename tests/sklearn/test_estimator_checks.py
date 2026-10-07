@@ -54,6 +54,9 @@ DECOMPOSITION = [
     LocalityPreservingProjections(n_components=2, n_neighbors=5),
     LaplacianEigenmaps(n_components=2, n_neighbors=5),
     SchrodingerEigenmaps(n_components=2, n_neighbors=5, alpha=5.0),
+    # The suite runs with x64 (conftest), which "lobpcg" needs.
+    LaplacianEigenmaps(n_components=2, n_neighbors=5, eigen_solver="lobpcg"),
+    SchrodingerEigenmaps(n_components=2, n_neighbors=5, eigen_solver="lobpcg"),
     SchrodingerEigenmapProjections(n_components=2, n_neighbors=5, alpha=5.0),
     KernelLocalityPreservingProjections(n_components=2, n_neighbors=5),
 ]

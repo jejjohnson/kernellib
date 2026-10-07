@@ -133,7 +133,7 @@ class TestGraphInputs:
         with pytest.raises(ValueError, match="needs a PRNG key"):
             kl.schrodinger_eigenmap(g, _labels(60), method="lanczos")
         with pytest.raises(ValueError, match="method must be"):
-            kl.schrodinger_eigenmap(g, _labels(60), method="lobpcg")
+            kl.schrodinger_eigenmap(g, _labels(60), method="bogus")
 
 
 class TestEstimators:
