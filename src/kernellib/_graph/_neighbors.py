@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from typing import Literal
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array, Float, Int
 
-from kernellib._einx import rearrange
+from kernellib._einx import einsum, rearrange, reduce
 
 
 __all__ = ["KNNGraph", "nearest_neighbors", "radius_neighbors"]
@@ -161,14 +162,16 @@ def _exact(X: Float[Array, "N D"], k: int, batch: int) -> KNNGraph:
     pad = n_blocks * batch - n
     rows = jnp.arange(n_blocks * batch)
     X_pad = jnp.concatenate([X, jnp.zeros((pad, X.shape[1]), X.dtype)])
-    sq_norms = jnp.sum(X * X, axis=1)
+    sq_norms = reduce(X * X, "n d -> n", "sum")
 
     def block(start_rows: Int[Array, " B"]) -> tuple[Array, Array]:
         Xb = X_pad[start_rows]
-        d2 = jnp.sum(Xb * Xb, axis=1)[:, None] + sq_norms[None, :] - 2.0 * Xb @ X.T
+        d2 = einx.add("b, n -> b n", reduce(Xb * Xb, "b d -> b", "sum"), sq_norms)
+        d2 = d2 - 2.0 * einsum(Xb, X, "b d, n d -> b n")
         d2 = jnp.clip(d2, min=0.0)
         # A point is not its own neighbour.
-        d2 = jnp.where(start_rows[:, None] == jnp.arange(n)[None, :], jnp.inf, d2)
+        self_pair = einx.equal("b, n -> b n", start_rows, jnp.arange(n))
+        d2 = jnp.where(self_pair, jnp.inf, d2)
         neg, idx = jax.lax.top_k(-d2, k)
         return idx, jnp.sqrt(-neg)
 
@@ -194,7 +197,7 @@ def _drop_self(
     # The query set is the data, so each row normally starts with the point
     # itself; drop it by index (not by position, which ties can reorder).
     n = indices.shape[0]
-    keep = indices != np.arange(n)[:, None]
+    keep = einx.not_equal("n k, n -> n k", indices, np.arange(n))
     idx = np.stack([row[m][:k] for row, m in zip(indices, keep, strict=True)])
     dist = np.stack([row[m][:k] for row, m in zip(distances, keep, strict=True)])
     return KNNGraph(indices=jnp.asarray(idx), distances=jnp.asarray(dist, dtype))

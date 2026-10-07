@@ -414,7 +414,9 @@ def _sparse_adjacency(
         w = np.exp(-(dist**2) / (2.0 * sigma**2))
     else:
         w = np.ones_like(dist)
-    W = sp.csr_matrix((w.ravel(), (np.repeat(np.arange(n), k), idx.ravel())), (n, n))
+    rows = np.repeat(np.arange(n), k)
+    cols = einx.id("n k -> (n k)", idx)
+    W = sp.csr_matrix((einx.id("n k -> (n k)", w), (rows, cols)), (n, n))
     W = W.maximum(W.T)
     W.setdiag(0.0)
     W.eliminate_zeros()
@@ -444,5 +446,5 @@ def _smallest_sparse(
     order = np.argsort(c - mu)
     lam, U = (c - mu)[order], U[:, order]
     start = int(drop_first)
-    Y = scale[:, None] * U[:, start:]
+    Y = einx.multiply("N, N n -> N n", scale, U[:, start:])
     return jnp.asarray(lam[start:]), jnp.asarray(Y)

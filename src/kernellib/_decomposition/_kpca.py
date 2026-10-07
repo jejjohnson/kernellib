@@ -348,9 +348,9 @@ class KernelPCA(eqx.Module):
                     f"n_components={self.n_components} exceeds the rank bound "
                     f"{min(Phi.shape)} of the features."
                 )
-            mu = jnp.mean(Phi, axis=0)
+            mu = reduce(Phi, "n d -> d", "mean")
             Pc = Phi - mu
-            lam, U = jnp.linalg.eigh(Pc.T @ Pc)
+            lam, U = jnp.linalg.eigh(einsum(Pc, Pc, "n i, n j -> i j"))
             lam, U = lam[::-1][: self.n_components], U[:, ::-1][:, : self.n_components]
             return dataclasses.replace(
                 self,
@@ -383,10 +383,11 @@ class KernelPCA(eqx.Module):
             lam, U = lam[::-1], U[:, ::-1]
         else:
             K = self.kernel(X, X)
-            col = jnp.mean(K, axis=0)
+            col = reduce(K, "i j -> j", "mean")
             total = jnp.mean(K)
-            Kc = K - col[None, :] - col[:, None] + total
-            lam, U = jnp.linalg.eigh(0.5 * (Kc + Kc.T))
+            Kc = einx.subtract("i j, j -> i j", K, col)
+            Kc = einx.subtract("i j, i -> i j", Kc, col) + total
+            lam, U = jnp.linalg.eigh(0.5 * (Kc + rearrange(Kc, "i j -> j i")))
             lam = lam[::-1][: self.n_components]
             U = U[:, ::-1][:, : self.n_components]
         safe = jnp.sqrt(jnp.clip(lam, min=jnp.finfo(lam.dtype).tiny))

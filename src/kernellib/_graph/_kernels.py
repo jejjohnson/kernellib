@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from kernellib._einx import einsum
 from kernellib._graph._laplacian import Normalization, graph_laplacian
 from kernellib._graph._types import AbstractGraph, _check_nonnegative
 from kernellib.functional._graph import graph_matern_spectrum
@@ -34,7 +35,7 @@ def _spectral(
             )
         W = W.to_dense()
     lam, U = jnp.linalg.eigh(graph_laplacian(W, normalization))
-    return (U * fn(jnp.clip(lam, min=0.0))) @ U.T
+    return einsum(U * fn(jnp.clip(lam, min=0.0)), U, "i k, j k -> i j")
 
 
 def diffusion_kernel(
