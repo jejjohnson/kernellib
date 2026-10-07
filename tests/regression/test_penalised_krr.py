@@ -296,3 +296,31 @@ def test_non_symmetric_low_rank_takes_the_exact_general_path():
     assert jnp.allclose(
         _krr(5.0).fit(X, y, penalty=M).alpha, _krr(5.0).fit(X, y, penalty=sym).alpha
     )
+
+
+@pytest.mark.parametrize("normalization", ["unnormalized", "symmetric"])
+def test_graph_laplacian_penalty_matches_dense_adjacency(normalization):
+    X, y, _ = _data()
+    graph = kl.knn_graph(X, 8)
+    dense = kl.laplacian_penalty(graph.to_dense(), normalization=normalization)
+    sparse = kl.laplacian_penalty(graph, normalization=normalization)
+    assert isinstance(sparse, gx.SparseOperator)  # never densified
+    assert lx.is_symmetric(sparse)
+    assert lx.is_positive_semidefinite(sparse)
+    f = jax.random.normal(jax.random.key(1), (X.shape[0],))
+    assert jnp.allclose(sparse.mv(f), dense.mv(f))
+    mask = jnp.arange(X.shape[0]) % 3 == 0
+    for implicit in (False, True):
+        fit_dense = _krr(5.0, implicit=implicit).fit(X, y, penalty=dense, mask=mask)
+        fit_sparse = _krr(5.0, implicit=implicit).fit(X, y, penalty=sparse, mask=mask)
+        assert jnp.allclose(fit_sparse.alpha, fit_dense.alpha, rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.parametrize("normalization", ["unnormalized", "symmetric"])
+def test_grid_graph_laplacian_penalty_matches_dense_adjacency(normalization):
+    grid = kl.GridGraph((4, 5))
+    M = kl.laplacian_penalty(grid, normalization=normalization)
+    assert lx.is_symmetric(M)
+    assert lx.is_positive_semidefinite(M)
+    dense = kl.laplacian_penalty(grid.to_dense(), normalization=normalization)
+    assert jnp.allclose(M.as_matrix(), dense.as_matrix())
