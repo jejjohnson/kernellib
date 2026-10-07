@@ -30,12 +30,24 @@ method there applies. Schrödinger eigenmaps solve
 $D^{-1/2}(L + \alpha V) D^{-1/2} u = \lambda u$, a lineax composition, by
 ``"dense"``, ``"lanczos"`` or ``"arpack"``. `combine_potentials` weights
 several potentials into one.
+
+**Lanczos is checked.** Both ``"lanczos"`` paths verify the returned pairs:
+the residual $r_i = \|A u_i - \lambda_i u_i\|$ of each must be at most
+$\sqrt{\varepsilon}\, c$, with $\varepsilon$ the machine epsilon of the
+dtype and $c \approx \lambda_{\max}(A)$ the spectral scale: the Gershgorin
+bound for a Laplacian, the largest Ritz value for a Schrödinger operator
+(``_check_eigpairs``).
+A failing run is repeated with twice the Krylov oversample, up to
+``_MAX_OVERSAMPLE``; if it still fails, a ``RuntimeError`` is raised rather
+than a wrong embedding returned (use ``"arpack"``).
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextvars import ContextVar
 from typing import Literal
 
 import einx
@@ -46,6 +58,7 @@ import jax.numpy as jnp
 import lineax as lx
 import numpy as np
 import scipy.sparse as sp
+from jax.core import Tracer
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from kernellib._einx import rearrange, reduce
@@ -55,6 +68,7 @@ from kernellib._graph._construct import (
     graph_from_neighbors,
 )
 from kernellib._graph._eigpairs import (
+    _dense_laplacian,
     _smallest_sparse,
     _sparse_adjacency,
     laplacian_eigpairs,
@@ -84,8 +98,14 @@ Potential = Float[Array, " N"] | Float[Array, "N N"] | lx.AbstractLinearOperator
 GraphLike = Float[Array, "N N"] | AbstractGraph
 
 _SOLVERS = ("dense", "kronecker", "lanczos", "arpack")
-# Krylov margin of the Schrödinger "lanczos" path, as in laplacian_eigpairs.
+# Krylov margin of the "lanczos" paths, as in laplacian_eigpairs; a run whose
+# residuals fail `_check_eigpairs` is repeated with twice the margin, up to
+# _MAX_OVERSAMPLE (three doublings), before raising.
 _OVERSAMPLE = 200
+_MAX_OVERSAMPLE = 1600
+# The estimator whose fit is running, if any: a solver failure then names the
+# estimator and its ``eigen_solver`` rather than the function and ``method``.
+_ESTIMATOR: ContextVar[str | None] = ContextVar("_ESTIMATOR", default=None)
 
 
 # -- matrix level ------------------------------------------------------------
@@ -126,6 +146,9 @@ def laplacian_eigenmap(
     goes through `laplacian_eigpairs`: of $L_{\mathrm{sym}}$ under the degree
     constraint (then $y = D^{-1/2} u$), of $L$ under the identity constraint
     (where a face-connected `GridGraph` gets the Kronecker path).
+    ``"lanczos"`` is checked as in `schrodinger_eigenmap`, with the
+    Gershgorin bound $c$ ($2$, or $2 \max_i d_i$ for the identity
+    constraint) as the scale.
 
     Args:
         W: Symmetric adjacency matrix ``(N, N)``, or an `AbstractGraph`.
@@ -143,6 +166,8 @@ def laplacian_eigenmap(
     Raises:
         ValueError: For an invalid ``constraint`` or ``method``, or
             ``"kronecker"`` with the degree constraint.
+        RuntimeError: If ``"lanczos"`` has not converged at the largest
+            Krylov space it tries.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -175,13 +200,13 @@ def laplacian_eigenmap(
             "method='kronecker' solves L u = lambda u: it needs constraint='identity'."
         )
     start = int(drop_first)
-    lam, U = laplacian_eigpairs(
-        W,
-        n_components + start,
-        normalization="symmetric" if constraint == "degree" else "unnormalized",
-        method=method,
-        key=key,
-    )
+    normalization = "symmetric" if constraint == "degree" else "unnormalized"
+    if method == "lanczos":
+        lam, U = _laplacian_lanczos(W, n_components + start, normalization, key)
+    else:
+        lam, U = laplacian_eigpairs(
+            W, n_components + start, normalization=normalization, method=method, key=key
+        )
     lam, U = lam[start:], U[:, start:]
     if constraint == "identity":
         return lam, U
@@ -210,6 +235,15 @@ def schrodinger_eigenmap(
     matrix-free (all Ritz pairs of a Krylov space ``200`` wider than needed,
     the smallest kept), ``"arpack"`` converts it to SciPy.
 
+    ``"lanczos"`` checks every returned pair: its residual
+    $\|A u - \lambda u\|$ must be at most $\sqrt{\varepsilon}\,c$, with $c$
+    the largest Ritz value ($\approx \lambda_{\max}(A)$). A strong potential
+    widens the spectrum and crowds the wanted eigenvalues near 0, where a
+    fixed Krylov space may not converge; a failing run is repeated with twice
+    the oversample (up to ``1600``), and then raises a ``RuntimeError``
+    instead of returning wrong eigenpairs. ``"arpack"`` is the robust
+    fallback.
+
     Args:
         W: Symmetric adjacency matrix ``(N, N)``, or an `AbstractGraph`.
         potential: $V$, either its diagonal ``(N,)`` (a barrier potential, see
@@ -237,6 +271,8 @@ def schrodinger_eigenmap(
     Raises:
         ValueError: For an invalid ``constraint`` or ``method`` (including
             ``"kronecker"``), or ``"lanczos"`` without a ``key``.
+        RuntimeError: If ``"lanczos"`` has not converged at the largest
+            Krylov space it tries.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -288,12 +324,28 @@ def schrodinger_eigenmap(
     if method == "lanczos":
         if key is None:
             raise ValueError("method='lanczos' needs a PRNG key.")
-        # Krylov spaces are shift-invariant: the smallest Ritz pairs of op
-        # are those of the shifted cI - op that laplacian_eigpairs uses.
+        # Krylov spaces are shift-invariant, and gaussx.eig fully
+        # reorthogonalises: the smallest Ritz pairs of op are those of the
+        # shifted cI - op that laplacian_eigpairs uses, so no shift is applied
+        # (it changes no digit). What decides convergence is the Krylov
+        # dimension, which _lanczos_until_converged grows until the residuals
+        # pass.
         mv = lx.FunctionLinearOperator(op.mv, op.in_structure(), lx.symmetric_tag)
-        mu, U = gx.eig(mv, rank=min(stop + _OVERSAMPLE, op.in_size()), key=key)
-        order = jnp.argsort(mu)
-        lam, U = mu[order], U[:, order]
+
+        def solve(oversample: int):
+            mu, V = gx.eig(mv, rank=min(stop + oversample, op.in_size()), key=key)
+            order = jnp.argsort(mu)[:stop]
+            # The largest Ritz value converges first and bounds lambda_max(op)
+            # from below: the spectral scale of the residual tolerance.
+            return mu[order], V[:, order], jnp.max(mu)
+
+        lam, U = _lanczos_until_converged(
+            solve,
+            op.mv,
+            stop,
+            op.in_size(),
+            function="schrodinger_eigenmap",
+        )
     else:
         lam, U = jnp.linalg.eigh(op.as_matrix())
     return lam[start:stop], einx.multiply("n, n k -> n k", scale, U[:, start:stop])
@@ -495,6 +547,39 @@ def spatial_spectral_graph(
     return edge_weights(spatial_graph, X, RBF(lengthscale=bandwidth))
 
 
+def _laplacian_lanczos(
+    W: GraphLike,
+    n: int,
+    normalization: Literal["unnormalized", "symmetric"],
+    key: PRNGKeyArray | None,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    """`laplacian_eigpairs` by Lanczos, checked by `_check_eigpairs`."""
+    if isinstance(W, AbstractGraph):
+        L = W.laplacian_operator(normalization)
+        matvec, n_nodes = L.mv, W.n_nodes
+    else:
+        L_dense = _dense_laplacian(W, normalization)
+        matvec, n_nodes = (lambda v: L_dense @ v), L_dense.shape[0]
+    # Gershgorin, as in laplacian_eigpairs: lambda_max(L) <= 2 max(degree);
+    # the symmetric form is <= 2.
+    bound = 2.0 * jnp.max(_degree(W)) if normalization == "unnormalized" else 2.0
+
+    def solve(oversample: int):
+        lam, U = laplacian_eigpairs(
+            W,
+            n,
+            normalization=normalization,
+            method="lanczos",
+            key=key,
+            oversample=oversample,
+        )
+        return lam, U, bound
+
+    return _lanczos_until_converged(
+        solve, matvec, n, n_nodes, function="laplacian_eigenmap"
+    )
+
+
 def _check_constraint(constraint: str) -> None:
     if constraint not in ("degree", "identity"):
         raise ValueError(
@@ -607,6 +692,154 @@ def _seed(key: PRNGKeyArray | None) -> int:
     return 0 if key is None else int(jax.random.randint(key, (), 0, 2**31 - 1))
 
 
+# -- eigenpair verification --------------------------------------------------
+
+
+def _eigpair_residuals(
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    lam: Float[Array, " n"],
+    U: Float[Array, "N n"],
+) -> Float[Array, " n"]:
+    r"""Relative residuals $\|A u_i - \lambda_i u_i\| / \|u_i\|$ of eigenpairs.
+
+    ``n`` matvecs. ``matvec`` is $v \mapsto A v$ for the symmetric matrix
+    the pairs claim to diagonalise (not a shifted or flipped one).
+    """
+    AU = jax.vmap(matvec, in_axes=1, out_axes=1)(U)
+    R = AU - einx.multiply("N n, n -> N n", U, lam)
+    norm_r = jnp.sqrt(reduce(R**2, "N n -> n", "sum"))
+    norm_u = jnp.sqrt(reduce(U**2, "N n -> n", "sum"))
+    return norm_r / jnp.maximum(norm_u, jnp.finfo(U.dtype).tiny)
+
+
+def _residual_tolerance(
+    bound: float | Float[Array, ""], dtype: jnp.dtype
+) -> Float[Array, ""]:
+    r"""$\sqrt{\varepsilon}\, \max(c, 1)$: half the digits of the dtype.
+
+    $c \approx \lambda_{\max}(A)$, a bound or a close estimate. A residual
+    $r$ bounds the eigenvalue error by $r$, and by $r^2 / \mathrm{gap}$ once
+    the pair is isolated, so a passing pair is accurate to about
+    $\varepsilon c^2 / \mathrm{gap}$.
+    """
+    return jnp.sqrt(jnp.finfo(dtype).eps) * jnp.maximum(jnp.abs(bound), 1.0)
+
+
+def _check_eigpairs(
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    lam: Float[Array, " n"],
+    U: Float[Array, "N n"],
+    bound: float | Float[Array, ""],
+    *,
+    solver: str,
+    hint: str,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    r"""Raise if any returned eigenpair of $A$ has not converged.
+
+    The residual test of `_eigpair_residuals` against `_residual_tolerance`
+    (``bound`` is $c \approx \lambda_{\max}(A)$). An iterative solver that
+    returns the wrong pairs gives a wrong embedding with no other symptom,
+    so this raises rather than warns. With concrete values it raises a
+    ``RuntimeError``; under ``jit`` it attaches the same check to the
+    outputs with `equinox.error_if`.
+
+    Args:
+        matvec: $v \mapsto A v$.
+        lam: Claimed eigenvalues, ``(n,)``.
+        U: Claimed eigenvectors, ``(N, n)``.
+        bound: Spectral scale $c \approx \lambda_{\max}(A)$.
+        solver: Name of the solver, for the message.
+        hint: What to do instead, for the message.
+
+    Returns:
+        ``(lam, U)``, unchanged (under ``jit``, wrapped in the check).
+
+    Raises:
+        RuntimeError: If a residual exceeds the tolerance.
+    """
+    res = _eigpair_residuals(matvec, lam, U)
+    tol = _residual_tolerance(bound, U.dtype)
+    if isinstance(res, Tracer) or isinstance(tol, Tracer):
+        message = (
+            f"{solver} did not converge: eigenpair residuals above tolerance. {hint}"
+        )
+        # ~all(res <= tol), not any(res > tol): NaN compares False, so a
+        # non-finite residual must fail the check, as it does eagerly.
+        return eqx.error_if((lam, U), ~jnp.all(res <= tol), message)
+    if not bool(jnp.all(res <= tol)):
+        raise RuntimeError(
+            f"{solver} did not converge: eigenpair residuals "
+            f"||A u - lambda u|| = {np.asarray(res).tolist()} exceed the "
+            f"tolerance {float(tol):.3g} (sqrt(eps) * {float(bound):.3g}), so "
+            f"the eigenvalues {np.asarray(lam).tolist()} are not trustworthy. "
+            f"{hint}"
+        )
+    return lam, U
+
+
+@contextlib.contextmanager
+def _fitting(estimator: str) -> Iterator[None]:
+    """Solver failures inside this block name ``estimator`` (`_solver_names`).
+
+    Decorates the estimators' ``fit`` (a ``contextmanager`` is also a
+    decorator); the check message is built at trace time, so it holds under
+    ``jit`` too.
+    """
+    token = _ESTIMATOR.set(estimator)
+    try:
+        yield
+    finally:
+        _ESTIMATOR.reset(token)
+
+
+def _solver_names(function: str, method: str) -> tuple[str, str]:
+    """The ``solver`` and ``hint`` of a `_check_eigpairs` message.
+
+    The public function takes the solver as ``method``, the estimators as
+    ``eigen_solver``; inside an estimator's `fit` (`_fitting`) the message
+    names the estimator and its parameter, so the advice can be followed.
+    """
+    estimator = _ESTIMATOR.get()
+    name, param = (
+        (function, "method") if estimator is None else (estimator, "eigen_solver")
+    )
+    return (
+        f"{name}({param}={method!r})",
+        f"Use {param}='arpack' (SciPy, CPU), or {param}='dense' for a small graph.",
+    )
+
+
+def _lanczos_until_converged(
+    solve: Callable[
+        [int], tuple[Float[Array, " n"], Float[Array, "N n"], Float[Array, ""]]
+    ],
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    n_wanted: int,
+    n_nodes: int,
+    *,
+    function: str,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    """Run ``solve(oversample)`` until `_check_eigpairs` passes.
+
+    ``solve`` returns ``(lam, U, bound)``. The oversample starts at
+    ``_OVERSAMPLE`` and doubles on failure, up to ``_MAX_OVERSAMPLE`` (or the
+    full space, where Lanczos is exact); the last run is checked and raises.
+    Under ``jit`` there is one run, checked by `equinox.error_if`.
+    ``function`` (the public function) names the solver in the message.
+    """
+    solver, hint = _solver_names(function, "lanczos")
+    oversample = _OVERSAMPLE
+    while True:
+        lam, U, bound = solve(oversample)
+        last = oversample >= _MAX_OVERSAMPLE or n_wanted + oversample >= n_nodes
+        res = _eigpair_residuals(matvec, lam, U)
+        if last or isinstance(res, Tracer):
+            return _check_eigpairs(matvec, lam, U, bound, solver=solver, hint=hint)
+        if bool(jnp.all(res <= _residual_tolerance(bound, U.dtype))):
+            return lam, U
+        oversample *= 2
+
+
 # -- estimators --------------------------------------------------------------
 
 
@@ -687,6 +920,7 @@ class LaplacianEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("LaplacianEigenmaps")
     def fit(
         self, X: Float[Array, "N D"], *, graph: GraphLike | None = None
     ) -> LaplacianEigenmaps:
@@ -795,6 +1029,7 @@ class SchrodingerEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("SchrodingerEigenmaps")
     def fit(
         self,
         X: Float[Array, "N D"],
