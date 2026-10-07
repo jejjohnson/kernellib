@@ -36,7 +36,7 @@ from scipy.sparse.csgraph import connected_components
 from kernellib._einx import rearrange, reduce
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._graph._neighbors import KNNGraph
-from kernellib._graph._types import AbstractGraph, GridGraph
+from kernellib._graph._types import AbstractGraph, GridGraph, _check_nonnegative
 
 
 __all__ = ["laplacian_eigpairs", "n_components_graph"]
@@ -331,11 +331,15 @@ def _lanczos(
     if isinstance(graph, AbstractGraph):
         L = graph.laplacian_operator(normalization)  # ty: ignore[invalid-argument-type]
         degree = graph.degree()
+        spread = graph._degree(jnp.abs(graph.weights))
     else:
         L = lx.MatrixLinearOperator(_dense_laplacian(graph, normalization))
         degree = reduce(jnp.asarray(graph), "i j -> i", "sum")
-    # Gershgorin: lambda_max(L) <= 2 max(degree); the symmetric form is <= 2.
-    c = 2.0 * jnp.max(degree) if normalization == "unnormalized" else 2.0
+        spread = reduce(jnp.abs(jnp.asarray(graph)), "i j -> i", "sum")
+    # Gershgorin: lambda_max(L) <= max(d_i + sum_j |W_ij|), i.e. 2 max(degree)
+    # for non-negative weights (signed ones: a mesh_graph with
+    # on_negative="allow"); the symmetric form is <= 2.
+    c = jnp.max(degree + spread) if normalization == "unnormalized" else 2.0
     shifted = lx.FunctionLinearOperator(
         lambda v: c * v - L.mv(v),
         L.in_structure(),
@@ -355,7 +359,10 @@ def _arpack(
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     if isinstance(graph, AbstractGraph):
         top = graph.topology
-        w = np.asarray(graph.weights)
+        w = graph.weights
+        if normalization == "symmetric":
+            w = _check_nonnegative(w, "a 'symmetric' graph eigenbasis")
+        w = np.asarray(w)
         N = top.n_nodes
         W = sp.coo_matrix(
             (

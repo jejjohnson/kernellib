@@ -550,6 +550,7 @@ def mesh_graph(
     triangles: Int[ArrayLike, "T 3"],
     *,
     weighting: Literal["connectivity", "cotangent"] = "connectivity",
+    on_negative: Literal["raise", "clip", "allow"] = "raise",
 ) -> Graph:
     r"""The edge graph of a triangle mesh.
 
@@ -561,27 +562,49 @@ def mesh_graph(
     matrix $G$ (`gaussx.fem_matrices`), the discrete $-\Delta$ on the
     surface. The weights are differentiable in ``vertices``.
 
-    A cotangent weight is negative when $\alpha + \beta > \pi$, i.e. the
-    mesh is not Delaunay there. $G$ is then still positive semidefinite, but
-    not a graph Laplacian with non-negative weights (its incidence matrix
-    would need $\sqrt{w_e}$), so this raises rather than clamp, which would
-    silently change the operator. Use `gaussx.fem_matrices`, which holds
-    the signed stiffness as a `gaussx.SparseOperator`, or re-mesh. Weights
-    within rounding error of zero (right angles on both sides; ``1e3``
-    machine epsilons of the largest weight) are set to 0. Under ``jit``,
-    ``grad`` or ``vmap`` the checks run at run time (`equinox.error_if`).
+    A cotangent weight is negative on an interior edge when
+    $\alpha + \beta > \pi$, i.e. the mesh is not Delaunay there, and on a
+    boundary edge when its single opposite angle is obtuse. The second case
+    is common on a Delaunay mesh of scattered points: a thin triangle on the
+    convex hull. $G$ is then still positive semidefinite, but not a graph
+    Laplacian with non-negative weights (its incidence matrix would need
+    $\sqrt{w_e}$). ``on_negative`` chooses what happens:
+
+    - ``"raise"`` (default): raise, naming the interior (not Delaunay) and
+      the boundary (obtuse hull angle) cases separately. Clamping silently
+      would change the operator.
+    - ``"clip"``: set the negative weights to 0, the usual graph-Laplacian
+      fix. The Laplacian is no longer exactly $G$.
+    - ``"allow"``: keep the signed weights, so the Laplacian is exactly $G$
+      and still positive semidefinite, but some weights are negative. Such a
+      `Graph` supports the unnormalised `Graph.laplacian_operator` (and
+      `structure_matrix`, `Graph.dirichlet_energy`, `Graph.degree`); the
+      operations that need non-negative weights (`Graph.incidence_operator`,
+      with its $\sqrt{w_e}$, and the normalised Laplacians) raise, or fail
+      an `equinox.error_if` under ``jit``.
+
+    `gaussx.fem_matrices` also holds the signed stiffness, as a
+    `gaussx.SparseOperator`. Weights within rounding error of zero (right
+    angles on both sides; ``1e3`` machine epsilons of the largest weight) are
+    set to 0. Under ``jit``, ``grad`` or ``vmap`` the checks run at run time
+    (`equinox.error_if`).
 
     Args:
         vertices: Vertex coordinates, ``(V, 2)`` or ``(V, 3)`` for a surface.
         triangles: Vertex indices of each triangle, ``(T, 3)`` (concrete).
         weighting: ``"connectivity"`` (1 per edge) or ``"cotangent"``.
+        on_negative: What to do with negative cotangent weights:
+            ``"raise"``, ``"clip"`` (set to 0) or ``"allow"`` (keep; only
+            the unnormalised Laplacian then supports the signed weights).
+            Ignored for ``weighting="connectivity"``.
 
     Returns:
         A `Graph` on the ``V`` vertices.
 
     Raises:
-        ValueError: For malformed ``triangles``, a degenerate triangle, or a
-            negative cotangent weight.
+        ValueError: For malformed ``triangles``, a degenerate triangle, an
+            unknown ``on_negative``, or a negative cotangent weight with
+            ``on_negative="raise"``.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -591,7 +614,19 @@ def mesh_graph(
         >>> g = kl.mesh_graph(V, T, weighting="cotangent")
         >>> g.laplacian_operator().as_matrix()[0].tolist()
         [1.0, -0.5, 0.0, -0.5]
+
+        A thin triangle on the hull: its boundary edge faces an obtuse angle.
+
+        >>> V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.2]])
+        >>> T = jnp.array([[0, 1, 2]])
+        >>> g = kl.mesh_graph(V, T, weighting="cotangent", on_negative="clip")
+        >>> bool(jnp.all(g.weights >= 0.0))
+        True
     """
+    if on_negative not in ("raise", "clip", "allow"):
+        raise ValueError(
+            f"on_negative must be 'raise', 'clip' or 'allow', got {on_negative!r}."
+        )
     tri = _concrete(triangles, "triangles")
     vertices = jnp.asarray(vertices)
     n_vertices = vertices.shape[0]
@@ -619,7 +654,9 @@ def mesh_graph(
     area2 = _check_nondegenerate(area2)
     cot = rearrange(dot / area2, "t k -> (t k)")
     w = 0.5 * jax.ops.segment_sum(cot, pair, topology.n_edges)
-    w = _check_cotangent_weights(w)
+    # An edge seen by one triangle corner is on the boundary.
+    boundary = np.bincount(pair, minlength=topology.n_edges) == 1
+    w = _check_cotangent_weights(w, boundary, on_negative)
     return Graph(topology, w)
 
 
@@ -643,9 +680,18 @@ def _triangle_edges(
 
 _DEGENERATE = "mesh_graph needs non-degenerate triangles (zero area found)."
 _NOT_DELAUNAY = (
-    "cotangent weight(s) are negative: the mesh is not Delaunay (two obtuse "
-    "angles face an edge). A graph needs non-negative weights; use "
-    "gaussx.fem_matrices for the signed stiffness matrix, or re-mesh."
+    "cotangent weight(s) are negative on interior edges: the mesh is not "
+    "Delaunay there (the two angles facing an edge sum to more than pi). A "
+    "graph needs non-negative weights; use gaussx.fem_matrices for the signed "
+    "stiffness matrix, re-mesh, or pass on_negative='clip' or 'allow'."
+)
+_OBTUSE_BOUNDARY = (
+    "cotangent weight(s) are negative on boundary edges: a boundary edge "
+    "faces a single obtuse angle (common on the convex hull of a Delaunay "
+    "mesh, which is still Delaunay). Pass on_negative='clip' to set them to 0 "
+    "or on_negative='allow' to keep the signed FEM stiffness, refine the "
+    "boundary, or use weighting='connectivity' (or kl.delaunay_graph with "
+    "weighting='heat')."
 )
 
 
@@ -660,26 +706,49 @@ def _check_nondegenerate(area2: Array) -> Array:
     return area2
 
 
-def _check_cotangent_weights(w: Array) -> Array:
-    """Raise on a negative weight and zero the ones within rounding of 0.
+def _check_cotangent_weights(
+    w: Array,
+    boundary: np.ndarray,
+    on_negative: Literal["raise", "clip", "allow"],
+) -> Array:
+    """Handle negative weights per ``on_negative`` and zero the ones within
+    rounding of 0.
 
-    The tolerance scales with the precision of ``w`` and the largest weight,
-    so float32 cancellation on a theoretically zero weight (right angles on
-    both sides) is not mistaken for a non-Delaunay edge. Under a JAX
-    transform the check is a run-time `equinox.error_if`.
+    ``boundary`` marks the edges with a single opposite angle, so a raise can
+    tell a non-Delaunay interior edge from an obtuse hull triangle. The
+    tolerance scales with the precision of ``w`` and the largest weight, so
+    float32 cancellation on a theoretically zero weight (right angles on both
+    sides) is not mistaken for a negative one. Under a JAX transform the
+    check is a run-time `equinox.error_if`.
     """
     if not w.size:
         return w
     tol = 1e3 * jnp.finfo(w.dtype).eps * jnp.max(jnp.abs(w))
-    negative = w < -tol
+    w = jnp.where(jnp.abs(w) <= tol, 0.0, w)
+    if on_negative == "clip":
+        return jnp.clip(w, min=0.0)
+    if on_negative == "allow":
+        return w
+    negative = w < 0.0
+    interior_neg = negative & ~boundary
+    boundary_neg = negative & boundary
     try:
-        host = np.asarray(negative)
+        host_interior = np.asarray(interior_neg)
+        host_boundary = np.asarray(boundary_neg)
     except jax.errors.TracerArrayConversionError:
-        w = eqx.error_if(w, jnp.any(negative), _NOT_DELAUNAY)
-    else:
-        if np.any(host):
-            raise ValueError(f"{int(np.sum(host))} {_NOT_DELAUNAY}")
-    return jnp.where(jnp.abs(w) <= tol, 0.0, w)
+        w = eqx.error_if(w, jnp.any(interior_neg), _NOT_DELAUNAY)
+        return eqx.error_if(w, jnp.any(boundary_neg), _OBTUSE_BOUNDARY)
+    problems = [
+        f"{int(np.sum(host))} {message}"
+        for host, message in (
+            (host_interior, _NOT_DELAUNAY),
+            (host_boundary, _OBTUSE_BOUNDARY),
+        )
+        if np.any(host)
+    ]
+    if problems:
+        raise ValueError(" ".join(problems))
+    return w
 
 
 # -- helpers -----------------------------------------------------------------

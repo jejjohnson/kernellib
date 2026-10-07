@@ -211,6 +211,30 @@ class GraphTopology:
         )
 
 
+_SIGNED = (
+    "{operation} needs non-negative edge weights, but this graph has negative "
+    "ones (as from kl.mesh_graph(..., weighting='cotangent', "
+    "on_negative='allow')). Signed weights support only the unnormalised "
+    "Laplacian: laplacian_operator() / structure_matrix, dirichlet_energy, "
+    "degree and the adjacency matrices. Pass on_negative='clip' for a graph "
+    "with non-negative weights."
+)
+
+
+def _check_nonnegative(w: Array, operation: str) -> Array:
+    """Reject negative edge weights: a ``ValueError`` on concrete weights, an
+    `equinox.error_if` under a JAX transform. Returns ``w``, to be used in
+    place of the input so the run-time check is not traced away."""
+    message = _SIGNED.format(operation=operation)
+    try:
+        host = np.asarray(w)
+    except jax.errors.TracerArrayConversionError:
+        return eqx.error_if(w, jnp.any(w < 0.0), message)
+    if np.any(host < 0.0):
+        raise ValueError(message)
+    return w
+
+
 def _positions(
     pattern: gx.SparsityPattern, rows: np.ndarray, cols: np.ndarray
 ) -> np.ndarray:
@@ -237,6 +261,15 @@ class AbstractGraph(eqx.Module):
 
     Isolated nodes get a zero row in the normalised forms, as in
     `graph_laplacian`.
+
+    Weights are non-negative, except on a `Graph` from
+    `mesh_graph` with ``on_negative="allow"``, whose signed cotangent weights
+    make the unnormalised Laplacian exactly the (positive semidefinite) FEM
+    stiffness matrix. Signed weights support `degree`, the adjacency matrices,
+    `dirichlet_energy` and the unnormalised `laplacian_operator`; the
+    normalised Laplacians and `incidence_operator` (which needs
+    $\sqrt{w_e}$) reject them: a ``ValueError``, or an `equinox.error_if`
+    under ``jit``.
     """
 
     n_nodes: eqx.AbstractVar[int]
@@ -261,8 +294,10 @@ class AbstractGraph(eqx.Module):
         Returns:
             Shape ``(N,)``.
         """
+        return self._degree(self.weights)
+
+    def _degree(self, w: Float[Array, " E"]) -> Float[Array, " N"]:
         top = self.topology
-        w = self.weights
         n = top.n_nodes
         return jax.ops.segment_sum(w, top.senders, n) + jax.ops.segment_sum(
             w, top.receivers, n
@@ -333,12 +368,17 @@ class AbstractGraph(eqx.Module):
             semidefinite except for ``"random_walk"``, which carries no tag.
 
         Raises:
-            ValueError: For an unknown ``normalization``.
+            ValueError: For an unknown ``normalization``, or a normalised form
+                of a graph with negative weights (under ``jit``, a run-time
+                `equinox.error_if`). The unnormalised Laplacian accepts signed
+                weights.
         """
         _check_normalization(normalization)
         top = self.topology
         w = self.weights
-        degree = self.degree()
+        if normalization != "unnormalized":
+            w = _check_nonnegative(w, f"laplacian_operator({normalization!r})")
+        degree = self._degree(w)
         if normalization == "unnormalized":
             pattern, edge_pos, diag_pos = top._symmetric_plan
             values = (
@@ -386,9 +426,13 @@ class AbstractGraph(eqx.Module):
 
         Returns:
             ``(E, N)`` `gaussx.SparseOperator`.
+
+        Raises:
+            ValueError: If a weight is negative (a signed `mesh_graph`); under
+                ``jit``, a run-time `equinox.error_if`.
         """
         pattern, pos_s, pos_r = self.topology._incidence_plan
-        root = jnp.sqrt(self.weights)
+        root = jnp.sqrt(_check_nonnegative(self.weights, "incidence_operator()"))
         values = (
             jnp.zeros(pattern.nnz, root.dtype).at[pos_s].set(root).at[pos_r].set(-root)
         )
@@ -436,7 +480,10 @@ class Graph(AbstractGraph):
 
     Args:
         topology: The edge list, each edge once.
-        weights: Non-negative edge weights, shape ``(E,)``.
+        weights: Edge weights, shape ``(E,)``: non-negative, except the signed
+            cotangent weights of `mesh_graph` with ``on_negative="allow"``,
+            which only the unnormalised Laplacian supports (see
+            `AbstractGraph`).
 
     Raises:
         ValueError: If ``weights`` does not have one entry per edge.

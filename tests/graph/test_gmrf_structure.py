@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from scipy.spatial import Delaunay
 
 import kernellib as kl
 from kernellib._einx import einsum, reduce
@@ -173,6 +174,94 @@ class TestMeshGraph:
             kl.mesh_graph(V, T, weighting="cotangent")
         # Connectivity weights do not care.
         assert kl.mesh_graph(V, T).topology.n_edges == 5
+
+    def test_obtuse_hull_triangle_names_the_boundary_case(self):
+        # A scipy Delaunay mesh: the inner vertex sees each of the three hull
+        # edges at an obtuse angle, yet every interior edge is Delaunay.
+        V = np.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.3], [1.0, 2.0]])
+        T = Delaunay(V).simplices
+        with pytest.raises(ValueError, match=r"^3 cotangent.*boundary edges") as e:
+            kl.mesh_graph(jnp.asarray(V), T, weighting="cotangent")
+        assert "not Delaunay" not in str(e.value)
+        assert "on_negative" in str(e.value)
+
+    @pytest.mark.parametrize("on_negative", ["clip", "allow"])
+    def test_on_negative_accepts_an_obtuse_hull_triangle(self, on_negative):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.3], [1.0, 2.0]])
+        T = Delaunay(np.asarray(V)).simplices
+        g = kl.mesh_graph(V, T, weighting="cotangent", on_negative=on_negative)
+        w = np.asarray(g.weights)
+        assert (np.min(w) == 0.0) if on_negative == "clip" else (np.min(w) < 0.0)
+        L = np.asarray(g.laplacian_operator().as_matrix())
+        assert np.min(np.linalg.eigvalsh(L)) > -1e-10
+        if on_negative == "allow":
+            # Signed weights: the Laplacian is exactly the FEM stiffness.
+            _, G = gx.fem_matrices(V, jnp.asarray(T))
+            assert np.allclose(L, G.as_matrix(), atol=1e-12)
+
+    def _signed_graph(self):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.3], [1.0, 2.0]])
+        T = Delaunay(np.asarray(V)).simplices
+        g = kl.mesh_graph(V, T, weighting="cotangent", on_negative="allow")
+        assert np.min(np.asarray(g.weights)) < 0.0
+        return g
+
+    def test_signed_graph_rejects_the_incidence_operator(self):
+        g = self._signed_graph()
+        with pytest.raises(ValueError, match=r"incidence_operator.*non-negative"):
+            g.incidence_operator()
+        with pytest.raises(Exception, match="non-negative edge weights"):
+            jax.block_until_ready(jax.jit(lambda g: g.incidence_operator().values)(g))
+
+    @pytest.mark.parametrize("normalization", ["symmetric", "random_walk"])
+    def test_signed_graph_rejects_the_normalised_laplacians(self, normalization):
+        g = self._signed_graph()
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            g.laplacian_operator(normalization)
+        with pytest.raises(Exception, match="non-negative edge weights"):
+            jax.block_until_ready(
+                jax.jit(lambda g: g.laplacian_operator(normalization).values)(g)
+            )
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            kl.diffusion_kernel(g, normalization="symmetric")
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            kl.laplacian_eigpairs(g, 2, normalization="symmetric", method="arpack")
+
+    def test_signed_graph_keeps_the_unnormalised_laplacian(self):
+        g = self._signed_graph()
+        L = np.asarray(jax.jit(lambda g: g.laplacian_operator().as_matrix())(g))
+        f = jnp.array([0.3, -1.0, 2.0, 0.5])
+        assert np.isclose(g.dirichlet_energy(f), f @ L @ f)
+        assert np.allclose(kl.structure_matrix(g).as_matrix(), L)
+        # Lanczos shifts by a Gershgorin bound that must hold for signed weights.
+        lam_d, _ = kl.laplacian_eigpairs(g, 3, method="dense")
+        lam_l, _ = kl.laplacian_eigpairs(g, 3, method="lanczos", key=jax.random.key(0))
+        assert np.allclose(lam_l, lam_d, atol=1e-8)
+
+    def test_interior_non_delaunay_edge_still_raises_with_the_interior_message(
+        self,
+    ):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.2], [1.0, -0.2]])
+        T = np.array([[0, 1, 2], [0, 3, 1]])
+        with pytest.raises(ValueError, match=r"interior edges.*not Delaunay") as e:
+            kl.mesh_graph(V, T, weighting="cotangent")
+        assert "boundary edges" not in str(e.value)
+
+    def test_boundary_check_runs_under_jit(self):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.2]])
+        T = np.array([[0, 1, 2]])
+
+        @jax.jit
+        def weights(V):
+            return kl.mesh_graph(V, T, weighting="cotangent").weights
+
+        with pytest.raises(Exception, match="boundary edges"):
+            jax.block_until_ready(weights(V))
+
+    def test_on_negative_validation(self):
+        V, T = _triangular_lattice(3, 3)
+        with pytest.raises(ValueError, match="on_negative"):
+            kl.mesh_graph(V, T, weighting="cotangent", on_negative="ignore")  # ty: ignore[invalid-argument-type]
 
     def test_right_angles_give_exact_zeros(self):
         V = jnp.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
