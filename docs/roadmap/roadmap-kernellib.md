@@ -1553,9 +1553,11 @@ def hsic_penalty(
 
 
 def laplacian_penalty(
-    graph, *, normalization: str = "unnormalized"
+    W: Float[Array, "N N"] | AbstractGraph,
+    *,
+    normalization: Literal["unnormalized", "symmetric"] = "unnormalized",
 ) -> lx.AbstractLinearOperator:
-    """L / n², from a dense adjacency today and from a K2 Graph once it lands."""
+    """L / n²: dense from an adjacency matrix, sparse (O(nnz)) from a K2 graph."""
 ```
 
 - **Why `penalty` is a `fit` argument.** It is aligned with `X`, like a
@@ -1576,9 +1578,9 @@ fair = kl.KRR(kl.RBF(2.0), regularization=1e-4, penalty_weight=30.0).fit(
     X, y, penalty=kl.hsic_penalty(kl.Linear(), S)
 )
 
-g_adj = kl.adjacency_matrix(kl.nearest_neighbors(X_all, 10))  # or a K2 Graph
+graph = kl.knn_graph(X_all, 10)  # a sparse K2 Graph, or a dense adjacency
 laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
-    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(g_adj)
+    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(graph)
 )
 ```
 
@@ -1826,7 +1828,7 @@ The tests are given with each API section (§6.1–6.4).
 
 The tests are given with each API section (§7.1–7.3). None of the three
 needs another phase; K13 accepts K2 `Graph`s in `laplacian_penalty` once
-K2 has shipped.
+K2 has shipped (done: #153).
 
 ### K15: proximity graphs (needs K2 and K6)
 

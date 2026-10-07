@@ -259,9 +259,9 @@ fair = kl.KRR(kl.RBF(1.0), 1e-3, penalty_weight=30.0).fit(
 )
 
 # Laplacian-regularised least squares: a few labels, many unlabelled points
-W = kl.adjacency_matrix(kl.nearest_neighbors(X_all, 10))
+graph = kl.knn_graph(X_all, 10)  # sparse: the penalty stays O(nnz)
 laprls = kl.KRR(kl.RBF(0.3), 1e-4, penalty_weight=100.0).fit(
-    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(W)
+    X_all, y_all, mask=is_labelled, penalty=kl.laplacian_penalty(graph)
 )
 ```
 
