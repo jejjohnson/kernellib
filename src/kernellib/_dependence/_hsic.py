@@ -12,11 +12,13 @@ from __future__ import annotations
 
 from typing import Literal
 
+import einx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from kernellib import functional as F
 from kernellib._dependence._features import _fit_pair
+from kernellib._einx import einsum, reduce
 from kernellib._kernels import AbstractKernel, Distance
 from kernellib._operators._bridge import to_operator
 from kernellib._spectral import AbstractFeatureMap
@@ -105,6 +107,7 @@ def cka(
     correlation, including the conventional zero for a constant sample.
 
     Examples:
+        >>> import einx
         >>> import jax
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
@@ -116,8 +119,11 @@ def cka(
         The RV coefficient, from the cross-covariance matrices:
 
         >>> Y = jnp.tanh(X) + 0.1 * jax.random.normal(jax.random.key(1), (30, 2))
-        >>> Xc, Yc = X - X.mean(0), Y - Y.mean(0)
-        >>> frob2 = lambda A, B: jnp.sum((A.T @ B) ** 2)
+        >>> centre = lambda A: einx.subtract(
+        ...     "n d, d -> n d", A, einx.mean("n d -> d", A)
+        ... )
+        >>> Xc, Yc = centre(X), centre(Y)
+        >>> frob2 = lambda A, B: jnp.sum(einx.dot("n a, n b -> a b", A, B) ** 2)
         >>> rv = frob2(Xc, Yc) / jnp.sqrt(frob2(Xc, Xc) * frob2(Yc, Yc))
         >>> bool(jnp.isclose(kl.cka(kl.Linear(), kl.Linear(), X, Y), rv))
         True
@@ -162,7 +168,7 @@ def _anchor(kernel: AbstractKernel, X: Float[Array, "N D"]) -> Float[Array, "N D
     offset they would bury the pairwise distances.
     """
     if isinstance(kernel, Distance):
-        return X - jnp.mean(X, axis=0)
+        return einx.subtract("n d, d -> n d", X, reduce(X, "n d -> d", "mean"))
     return X
 
 
@@ -180,9 +186,10 @@ def kernel_alignment(
     centred, so a constant offset in either kernel changes the value.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(0.0, 1.0, 10)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(0.0, 1.0, 10))
         >>> round(float(kl.kernel_alignment(kl.RBF(), kl.RBF(), X, X)), 6)
         1.0
     """
@@ -191,8 +198,12 @@ def kernel_alignment(
         K, L = kernel_x(X, X), kernel_y(Y, Y)
         return jnp.sum(K * L) / jnp.sqrt(jnp.sum(K * K) * jnp.sum(L * L))
     Phi_x, Phi_y = _fit_pair(approx, kernel_x, X, kernel_y, Y)
-    kl_ = _frob_sq(Phi_x.T @ Phi_y)
-    return kl_ / jnp.sqrt(_frob_sq(Phi_x.T @ Phi_x) * _frob_sq(Phi_y.T @ Phi_y))
+
+    def gram(A: Array, B: Array) -> Array:
+        return einsum(A, B, "n a, n b -> a b")
+
+    kl_ = _frob_sq(gram(Phi_x, Phi_y))
+    return kl_ / jnp.sqrt(_frob_sq(gram(Phi_x, Phi_x)) * _frob_sq(gram(Phi_y, Phi_y)))
 
 
 def _check_paired(X: Array, Y: Array) -> None:

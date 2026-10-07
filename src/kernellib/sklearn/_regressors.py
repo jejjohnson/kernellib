@@ -97,11 +97,12 @@ class KernelRidge(_Regressor):
         n_features_in_: Number of input features.
 
     Examples:
+        >>> import einx
         >>> import numpy as np
         >>> import kernellib as kl
         >>> from kernellib.sklearn import KernelRidge
         >>> from sklearn.model_selection import GridSearchCV
-        >>> X = np.linspace(0, 1, 40)[:, None]
+        >>> X = einx.id("n -> n 1", np.linspace(0, 1, 40))
         >>> y = np.sin(6 * X[:, 0])
         >>> search = GridSearchCV(
         ...     KernelRidge(kernel=kl.RBF()),

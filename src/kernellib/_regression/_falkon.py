@@ -22,6 +22,7 @@ import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float, Int
 
+from kernellib._einx import einsum
 from kernellib._operators._implicit_cross import ImplicitCrossKernelOperator
 
 
@@ -134,7 +135,9 @@ def falkon_preconditioner(
     jitter = jnp.asarray(jitter, dtype=dtype)
 
     T = jax.scipy.linalg.cholesky(K_mm + jitter * identity, lower=False)
-    A = jax.scipy.linalg.cholesky(T @ T.T / m + regularization * identity, lower=False)
+    A = jax.scipy.linalg.cholesky(
+        einsum(T, T, "i k, j k -> i j") / m + regularization * identity, lower=False
+    )
     return FalkonPreconditioner(T=T, A=A)
 
 

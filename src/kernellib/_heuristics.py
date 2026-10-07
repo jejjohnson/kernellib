@@ -24,7 +24,7 @@ import jax.numpy as jnp
 from jax.scipy.special import gammaln
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._einx import reduce
+from kernellib._einx import rearrange, reduce
 from kernellib.functional._distances import _pairwise_sq_dist
 
 
@@ -89,13 +89,16 @@ def estimate_lengthscale(
             fewer than two points, or ``subsample`` without ``key``.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
         >>> X = jnp.array([[0.0], [1.0], [3.0]])
         >>> float(kl.estimate_lengthscale(X))  # distances 1, 2, 3
         2.0
         >>> kl.estimate_lengthscale(
-        ...     jnp.ones((10, 3)) * jnp.arange(10.0)[:, None], "scott", ard=True
+        ...     einx.multiply("n d, n -> n d", jnp.ones((10, 3)), jnp.arange(10.0)),
+        ...     "scott",
+        ...     ard=True,
         ... ).shape
         (3,)
     """
@@ -117,7 +120,8 @@ def estimate_lengthscale(
 
     if ard:
         per_dim = jax.vmap(
-            lambda col: _estimate(col[:, None], method, percent), in_axes=1
+            lambda col: _estimate(rearrange(col, "n -> n 1"), method, percent),
+            in_axes=1,
         )(X)
         return scale * per_dim
     return scale * _estimate(X, method, percent)
@@ -137,7 +141,8 @@ def _estimate(
         sigma = jnp.mean(std)
         return 2.0 * sigma * jnp.exp(gammaln((d + 1) / 2.0) - gammaln(d / 2.0))
     if method in ("silverman", "scott"):
-        sigma = jnp.mean(jnp.std(X, axis=0, ddof=1))
+        # Per-column std (ddof=1); einx's std has no ddof.
+        sigma = jnp.mean(jax.vmap(lambda col: jnp.std(col, ddof=1), in_axes=1)(X))
         if method == "silverman":
             return sigma * (n * (d + 2.0) / 4.0) ** (-1.0 / (d + 4.0))
         return sigma * n ** (-1.0 / (d + 4.0))
@@ -149,7 +154,7 @@ def _estimate(
         return aggregate(dist[rows, cols])
     # Column 0 of each sorted row is the point itself (distance 0).
     k = min(max(1, int(percent * n)), n - 1)
-    return aggregate(jnp.sort(dist, axis=1)[:, k])
+    return aggregate(einx.sort("i [j]", dist)[:, k])
 
 
 def lengthscale_to_gamma(

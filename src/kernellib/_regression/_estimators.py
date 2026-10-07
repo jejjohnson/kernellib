@@ -43,12 +43,18 @@ def _per_column(fn, y: Array, out_axes: Any = 1) -> Any:
         # iterative solver that stops at a tolerance does not wash that out.
         out = fn(y[:, 0])
         if not isinstance(out_axes, tuple):
-            return jax.tree.map(lambda leaf: jnp.expand_dims(leaf, out_axes), out)
+            return jax.tree.map(lambda leaf: _unit_axis(leaf, out_axes), out)
         return tuple(
-            jax.tree.map(lambda leaf, axis=axis: jnp.expand_dims(leaf, axis), part)
+            jax.tree.map(lambda leaf, axis=axis: _unit_axis(leaf, axis), part)
             for part, axis in zip(out, out_axes, strict=True)
         )
     return jax.vmap(fn, in_axes=1, out_axes=out_axes)(y)
+
+
+def _unit_axis(leaf: Array, axis: int) -> Array:
+    """Insert a length-one axis at position ``axis``."""
+    lead = " ".join(f"d{i}" for i in range(axis))
+    return rearrange(leaf, f"{lead} ... -> {lead} 1 ...")
 
 
 class Falkon(AbstractEstimator):
@@ -171,10 +177,11 @@ class Falkon(AbstractEstimator):
             target column; ``None`` before `fit`.
 
     Examples:
+        >>> import einx
         >>> import jax
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(0.0, 1.0, 200)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(0.0, 1.0, 200))
         >>> y = jnp.sin(6.0 * X[:, 0])
         >>> model = kl.Falkon(
         ...     kl.RBF(lengthscale=0.2), n_inducing=30, regularization=1e-6
@@ -485,7 +492,7 @@ class EigenPro(AbstractEstimator):
         eta = eigenpro_step_size(precond, b)
         S = precond.subsample_indices
         X_S = X[S]
-        Y = y if y.ndim == 2 else y[:, None]
+        Y = y if y.ndim == 2 else rearrange(y, "n -> n 1")
         n_batches = -(-n // b)  # ceil: the last batch may be partial
         # Pad the last batch with index 0 and mask its residuals to zero, so
         # every scan step has b rows and the padding moves nothing.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+import einx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -227,6 +228,6 @@ class LaplaceEigenfunctionFeatures(_FeatureMap):
     def _build(self, key: Any, X: np.ndarray) -> spectral.AbstractFeatureMap:
         L = self.L
         if L is None:
-            half = self.boundary_factor * np.max(np.abs(X), axis=0)
+            half = self.boundary_factor * einx.max("n d -> d", np.abs(X))
             L = tuple(float(h) if h > 0 else 1.0 for h in half)
         return spectral.LaplaceEigenfunctionFeatures(self.n_per_dim, L=L)

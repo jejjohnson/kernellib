@@ -26,6 +26,7 @@ from kernellib._dependence._hsic import (
     _check_estimator,
     _check_paired,
 )
+from kernellib._einx import reduce
 from kernellib._kernels import AbstractKernel
 from kernellib._operators._bridge import to_operator
 from kernellib._spectral import AbstractFeatureMap
@@ -157,7 +158,9 @@ def _difference_hsic_features(
     W = jnp.concatenate([Phi_x, Phi_y], axis=1)
     if estimator == "unbiased":
         return _hsic_unbiased_low_rank((W, signs, W), (W, signs, W))
-    R = jnp.linalg.qr(W - jnp.mean(W, axis=0), mode="r")
+    R = jnp.linalg.qr(
+        einx.subtract("n f, f -> n f", W, reduce(W, "n f -> f", "mean")), mode="r"
+    )
     RS = einx.multiply("a r, r -> a r", R, signs)
     M = einx.dot("a r, b r -> a b", RS, R)
     return jnp.sum(M * M) / (n * n)

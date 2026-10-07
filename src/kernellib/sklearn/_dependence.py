@@ -20,6 +20,7 @@ from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_array, check_is_fitted
 
 from kernellib._dependence import cka, hsic, mmd_squared, permutation_test
+from kernellib._einx import rearrange
 from kernellib._kernels import AbstractKernel
 from kernellib._spectral import AbstractFeatureMap
 from kernellib.sklearn._base import _default_kernel, _KernelParamsMixin, _key
@@ -33,7 +34,7 @@ _FLOAT = (np.float64, np.float32)
 def _as_2d(A: Any, name: str) -> np.ndarray:
     A = np.asarray(A)
     if A.ndim == 1:
-        A = A[:, None]
+        A = rearrange(A, "n -> n 1")
     return check_array(A, dtype=_FLOAT, input_name=name)
 
 
