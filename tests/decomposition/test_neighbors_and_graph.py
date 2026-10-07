@@ -66,6 +66,49 @@ class TestNearestNeighbors:
         assert recall > 0.95
         assert not np.any(approx == np.arange(300)[:, None])
 
+    @pytest.mark.parametrize(
+        "backend",
+        [
+            "exact",
+            "sklearn",
+            # NN-descent jit-compiles through numba on first use.
+            pytest.param("pynndescent", marks=pytest.mark.integration),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("dtype", "expected"),
+        [
+            (jnp.float64, jnp.float64),
+            (jnp.float32, jnp.float32),
+            # An integer X gets the default float dtype (float64 under x64).
+            (jnp.int32, jnp.float64),
+        ],
+    )
+    def test_distances_and_weights_keep_the_dtype_of_X(self, backend, dtype, expected):
+        # Regression for #158: pynndescent returned float32 under x64, and
+        # sklearn float64 for a float32 X.
+        X = (3.0 * _X(n=40)).astype(dtype)
+        knn = kl.nearest_neighbors(X, 4, backend=backend, random_state=0)
+        assert knn.distances.dtype == expected
+        g = kl.knn_graph(X, 4, backend=backend, random_state=0)
+        assert g.weights.dtype == expected
+
+    @pytest.mark.integration
+    def test_lanczos_schrodinger_on_a_pynndescent_graph(self):
+        # #158: float32 pynndescent weights against a float64 potential made
+        # lineax reject the operator sum ("Incompatible linear operator
+        # structures").
+        X = _X(n=60, d=2)
+        g = kl.knn_graph(X, 8, backend="pynndescent", random_state=0)
+        V = kl.label_potential(jnp.where(jnp.arange(60) < 10, 0, -1))
+        assert V.dtype == jnp.float64
+        model = kl.SchrodingerEigenmaps(
+            n_components=2, alpha=5.0, eigen_solver="lanczos"
+        ).fit(X, V, graph=g)
+        dense = kl.SchrodingerEigenmaps(n_components=2, alpha=5.0).fit(X, V, graph=g)
+        assert model.embedding.dtype == jnp.float64
+        assert jnp.allclose(model.eigenvalues, dense.eigenvalues, atol=1e-8)
+
     def test_errors(self):
         with pytest.raises(ValueError, match="n_neighbors"):
             kl.nearest_neighbors(_X(n=5), 5)
