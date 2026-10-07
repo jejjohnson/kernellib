@@ -3,6 +3,7 @@ r"""Kernel ridge regression through any gaussx solver strategy."""
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from typing import Literal, TypeGuard
 
 import einx
@@ -16,7 +17,12 @@ from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 from kernellib._einx import einsum
 from kernellib._kernels import AbstractKernel
 from kernellib._operators._bridge import to_cross_operator, to_operator
-from kernellib._regression._base import AbstractEstimator, _check_targets
+from kernellib._regression._base import (
+    AbstractEstimator,
+    _check_targets,
+    _concrete,
+    _warn_small_regularization,
+)
 
 
 __all__ = ["KRR"]
@@ -108,7 +114,24 @@ class KRR(AbstractEstimator):
     ``max_steps`` iterations; an explicit ``solver`` keeps its own
     tolerances. With ``throw=True`` (the default) an iterative solve that
     hits its budget raises; with ``throw=False`` it returns the last
-    iterate and ``converged=False``, so check it (and a validation loss).
+    iterate and ``converged=False``, and `fit` warns (when not traced), so
+    check it (and a validation loss).
+
+    **Low precision and small** $\lambda$. CG stops on a recursively updated
+    residual, which in low precision can drift from the true one: in
+    float32 at a tiny ridge it can report convergence on a solution that
+    is orders of magnitude off. So every CG solve also checks its true
+    residual, $\|(K + \lambda n I)\alpha - y\|_2 \le \max\big(10(\mathrm{atol}
+    \sqrt n + \mathrm{rtol}\|y\|_2),\ \sqrt\epsilon\,\|y\|_2\big)$ with
+    $\epsilon$ the machine epsilon of the solution's dtype, at the cost of
+    one extra matvec. A solve that fails it raises with ``throw=True`` (an
+    ``equinox`` runtime error, as for a solve that hits its budget, and
+    also under ``jit``), and reports ``converged=False`` with
+    ``throw=False``. Separately, `fit` warns when $\lambda < \epsilon
+    \max_i K_{ii}$: then $\lambda n$ is below the rounding error of
+    $\|K\|_2 \le n \max_i K_{ii}$, the system can be numerically singular
+    in its dtype, and no solver is reliable. Use float64 for small
+    $\lambda$.
 
     Attributes:
         kernel: The kernel.
@@ -229,6 +252,7 @@ class KRR(AbstractEstimator):
             raise ValueError(
                 f"preconditioner={self.preconditioner!r} needs a PRNG key in fit."
             )
+        _warn_small_regularization("KRR", self.regularization, self.kernel.diag(X))
         if mask is not None or not _no_penalty(penalty, self.penalty_weight):
             alpha, n_iter, converged = self._fit_penalised(X, y, penalty, mask, key)
         else:
@@ -239,6 +263,16 @@ class KRR(AbstractEstimator):
             )
             alpha, n_iter, converged = _per_column(
                 lambda col: self._solve(solver, K, col), y
+            )
+        if converged is not None and _concrete(jnp.all(converged)) == 0.0:
+            # Only reachable with throw=False: throw=True raises instead.
+            warnings.warn(
+                "KRR: the iterative solve did not converge (iteration budget "
+                "reached, or a residual above the dtype-aware threshold); the "
+                "weights are the last iterate. Check `converged`, and use "
+                "float64, a larger regularization or a larger max_steps.",
+                RuntimeWarning,
+                stacklevel=3,  # past fit and equinox's method wrapper
             )
         return dataclasses.replace(
             self, X_train=X, alpha=alpha, n_iter=n_iter, converged=converged
@@ -283,11 +317,22 @@ class KRR(AbstractEstimator):
             options=options,
             throw=self.throw,
         )
-        return (
-            solution.value,
-            solution.stats["num_steps"],
-            solution.result == lx.RESULTS.successful,
-        )
+        x = solution.value
+        converged = solution.result == lx.RESULTS.successful
+        # CG stops on its recursively updated residual, which in low
+        # precision can drift from the true one: in float32 at a tiny ridge
+        # it reports convergence on garbage. Check the true residual.
+        ok = _residual_ok(A, x, b, solver.rtol, solver.atol)
+        if self.throw:
+            x = eqx.error_if(
+                x,
+                converged & ~ok,
+                "KRR: CG reported convergence, but the residual "
+                "||(K + lambda n I) alpha - y|| of its solution is above the "
+                "dtype-aware threshold: the system is too ill-conditioned for "
+                "this dtype. Use float64 or a larger regularization.",
+            )
+        return x, solution.stats["num_steps"], converged & ok
 
     def _solver(
         self, X: Float[Array, "N D"], key: PRNGKeyArray | None
@@ -446,6 +491,32 @@ class KRR(AbstractEstimator):
         if self.alpha.ndim == 1:
             return K_xs.mv(self.alpha)
         return jax.vmap(K_xs.mv, in_axes=1, out_axes=1)(self.alpha)
+
+
+def _residual_ok(
+    A: lx.AbstractLinearOperator,
+    x: Float[Array, " N"],
+    b: Float[Array, " N"],
+    rtol: float,
+    atol: float,
+) -> Bool[Array, ""]:
+    r"""Whether ``x`` solves ``A x = b`` to CG's tolerance, up to rounding.
+
+    lineax's CG stops once $|r_i| \le \mathrm{atol} + \mathrm{rtol}\,|b_i|$
+    for every component, which implies $\|r\|_2 \le \mathrm{atol}\sqrt n +
+    \mathrm{rtol}\,\|b\|_2$. The true residual is accepted up to ten times
+    that, or $\sqrt\epsilon\,\|b\|_2$ in the solution's dtype, whichever is
+    larger: rounding drift in a sound solve stays well inside it, while a
+    numerically singular system gives residuals of the order of $\|b\|$ or
+    more. A NaN residual fails.
+    """
+    eps = jnp.finfo(x.dtype).eps
+    r_norm = jnp.linalg.norm(A.mv(x) - b)
+    b_norm = jnp.linalg.norm(b)
+    bound = jnp.maximum(
+        10.0 * (atol * jnp.sqrt(b.shape[0]) + rtol * b_norm), jnp.sqrt(eps) * b_norm
+    )
+    return r_norm <= bound
 
 
 def _per_column(fn, y: Float[Array, " N"] | Float[Array, "N C"]):
