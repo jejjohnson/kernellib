@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.0.17](https://github.com/jejjohnson/kernellib/compare/v0.0.16...v0.0.17) (2026-10-07)
+
+
+### Features
+
+* **decomposition:** eigen_solver="lobpcg", a JAX-native sparse eigensolver for graph embeddings ([#174](https://github.com/jejjohnson/kernellib/issues/174)) ([d667fd1](https://github.com/jejjohnson/kernellib/commit/d667fd13d5620432953c85d9e3bebe2607cb845d)), closes [#91](https://github.com/jejjohnson/kernellib/issues/91)
+* **regression:** CG iteration stats and non-throwing solves on KRR, jit select_landmarks ([#168](https://github.com/jejjohnson/kernellib/issues/168)) ([17cf82e](https://github.com/jejjohnson/kernellib/commit/17cf82e7b7fc53a668e594b9bbb359b7f65150ad))
+* **regression:** laplacian_penalty accepts an AbstractGraph ([#165](https://github.com/jejjohnson/kernellib/issues/165)) ([1faccea](https://github.com/jejjohnson/kernellib/commit/1faccea1d63412a03efd707b6b7693eb534db61c)), closes [#153](https://github.com/jejjohnson/kernellib/issues/153)
+
+
+### Bug Fixes
+
+* **decomposition:** centre the KernelPCA pre-image targets ([#167](https://github.com/jejjohnson/kernellib/issues/167)) ([3a83a09](https://github.com/jejjohnson/kernellib/commit/3a83a090e1baf531f07718f018fa432d2fa58af6))
+* **decomposition:** check Lanczos eigenpair residuals and grow the Krylov space until they converge ([#171](https://github.com/jejjohnson/kernellib/issues/171)) ([acce208](https://github.com/jejjohnson/kernellib/commit/acce20866823f1ba8e8f3b9f95e5d261e5ab6245))
+* **graph:** neighbour backends return distances in X's dtype ([#170](https://github.com/jejjohnson/kernellib/issues/170)) ([35a7002](https://github.com/jejjohnson/kernellib/commit/35a7002e6dee130ed71a4d064555d3b5abbc0a7a))
+* **graph:** tell obtuse hull edges from non-Delaunay edges in mesh_graph ([#164](https://github.com/jejjohnson/kernellib/issues/164)) ([7b7759a](https://github.com/jejjohnson/kernellib/commit/7b7759a112f974f488c55730ee1ba5fc588b584b))
+* **regression:** float32 / small-lambda robustness for KRR, Falkon and EigenPro ([#172](https://github.com/jejjohnson/kernellib/issues/172)) ([961ee41](https://github.com/jejjohnson/kernellib/commit/961ee4146265c6e516edcfc5afb7898212a6f15d)), closes [#162](https://github.com/jejjohnson/kernellib/issues/162)
+
+
+### Performance Improvements
+
+* **graph:** closed-form path/cycle eigenpairs for Kronecker laplacian_eigpairs ([#166](https://github.com/jejjohnson/kernellib/issues/166)) ([c8912f7](https://github.com/jejjohnson/kernellib/commit/c8912f79c0b2371edf0cad6ae74ec9c833e46fed))
+
 ## [0.0.16](https://github.com/jejjohnson/kernellib/compare/v0.0.15...v0.0.16) (2026-10-05)
 
 
