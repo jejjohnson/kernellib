@@ -35,8 +35,9 @@ def nystrom_kernel(
 
     Examples:
         >>> import jax.numpy as jnp
+        >>> import einx
         >>> import kernellib as kl
-        >>> Z = jnp.linspace(-1.0, 1.0, 5)[:, None]
+        >>> Z = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 5))
         >>> kz = kl.nystrom_kernel(kl.RBF(lengthscale=0.5), Z)
         >>> bool(jnp.allclose(kz(Z, Z), kl.RBF(lengthscale=0.5)(Z, Z), atol=1e-4))
         True
@@ -67,10 +68,11 @@ class Residual(AbstractKernel):
         approx: The approximating kernel.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
         >>> k = kl.RBF(lengthscale=0.5)
-        >>> Z = jnp.linspace(-1.0, 1.0, 5)[:, None]
+        >>> Z = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 5))
         >>> r = kl.Residual(k, kl.nystrom_kernel(k, Z))
         >>> bool(jnp.all(r.diag(Z) < 1e-4))
         True

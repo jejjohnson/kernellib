@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import einx
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._einx import einsum
+from kernellib._einx import einsum, reduce
 from kernellib._kernels._base import AbstractKernel, AbstractPointwiseKernel, GramParts
 
 
@@ -63,7 +64,7 @@ class FeatureKernel(AbstractPointwiseKernel):
         return einsum(self._batch(X1), self._batch(X2), "n r, m r -> n m")
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return jnp.sum(self._batch(X) ** 2, axis=-1)
+        return reduce(self._batch(X) ** 2, "n r -> n", "sum")
 
     def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
         Phi = self._batch(X)
@@ -101,7 +102,8 @@ class Modulated(AbstractKernel):
         self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]
     ) -> Float[Array, "N1 N2"]:
         a1, a2 = self._amplitudes(X1), self._amplitudes(X2)
-        return a1[:, None] * self.kernel(X1, X2) * a2[None, :]
+        scaled = einx.multiply("n1, n1 n2 -> n1 n2", a1, self.kernel(X1, X2))
+        return einx.multiply("n1 n2, n2 -> n1 n2", scaled, a2)
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
         return self._amplitudes(X) ** 2 * self.kernel.diag(X)
@@ -120,7 +122,9 @@ class Modulated(AbstractKernel):
         a = self._amplitudes(X)
         return GramParts(
             None if parts.diagonal is None else a**2 * parts.diagonal,
-            None if parts.factors is None else a[:, None] * parts.factors,
+            None
+            if parts.factors is None
+            else einx.multiply("n, n r -> n r", a, parts.factors),
             parts.weights,
         )
 
