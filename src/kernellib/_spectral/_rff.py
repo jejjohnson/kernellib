@@ -161,12 +161,13 @@ def evaluate_rff_cosine_paths(
 
     Examples:
         >>> import jax
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
         >>> v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
         ...     kl.RBF(), jax.random.key(0), n_paths=4, n_features=32, in_features=1
         ... )
-        >>> X = jnp.linspace(-1.0, 1.0, 5)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 5))
         >>> kl.evaluate_rff_cosine_paths(
         ...     X, variance=v, lengthscale=ell, omega=omega, phase=phase, weights=w
         ... ).shape

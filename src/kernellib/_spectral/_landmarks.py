@@ -216,7 +216,7 @@ def _nystrom_features(
     scale = jnp.mean(jnp.diag(K_zz))
     eps = jitter * jnp.where(scale > 0, scale, 1.0)
     L = jnp.linalg.cholesky(K_zz + eps * jnp.eye(Z.shape[0], dtype=K_zz.dtype))
-    return jsl.solve_triangular(L, kernel(Z, X), lower=True).T
+    return rearrange(jsl.solve_triangular(L, kernel(Z, X), lower=True), "m n -> n m")
 
 
 def _ridge_leverage_scores(
@@ -239,7 +239,9 @@ def _ridge_leverage_scores(
     ridge = regularization * n
     gram = einsum(Phi, Phi, "n a, n b -> a b")
     chol = jnp.linalg.cholesky(gram + ridge * jnp.eye(gram.shape[0], dtype=gram.dtype))
-    solved = jsl.solve_triangular(chol, Phi.T, lower=True)  # (m0, N)
+    solved = jsl.solve_triangular(
+        chol, rearrange(Phi, "n a -> a n"), lower=True
+    )  # (m0, N)
     explained = reduce(solved**2, "a n -> n", "sum")
     residual = jnp.maximum(kernel.diag(X) - reduce(Phi**2, "n a -> n", "sum"), 0.0)
     return explained + residual / ridge

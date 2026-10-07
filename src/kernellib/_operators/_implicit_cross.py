@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, PyTree
 
-from kernellib._einx import rearrange
+from kernellib._einx import einsum, rearrange
 from kernellib._operators._utils import _to_frozenset, vmap_over_batch_dims
 
 
@@ -381,7 +381,7 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
                             X_inducing
                         )
                     )(X_batch)
-                    acc = acc + K_batch.T @ u_batch
+                    acc = acc + einsum(K_batch, u_batch, "b m, b -> m")
                     return acc, None
 
                 result, _ = jax.lax.scan(
@@ -404,7 +404,7 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
                             X_inducing
                         )
                     )(X_batch)
-                    acc = acc + K_batch.T @ u_batch
+                    acc = acc + einsum(K_batch, u_batch, "b m, b -> m")
                     return acc, None
 
                 result, _ = jax.lax.scan(
@@ -421,7 +421,7 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
 
     def as_matrix(self) -> Float[Array, "*batch M N"]:
         """Materialize ``K^T`` as a dense matrix."""
-        return jnp.swapaxes(self._parent.as_matrix(), -1, -2)
+        return rearrange(self._parent.as_matrix(), "... n m -> ... m n")
 
     def transpose(self) -> ImplicitCrossKernelOperator:
         """Return the original (non-transposed) operator."""
