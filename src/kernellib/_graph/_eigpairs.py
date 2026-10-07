@@ -4,10 +4,13 @@ r"""Smallest Laplacian eigenpairs at every scale, and connected components.
 
 - **dense** `eigh` for a `Graph` or an adjacency array;
 - **Kronecker** for a face-connected `GridGraph`: a path Laplacian has the
-  closed-form (DCT-II) eigenpairs $\lambda_k = 2 - 2\cos(\pi k / n)$, and
-  Kronecker sums add eigenvalues, $(A \oplus B)(u \otimes v) =
-  (\lambda + \mu)(u \otimes v)$, so the ``n`` smallest eigenpairs of an
-  ``H x W`` grid need only a sort of ``H W`` scalars;
+  closed-form (DCT-II) eigenpairs $\lambda_k = 2 - 2\cos(\pi k / n)$,
+  $u_k[i] \propto \cos(\pi k (i + 1/2) / n)$, a cycle (periodic axis)
+  $\lambda_k = 2 - 2\cos(2\pi k / n)$ with real Fourier modes, each scaled
+  by its axis weight; Kronecker sums add eigenvalues,
+  $(A \oplus B)(u \otimes v) = (\lambda + \mu)(u \otimes v)$, so
+  the ``n`` smallest eigenpairs of an ``H x W`` grid need only a sort of
+  ``H W`` scalars;
 - **Lanczos** (``method="lanczos"``) in JAX for large sparse graphs: the
   smallest eigenvalues of $L$ are the largest of $cI - L$ for a Gershgorin
   bound $c \ge \lambda_{\max}$, where Lanczos converges fastest;
@@ -27,7 +30,7 @@ import lineax as lx
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
-from jaxtyping import Array, Float, PRNGKeyArray
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 from scipy.sparse.csgraph import connected_components
 
 from kernellib._einx import rearrange, reduce
@@ -53,8 +56,11 @@ def laplacian_eigpairs(
     r"""The ``n`` smallest eigenpairs of a graph Laplacian.
 
     - ``"dense"``: `jnp.linalg.eigh` of the dense Laplacian.
-    - ``"kronecker"``: the eigenpairs of each 1-D factor of a `GridGraph`,
-      the ``n`` smallest of their sums, outer-product eigenvectors.
+    - ``"kronecker"``: the closed-form eigenpairs of each 1-D factor of a
+      `GridGraph` (path or cycle, times its axis weight), the ``n`` smallest
+      of their sums, outer-product eigenvectors. No eigensolver runs: the
+      cost is a sort of the ``N`` sums, and float32 keeps full relative
+      precision at the bottom of the spectrum.
     - ``"lanczos"``: `gaussx.eig` of $cI - L$, with Krylov dimension
       ``n + oversample``.
     - ``"arpack"``: SciPy ``eigsh``, on the CPU. The only path that is not
@@ -217,31 +223,102 @@ def _dense_laplacian(
     return graph_laplacian(jnp.asarray(graph), normalization)  # ty: ignore[invalid-argument-type]
 
 
-def _kronecker_factors(
-    op: lx.AbstractLinearOperator,
-) -> list[lx.AbstractLinearOperator]:
-    """The 1-D factors of a nested `gaussx.KroneckerSum`, in axis order."""
-    if isinstance(op, gx.KroneckerSum):
-        return [op.A, *_kronecker_factors(op.B)]
-    return [op]
-
-
 def _kronecker(
     graph: GridGraph, n: int
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
-    factors = [gx.eig(f) for f in _kronecker_factors(graph.laplacian_operator())]
+    dtype = graph.axis_weights.dtype
+    lams = [
+        graph.axis_weights[k] * _lattice_eigvals(n_k, p_k, dtype)
+        for k, (n_k, p_k) in enumerate(zip(graph.shape, graph.periodic, strict=True))
+    ]
     # All prod(n_k) eigenvalue sums, in row-major order like the nodes.
-    total = factors[0][0]
-    for lam_k, _ in factors[1:]:
+    total = lams[0]
+    for lam_k in lams[1:]:
         total = rearrange(einx.add("a, b -> a b", total, lam_k), "a b -> (a b)")
     order = jnp.argsort(total, stable=True)[:n]
     multi = jnp.unravel_index(order, graph.shape)
-    U = factors[0][1][:, multi[0]]
-    for (_, U_k), idx in zip(factors[1:], multi[1:], strict=True):
-        U = rearrange(
-            einx.multiply("a m, b m -> a b m", U, U_k[:, idx]), "a b m -> (a b) m"
-        )
+    # Only the n selected columns of each factor's eigenbasis are built.
+    vecs = [
+        _lattice_eigvecs(n_k, p_k, idx, dtype)
+        for n_k, p_k, idx in zip(graph.shape, graph.periodic, multi, strict=True)
+    ]
+    U = vecs[0]
+    for U_k in vecs[1:]:
+        U = rearrange(einx.multiply("a m, b m -> a b m", U, U_k), "a b m -> (a b) m")
     return total[order], U
+
+
+def _lattice_eigvals(n: int, periodic: bool, dtype: jnp.dtype) -> Float[Array, " n"]:
+    r"""Eigenvalues of the unit-weight path (or cycle) Laplacian on ``n`` nodes.
+
+    Path: $2 - 2\cos(\pi k / n) = 4 \sin^2(\pi k / 2n)$; cycle:
+    $2 - 2\cos(2\pi k / n) = 4 \sin^2(\pi m / n)$ with the folded frequency
+    $m = \min(k, n - k)$, for $k = 0, \dots, n - 1$. The sine form has no
+    cancellation at small $k$, and the fold keeps the half-angle in
+    $[0, \pi/2]$, so the bottom of the spectrum (which includes the cycle's
+    aliased $k = n - 1$) keeps full relative precision in float32, and the
+    two members of a degenerate cycle pair are bitwise equal.
+    """
+    k = jnp.arange(n)
+    if periodic:
+        k = jnp.minimum(k, n - k)
+    half_angle = (jnp.pi / n if periodic else jnp.pi / (2 * n)) * k.astype(dtype)
+    return 4.0 * jnp.sin(half_angle) ** 2
+
+
+def _lattice_eigvecs(
+    n: int, periodic: bool, k: Int[Array, " m"], dtype: jnp.dtype
+) -> Float[Array, "n m"]:
+    r"""Columns ``k`` of the orthonormal eigenbasis matching `_lattice_eigvals`.
+
+    Path (DCT-II): $u_k[i] \propto \cos(\pi k (i + 1/2) / n)$. Cycle (real
+    Fourier modes) with the folded frequency $m = \min(k, n - k)$:
+    $\cos(2\pi m i / n)$ for $k \le n / 2$ and $\sin(2\pi m i / n)$ for
+    $k > n / 2$, the partner of $k' = n - k$ in the same eigenspace. The
+    phase is $2\pi \cdot \mathrm{ticks} / \mathrm{period}$ with ticks
+    reduced modulo the period exactly, in integer arithmetic (`_mulmod`), so
+    no float phase exceeds $2\pi$ and float32 keeps its precision at any
+    ``n``.
+    """
+    i = jnp.arange(n)
+    k = k.astype(i.dtype)
+    if periodic:
+        # phase = 2 pi (i m mod n) / n.
+        period, steps, freq = n, i, jnp.minimum(k, n - k)
+    else:
+        # phase = pi k (2i + 1) / 2n = 2 pi (k (2i + 1) mod 4n) / 4n.
+        period, steps, freq = 4 * n, 2 * i + 1, k
+    ticks = _mulmod(steps, freq, period).astype(dtype)
+    phase = (2 * jnp.pi / period) * ticks
+    if periodic:
+        U = einx.where("m, i m, i m -> i m", 2 * k > n, jnp.sin(phase), jnp.cos(phase))
+        flat = (k == 0) | (2 * k == n)  # the constant and alternating modes
+    else:
+        U = jnp.cos(phase)
+        flat = k == 0
+    scale = jnp.where(flat, 1.0 / jnp.sqrt(n), jnp.sqrt(2.0 / n)).astype(dtype)
+    return einx.multiply("i m, m -> i m", U, scale)
+
+
+def _mulmod(a: Int[Array, " i"], b: Int[Array, " m"], p: int) -> Int[Array, "i m"]:
+    r"""The outer product $(a_i b_m) \bmod p$, exact, for $0 \le a, b < p$.
+
+    Horner's rule over base-$2^s$ digits of $a$,
+    $r \leftarrow (r 2^s + d\, b) \bmod p$, with $s$ the largest shift for
+    which $2 p\, 2^s$ fits the integer dtype: every intermediate is
+    representable, so int32 (JAX's default) cannot overflow. With int64 or a
+    small ``p`` this is a single digit, the plain product.
+    """
+    limit = jnp.iinfo(a.dtype).max
+    if 4 * p > limit:
+        raise ValueError(f"Lattice axis too long for {a.dtype} phases: period {p}.")
+    shift = (limit // (2 * p)).bit_length() - 1  # 2 p 2^shift <= limit
+    n_digits = max(1, -(-(p - 1).bit_length() // shift))
+    r = jnp.zeros((a.shape[0], b.shape[0]), a.dtype)
+    for j in reversed(range(n_digits)):
+        digit = (a >> (j * shift)) & ((1 << shift) - 1)
+        r = jnp.mod((r << shift) + einx.multiply("i, m -> i m", digit, b), p)
+    return r
 
 
 def _lanczos(
