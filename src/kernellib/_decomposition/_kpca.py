@@ -50,7 +50,17 @@ kernel PCA.
 
 **Pre-images** (Bakir, Weston & Schölkopf, 2004). With
 ``fit_inverse_transform``, a `KRR` from the training embedding back to the
-inputs is fitted, and `inverse_transform` maps components to input space.
+centred inputs is fitted, and `inverse_transform` maps components to input
+space,
+
+$$
+\hat x(z) = \bar x + k(z, Z)\,(K_Z + n\mu I)^{-1}(X - \mathbf 1 \bar x^\top),
+$$
+
+with $\bar x$ the training mean and $\mu$ = ``inverse_regularization``.
+Centring the targets acts as an intercept: a `Linear` inverse kernel can then
+restore the mean, and far from the training embedding, where $k(z, Z) \to 0$,
+a stationary kernel's pre-image falls back to $\bar x$ rather than to $0$.
 """
 
 from __future__ import annotations
@@ -117,7 +127,9 @@ class KernelPCA(eqx.Module):
             ``None`` means an `RBF` with the median-heuristic lengthscale
             (the mean distance, or ``1``, if the median is ``0``).
         inverse_regularization: Ridge of the pre-image `KRR`.
-        inverse_model: The fitted pre-image `KRR`.
+        inverse_model: The fitted pre-image `KRR`, on the centred inputs.
+        inverse_mean: The training mean $\bar x$ ``(D,)``, added back by
+            `inverse_transform`.
 
     Examples:
         >>> import jax
@@ -161,6 +173,7 @@ class KernelPCA(eqx.Module):
     inverse_kernel: AbstractKernel | None = None
     inverse_regularization: float | Float[Array, ""] = 1e-3
     inverse_model: KRR | None = None
+    inverse_mean: Float[Array, " D"] | None = None
 
     def __check_init__(self) -> None:
         if self.n_components < 1:
@@ -224,8 +237,9 @@ class KernelPCA(eqx.Module):
             fitted = self._fit_supervised(X, _target_penalty(self, target))
         if self.fit_inverse_transform:
             assert fitted.embedding is not None
+            inverse_model, inverse_mean = self._fit_pre_image(fitted.embedding, X)
             fitted = dataclasses.replace(
-                fitted, inverse_model=self._fit_pre_image(fitted.embedding, X)
+                fitted, inverse_model=inverse_model, inverse_mean=inverse_mean
             )
         return fitted
 
@@ -235,13 +249,18 @@ class KernelPCA(eqx.Module):
         Raises:
             RuntimeError: If fitted without ``fit_inverse_transform``.
         """
-        if self.inverse_model is None:
+        if self.inverse_model is None or self.inverse_mean is None:
             raise RuntimeError(
                 "inverse_transform needs KernelPCA(fit_inverse_transform=True)."
             )
-        return self.inverse_model.predict(Z)
+        return einx.add(
+            "m d, d -> m d", self.inverse_model.predict(Z), self.inverse_mean
+        )
 
-    def _fit_pre_image(self, Z: Float[Array, "N n"], X: Float[Array, "N D"]) -> KRR:
+    def _fit_pre_image(
+        self, Z: Float[Array, "N n"], X: Float[Array, "N D"]
+    ) -> tuple[KRR, Float[Array, " D"]]:
+        """The pre-image `KRR` on the centred inputs, and their mean."""
         kernel = self.inverse_kernel
         if kernel is None:
             # Median distance, falling back to the mean and then 1: with
@@ -250,7 +269,10 @@ class KernelPCA(eqx.Module):
             mean = estimate_lengthscale(Z, "mean")
             lengthscale = jnp.where(median > 0, median, jnp.where(mean > 0, mean, 1.0))
             kernel = RBF(lengthscale=lengthscale)
-        return KRR(kernel, regularization=self.inverse_regularization).fit(Z, X)
+        mean = reduce(X, "n d -> d", "mean")
+        centred = einx.subtract("n d, d -> n d", X, mean)
+        krr = KRR(kernel, regularization=self.inverse_regularization).fit(Z, centred)
+        return krr, mean
 
     def _fit_supervised(
         self, X: Float[Array, "N D"], M: Float[Array, "N N"]

@@ -84,6 +84,55 @@ class TestFalkon:
         with pytest.raises(ValueError, match="PRNG key"):
             kl.Falkon(K, n_inducing=10).fit(X, y)
 
+    @pytest.mark.parametrize("lam", [0.0, -1e-3, jnp.asarray(0.0)])
+    def test_regularization_must_be_positive(self, lam):
+        with pytest.raises(ValueError, match="regularization must be positive"):
+            kl.Falkon(K, regularization=lam)
+
+    def test_tol_must_be_positive(self):
+        with pytest.raises(ValueError, match="tol must be positive"):
+            kl.Falkon(K, tol=0.0)
+
+    @pytest.mark.slow
+    def test_default_tol_resolves_per_dtype(self):
+        X, y = _data(n=40)
+        model = kl.Falkon(K, n_inducing=40)
+        assert model.tol is None
+        assert model.fit(X, y).tol == 1e-6
+        X32, y32 = X.astype(jnp.float32), y.astype(jnp.float32)
+        fitted = model.fit(X32, y32)
+        assert fitted.alpha.dtype == jnp.float32
+        assert fitted.tol == pytest.approx(float(jnp.finfo(jnp.float32).eps) ** 0.5)
+        # An explicit tol is kept as given.
+        assert kl.Falkon(K, n_inducing=40, tol=1e-3).fit(X32, y32).tol == 1e-3
+
+    @pytest.mark.slow
+    def test_float32_converges_at_the_default_tol(self):
+        # #162: in float32 the preconditioned residual stagnates above 1e-6,
+        # so the old fixed tol reported converged=False on an accurate fit.
+        X = jax.random.uniform(jax.random.key(0), (1000, 2), dtype=jnp.float32)
+        y = jnp.sin(6.0 * X[:, 0])
+
+        def fit(tol):
+            return kl.Falkon(
+                kl.RBF(lengthscale=0.2), n_inducing=200, regularization=1e-3, tol=tol
+            ).fit(X, y, key=jax.random.key(3))
+
+        default, tight = fit(None), fit(1e-6)
+        assert default.alpha.dtype == jnp.float32
+        assert bool(default.converged) and int(default.n_iter) < default.max_iter
+        assert not bool(tight.converged)
+        assert default.loss(X, y) < 1e-3
+        assert default.loss(X, y) == pytest.approx(tight.loss(X, y), rel=1e-2)
+
+    @pytest.mark.slow
+    def test_float32_tiny_regularization_warns(self):
+        X, y = _data(n=200)
+        X32, y32 = X.astype(jnp.float32), y.astype(jnp.float32)
+        model = kl.Falkon(K, n_inducing=50, regularization=1e-9)
+        with pytest.warns(RuntimeWarning, match="float32 precision floor"):
+            model.fit(X32, y32, key=jax.random.key(0))
+
 
 class TestEigenPro:
     @pytest.mark.slow
@@ -140,6 +189,16 @@ class TestEigenPro:
         assert fitted.alpha.shape == (150, 2)
         # Linear in the targets: same batches, same preconditioner.
         assert jnp.allclose(fitted.alpha[:, 1], 2.0 * fitted.alpha[:, 0])
+
+    @pytest.mark.slow
+    def test_every_point_is_visited_each_epoch(self):
+        # #162: 101 = 3 * 32 + 5, so the old N // b batches skipped five
+        # points; points outside the subsample then kept a zero weight.
+        X, y = _data(n=101)
+        model = kl.EigenPro(
+            K, epochs=1, batch_size=32, subsample_size=20, n_components=5
+        ).fit(X, y, key=jax.random.key(1))
+        assert bool(jnp.all(model.alpha != 0.0))
 
     def test_argument_errors(self):
         X, y = _data(n=50)

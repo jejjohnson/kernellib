@@ -8,8 +8,9 @@ $\frac1l\|J(y - K\alpha)\|^2 + \lambda\,\alpha^\top K\alpha
   between the predictions $f = K\alpha$ (under a linear kernel) and protected
   attributes $S$. That is fair kernel learning (Pérez-Suay et al., 2017).
 - `laplacian_penalty`: $M = L / n^2$, so the penalty is the smoothness
-  $f^\top L f$ along a graph. That is Laplacian-regularised least squares
-  (Belkin, Niyogi & Sindhwani, 2006).
+  $f^\top L f$ along a graph, given as a dense adjacency or as a sparse
+  `AbstractGraph`. That is Laplacian-regularised least squares (Belkin,
+  Niyogi & Sindhwani, 2006).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from jaxtyping import Array, Float
 
 from kernellib._einx import rearrange
 from kernellib._graph._laplacian import graph_laplacian
+from kernellib._graph._types import AbstractGraph
 from kernellib._kernels import AbstractKernel, Linear
 from kernellib._spectral import AbstractFeatureMap
 from kernellib.functional._statistics import _centre_columns, _double_centre
@@ -102,7 +104,7 @@ def hsic_penalty(
 
 
 def laplacian_penalty(
-    W: Float[Array, "N N"],
+    W: Float[Array, "N N"] | AbstractGraph,
     *,
     normalization: Literal["unnormalized", "symmetric"] = "unnormalized",
 ) -> lx.AbstractLinearOperator:
@@ -114,14 +116,22 @@ def laplacian_penalty(
     which is Laplacian-regularised least squares when combined with `KRR`'s
     ``mask`` for unlabelled points.
 
+    A dense adjacency gives a dense ``N x N`` operator. A graph (e.g. from
+    `knn_graph`) gives its sparse Laplacian operator, scaled, so no
+    ``N x N`` matrix is materialised and each matvec costs O(nnz): a
+    `gaussx.SparseOperator` in general, or the scaled Kronecker sum of a
+    face-connected `GridGraph`'s unnormalised Laplacian.
+
     Args:
-        W: Symmetric, non-negative adjacency matrix over the training points,
-            e.g. from `adjacency_matrix`.
+        W: The graph over the training points: a symmetric, non-negative
+            adjacency matrix (e.g. from `adjacency_matrix`) or an
+            `AbstractGraph`.
         normalization: ``"unnormalized"`` ($L = D - W$, the default) or
             ``"symmetric"``.
 
     Returns:
-        The penalty operator $M$, shape ``(N, N)``.
+        The penalty operator $M$, shape ``(N, N)``, tagged symmetric and
+        positive semidefinite.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -130,9 +140,17 @@ def laplacian_penalty(
         >>> f = jnp.array([1.0, 2.0, 4.0])
         >>> float(f @ kl.laplacian_penalty(W).mv(f) * 3**2)  # (1-2)^2 + (2-4)^2
         5.0
+        >>> graph = kl.graph_from_adjacency(W)  # the same graph, sparse
+        >>> float(f @ kl.laplacian_penalty(graph).mv(f) * 3**2)
+        5.0
     """
+    tags = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    if isinstance(W, AbstractGraph):
+        n = W.n_nodes
+        L_op = W.laplacian_operator(normalization)
+        if isinstance(L_op, gx.SparseOperator):
+            return gx.SparseOperator(L_op.values / n**2, L_op.pattern, tags=tags)
+        return lx.TaggedLinearOperator(L_op / n**2, tags)
     n = W.shape[0]
     L = graph_laplacian(W, normalization)
-    return lx.MatrixLinearOperator(
-        L / n**2, frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
-    )
+    return lx.MatrixLinearOperator(L / n**2, tags)

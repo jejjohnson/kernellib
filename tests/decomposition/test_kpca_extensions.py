@@ -121,6 +121,37 @@ def test_pre_image_reconstructs_the_training_points():
     assert float(rel) < 1e-3
 
 
+def test_linear_pre_image_restores_the_mean():
+    # With n_components = D the Linear embedding is a rotation of the centred
+    # inputs, so a Linear pre-image map is exact up to the ridge, but only if
+    # it can restore the mean: without centring the targets it cannot (#154).
+    X, _ = _data(n=60)
+    X = X + jnp.array([5.0, -3.0, 2.0])
+    m = kl.KernelPCA(
+        kl.Linear(),
+        n_components=3,
+        fit_inverse_transform=True,
+        inverse_kernel=kl.Linear(),
+        inverse_regularization=1e-10,
+    ).fit(X)
+    assert jnp.allclose(m.inverse_mean, einx.mean("n d -> d", X))
+    # The rank-3 Gram of 60 points is ill-conditioned at this ridge, so allow
+    # ~1e-5; without centring the error is the size of the mean (~5).
+    assert jnp.allclose(m.inverse_transform(m.transform(X)), X, atol=1e-4)
+
+
+def test_rbf_pre_image_far_away_tends_to_the_mean():
+    # Far from the training embedding the RBF row k(z, Z) vanishes, so the
+    # pre-image falls back to the training mean rather than to 0 (#154).
+    X, _ = _data(n=60)
+    X = X + jnp.array([5.0, -3.0, 2.0])
+    m = kl.KernelPCA(K, n_components=2, fit_inverse_transform=True).fit(X)
+    far = jnp.full((4, 2), 1e3)
+    expected = einx.mean("n d -> d", X)
+    got = m.inverse_transform(far)
+    assert jnp.allclose(got, einx.id("d -> m d", expected, m=4), atol=1e-8)
+
+
 def test_errors():
     X, _ = _data()
     with pytest.raises(ValueError, match="no target"):
@@ -133,6 +164,9 @@ def test_errors():
 def test_pre_image_matches_scikit_learn():
     sklearn_decomposition = pytest.importorskip("sklearn.decomposition")
     X, _ = _data(n=60)
+    # scikit-learn's pre-image KRR has no intercept; on centred inputs our
+    # centring is a no-op, so the two maps must agree.
+    X = einx.subtract("n d, d -> n d", X, einx.mean("n d -> d", X))
     X_test = X[:10] + 0.05
     lengthscale, alpha = 1.5, 0.1
     theirs = sklearn_decomposition.KernelPCA(

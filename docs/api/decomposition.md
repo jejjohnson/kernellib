@@ -36,7 +36,10 @@ fair = kl.KernelPCA(
 
 **Pre-images.** With ``fit_inverse_transform=True``, a `KRR` from the
 embedding back to the inputs is fitted (Bakir, Weston & Schölkopf, 2004), so
-components map back to input space, e.g. for denoising:
+components map back to input space, e.g. for denoising. The map is fitted on
+the centred inputs and adds the training mean back, so a `Linear` inverse
+kernel needs no `Constant` term, and far from the training embedding an `RBF`
+pre-image falls back to the mean:
 
 ```python
 kpca = kl.KernelPCA(k, n_components=40, fit_inverse_transform=True).fit(X_clean)

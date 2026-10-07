@@ -427,7 +427,9 @@ different penalty matrix.
 
 ```python
 graph = kl.knn_graph(X_all, 10, weighting="heat")  # K2: a sparse weighted Graph
-laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
+laprls = kl.KRR(
+    kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0, implicit=True
+).fit(
     X_all,
     y_all,  # any value where unlabelled
     mask=is_labelled,
@@ -436,10 +438,11 @@ laprls = kl.KRR(kl.RBF(0.5), regularization=1e-4, penalty_weight=1.0).fit(
 moisture_map = laprls.predict(X_grid)
 ```
 
-**What makes it work.** With a mask, K13 solves the symmetric normal form
-$(KJK + l\lambda K + \tfrac{l\mu}{n^2}KLK)\alpha = KJy$ by CG. With a
-sparse K2 Laplacian, each iteration costs three kernel matvecs and one
-sparse matvec.
+**What makes it work.** With a mask and ``implicit=True``, K13 solves
+$(JK + l\lambda I + \tfrac{l\mu}{n^2}LK)\alpha = Jy$ matrix-free by
+GMRES, so $K$ is never formed. Given a K2 graph, `laplacian_penalty`
+returns the sparse Laplacian operator scaled by $1/n^2$, so each
+iteration costs one kernel matvec and one O(nnz) sparse matvec.
 
 ---
 
