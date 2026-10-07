@@ -50,8 +50,10 @@ like Lanczos (``_lobpcg_eigenmap``).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextvars import ContextVar
 from typing import Literal
 
 import einx
@@ -114,6 +116,9 @@ _MAX_OVERSAMPLE = 1600
 # a 10-NN Swiss roll converges in ~260 iterations at N = 1000, ~420 at
 # N = 5000 and ~840 at N = 20 000 (#91).
 _LOBPCG_MAX_ITER = 1000
+# The estimator whose fit is running, if any: a solver failure then names the
+# estimator and its ``eigen_solver`` rather than the function and ``method``.
+_ESTIMATOR: ContextVar[str | None] = ContextVar("_ESTIMATOR", default=None)
 
 
 # -- matrix level ------------------------------------------------------------
@@ -409,7 +414,7 @@ def schrodinger_eigenmap(
             op.mv,
             stop,
             op.in_size(),
-            solver="schrodinger_eigenmap(method='lanczos')",
+            function="schrodinger_eigenmap",
         )
     else:
         lam, U = jnp.linalg.eigh(op.as_matrix())
@@ -641,7 +646,7 @@ def _laplacian_lanczos(
         return lam, U, bound
 
     return _lanczos_until_converged(
-        solve, matvec, n, n_nodes, solver="laplacian_eigenmap(method='lanczos')"
+        solve, matvec, n, n_nodes, function="laplacian_eigenmap"
     )
 
 
@@ -828,7 +833,9 @@ def _check_eigpairs(
         message = (
             f"{solver} did not converge: eigenpair residuals above tolerance. {hint}"
         )
-        return eqx.error_if((lam, U), jnp.any(res > tol), message)
+        # ~all(res <= tol), not any(res > tol): NaN compares False, so a
+        # non-finite residual must fail the check, as it does eagerly.
+        return eqx.error_if((lam, U), ~jnp.all(res <= tol), message)
     if not bool(jnp.all(res <= tol)):
         raise RuntimeError(
             f"{solver} did not converge: eigenpair residuals "
@@ -840,6 +847,43 @@ def _check_eigpairs(
     return lam, U
 
 
+@contextlib.contextmanager
+def _fitting(estimator: str) -> Iterator[None]:
+    """Solver failures inside this block name ``estimator`` (`_solver_names`).
+
+    Decorates the estimators' ``fit`` (a ``contextmanager`` is also a
+    decorator); the check message is built at trace time, so it holds under
+    ``jit`` too.
+    """
+    token = _ESTIMATOR.set(estimator)
+    try:
+        yield
+    finally:
+        _ESTIMATOR.reset(token)
+
+
+def _solver_param(function: str) -> tuple[str, str]:
+    """Who chose the solver, and by which parameter, for error messages.
+
+    The public function takes the solver as ``method``, the estimators as
+    ``eigen_solver``; inside an estimator's `fit` (`_fitting`) a message
+    names the estimator and its parameter, so the advice can be followed.
+    """
+    estimator = _ESTIMATOR.get()
+    if estimator is None:
+        return function, "method"
+    return estimator, "eigen_solver"
+
+
+def _solver_names(function: str, method: str) -> tuple[str, str]:
+    """The ``solver`` and ``hint`` of a `_check_eigpairs` message."""
+    name, param = _solver_param(function)
+    return (
+        f"{name}({param}={method!r})",
+        f"Use {param}='arpack' (SciPy, CPU), or {param}='dense' for a small graph.",
+    )
+
+
 def _lanczos_until_converged(
     solve: Callable[
         [int], tuple[Float[Array, " n"], Float[Array, "N n"], Float[Array, ""]]
@@ -848,7 +892,7 @@ def _lanczos_until_converged(
     n_wanted: int,
     n_nodes: int,
     *,
-    solver: str,
+    function: str,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     """Run ``solve(oversample)`` until `_check_eigpairs` passes.
 
@@ -856,8 +900,9 @@ def _lanczos_until_converged(
     ``_OVERSAMPLE`` and doubles on failure, up to ``_MAX_OVERSAMPLE`` (or the
     full space, where Lanczos is exact); the last run is checked and raises.
     Under ``jit`` there is one run, checked by `equinox.error_if`.
+    ``function`` (the public function) names the solver in the message.
     """
-    hint = "Use eigen_solver='arpack' (SciPy, CPU), or 'dense' for a small graph."
+    solver, hint = _solver_names(function, "lanczos")
     oversample = _OVERSAMPLE
     while True:
         lam, U, bound = solve(oversample)
@@ -899,11 +944,12 @@ def _potential_terms(V: Potential) -> list[_Term]:
     elif isinstance(V, lx.MatrixLinearOperator):
         V = V.matrix
     elif isinstance(V, lx.AbstractLinearOperator):
+        _, param = _solver_param("schrodinger_eigenmap")
         raise ValueError(
-            "eigen_solver='lobpcg' takes a potential that is an array, or a "
+            f"{param}='lobpcg' takes a potential that is an array, or a "
             "lineax sum / scaling of diagonal, matrix and gaussx.SparseOperator "
             f"terms; got {type(V).__name__}. Pass V.as_matrix() or use "
-            "'arpack'."
+            f"{param}='arpack'."
         )
     V = jnp.asarray(V)
     return [("diag" if V.ndim == 1 else "dense", V)]
@@ -1012,12 +1058,15 @@ def _lobpcg_eigenmap(
         RuntimeError: If the returned pairs have not converged (raise
             ``max_iter``).
     """
+    name, param = _solver_param(
+        "laplacian_eigenmap" if potential is None else "schrodinger_eigenmap"
+    )
     if jax.dtypes.canonicalize_dtype(jnp.float64) != jnp.float64:
         raise ValueError(
-            "eigen_solver='lobpcg' needs float64: the smallest graph eigenvalues "
+            f"{param}='lobpcg' needs float64: the smallest graph eigenvalues "
             "crowd near 0 and float32 LOBPCG returns a wrong embedding (#91). "
             'Enable x64 with jax.config.update("jax_enable_x64", True), or use '
-            "eigen_solver='dense' or 'arpack'."
+            f"{param}='dense' or 'arpack'."
         )
     if key is None:
         raise ValueError("method='lobpcg' needs a PRNG key.")
@@ -1025,9 +1074,9 @@ def _lobpcg_eigenmap(
     k = n_components + int(drop_first)
     if not 0 < 5 * k < n_nodes:
         raise ValueError(
-            f"eigen_solver='lobpcg' needs 5 * {k} eigenpairs < N = {n_nodes} "
+            f"{param}='lobpcg' needs 5 * {k} eigenpairs < N = {n_nodes} "
             "(a limit of jax.experimental.sparse.linalg.lobpcg_standard); "
-            "use eigen_solver='dense' for a graph this small."
+            f"use {param}='dense' for a graph this small."
         )
     f64 = jnp.float64
     A: Float[Array, "N N"] | jsparse.BCOO
@@ -1060,8 +1109,8 @@ def _lobpcg_eigenmap(
         lam,
         U,
         c,
-        solver=f"eigen_solver='lobpcg' (max_iter={max_iter})",
-        hint="Raise max_iter, or use eigen_solver='arpack' (SciPy, CPU).",
+        solver=f"{name}({param}='lobpcg', max_iter={max_iter})",
+        hint=f"Raise max_iter, or use {param}='arpack' (SciPy, CPU).",
     )
     start = int(drop_first)
     return lam[start:], einx.multiply("N, N n -> N n", s, U[:, start:]), n_iter
@@ -1153,6 +1202,7 @@ class LaplacianEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("LaplacianEigenmaps")
     def fit(
         self, X: Float[Array, "N D"], *, graph: GraphLike | None = None
     ) -> LaplacianEigenmaps:
@@ -1286,6 +1336,7 @@ class SchrodingerEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("SchrodingerEigenmaps")
     def fit(
         self,
         X: Float[Array, "N D"],

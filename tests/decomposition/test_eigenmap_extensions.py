@@ -383,13 +383,35 @@ class TestLanczosResidualCheck:
         with pytest.raises(Exception, match="mysolver did not converge"):
             jax.block_until_ready(check(jnp.array([1.5])))
 
+    def test_check_under_jit_rejects_non_finite_residuals(self):
+        # NaN > tol is False: the traced predicate must be ~all(res <= tol).
+        A = jnp.diag(jnp.array([1.0, 2.0, 3.0]))
+        U = jnp.eye(3)[:, :1]
+
+        @jax.jit
+        def check(scale):
+            return _check_eigpairs(
+                lambda v: scale * (A @ v),
+                jnp.array([1.0]),
+                U,
+                3.0,
+                solver="mysolver",
+                hint="Try arpack.",
+            )
+
+        assert jnp.allclose(check(jnp.array(1.0))[0], 1.0)
+        with pytest.raises(Exception, match="mysolver did not converge"):
+            jax.block_until_ready(check(jnp.array(jnp.nan)))
+
     @pytest.mark.parametrize("which", ["laplacian", "schrodinger"])
     def test_fires_on_an_undersized_krylov_space(self, which, monkeypatch):
-        # Krylov dimension = the number of pairs wanted, and no restart.
+        # Krylov dimension = the number of pairs wanted, and no restart. The
+        # functions take method=, so the message names method=, not the
+        # estimators' eigen_solver=.
         monkeypatch.setattr(_eigenmaps, "_OVERSAMPLE", 1)
         monkeypatch.setattr(_eigenmaps, "_MAX_OVERSAMPLE", 1)
         _, _, g = _graph()
-        with pytest.raises(RuntimeError, match=r"method='lanczos'\) did not converge"):
+        with pytest.raises(RuntimeError) as info:
             if which == "laplacian":
                 kl.laplacian_eigenmap(g, 3, method="lanczos", key=jax.random.key(0))
             else:
@@ -401,6 +423,31 @@ class TestLanczosResidualCheck:
                     method="lanczos",
                     key=jax.random.key(0),
                 )
+        message = str(info.value)
+        assert f"{which}_eigenmap(method='lanczos') did not converge" in message
+        assert "Use method='arpack'" in message
+        assert "eigen_solver" not in message
+
+    @pytest.mark.parametrize("which", ["laplacian", "schrodinger"])
+    def test_estimator_failure_names_eigen_solver(self, which, monkeypatch):
+        # Through an estimator the hint names the estimator's own parameter.
+        monkeypatch.setattr(_eigenmaps, "_OVERSAMPLE", 1)
+        monkeypatch.setattr(_eigenmaps, "_MAX_OVERSAMPLE", 1)
+        X, _, g = _graph()
+        with pytest.raises(RuntimeError) as info:
+            if which == "laplacian":
+                kl.LaplacianEigenmaps(n_components=3, eigen_solver="lanczos").fit(
+                    X, graph=g
+                )
+            else:
+                kl.SchrodingerEigenmaps(
+                    n_components=3, alpha=5.0, eigen_solver="lanczos"
+                ).fit(X, _labels(60), graph=g)
+        message = str(info.value)
+        name = "LaplacianEigenmaps" if which == "laplacian" else "SchrodingerEigenmaps"
+        assert f"{name}(eigen_solver='lanczos') did not converge" in message
+        assert "Use eigen_solver='arpack'" in message
+        assert "method=" not in message
 
     @pytest.mark.slow
     def test_restarts_with_a_wider_krylov_space(self, monkeypatch):

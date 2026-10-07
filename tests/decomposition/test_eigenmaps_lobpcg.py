@@ -140,7 +140,7 @@ class TestJit:
         embed = jax.jit(
             lambda graph: _lobpcg_eigenmap(graph, None, 2, key=KEY, max_iter=2)
         )
-        with pytest.raises(Exception, match=r"'lobpcg' .* did not converge"):
+        with pytest.raises(Exception, match=r"'lobpcg', max_iter=2\) did not converge"):
             jax.block_until_ready(embed(g))
 
 
@@ -156,16 +156,35 @@ class TestErrors:
     def test_needs_5k_below_n(self):
         X = _swiss_roll(30)
         g = kl.graph_from_neighbors(kl.nearest_neighbors(X, 5))
-        with pytest.raises(ValueError, match=r"5 \* 6 eigenpairs < N = 30"):
+        with pytest.raises(
+            ValueError, match=r"5 \* 6 eigenpairs < N = 30.*method='dense'"
+        ):
             kl.laplacian_eigenmap(g, 5, method="lobpcg", key=KEY)
         model = kl.LaplacianEigenmaps(n_components=5, eigen_solver="lobpcg")
         with pytest.raises(ValueError, match="eigen_solver='dense'"):
             model.fit(X, graph=g)
 
     def test_unconverged_raises(self, roll):
-        _, _, g = roll
-        with pytest.raises(RuntimeError, match=r"max_iter=2\) did not converge"):
+        # The message names the caller's own solver parameter: method= for
+        # the functions, eigen_solver= for the estimators.
+        X, _, g = roll
+        with pytest.raises(RuntimeError) as info:
             kl.laplacian_eigenmap(g, 2, method="lobpcg", key=KEY, max_iter=2)
+        message = str(info.value)
+        assert (
+            "laplacian_eigenmap(method='lobpcg', max_iter=2) did not converge"
+            in message
+        )
+        assert "use method='arpack'" in message and "eigen_solver" not in message
+        model = kl.LaplacianEigenmaps(eigen_solver="lobpcg", max_iter=2)
+        with pytest.raises(RuntimeError) as info:
+            model.fit(X, graph=g)
+        message = str(info.value)
+        assert (
+            "LaplacianEigenmaps(eigen_solver='lobpcg', max_iter=2) did not converge"
+            in message
+        )
+        assert "use eigen_solver='arpack'" in message and "method=" not in message
 
     def test_key_potential_and_max_iter(self, roll):
         _, _, g = roll
