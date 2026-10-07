@@ -44,8 +44,10 @@ than a wrong embedding returned (use ``"arpack"``).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextvars import ContextVar
 from typing import Literal
 
 import einx
@@ -101,6 +103,9 @@ _SOLVERS = ("dense", "kronecker", "lanczos", "arpack")
 # _MAX_OVERSAMPLE (three doublings), before raising.
 _OVERSAMPLE = 200
 _MAX_OVERSAMPLE = 1600
+# The estimator whose fit is running, if any: a solver failure then names the
+# estimator and its ``eigen_solver`` rather than the function and ``method``.
+_ESTIMATOR: ContextVar[str | None] = ContextVar("_ESTIMATOR", default=None)
 
 
 # -- matrix level ------------------------------------------------------------
@@ -339,7 +344,7 @@ def schrodinger_eigenmap(
             op.mv,
             stop,
             op.in_size(),
-            solver="schrodinger_eigenmap(method='lanczos')",
+            function="schrodinger_eigenmap",
         )
     else:
         lam, U = jnp.linalg.eigh(op.as_matrix())
@@ -571,7 +576,7 @@ def _laplacian_lanczos(
         return lam, U, bound
 
     return _lanczos_until_converged(
-        solve, matvec, n, n_nodes, solver="laplacian_eigenmap(method='lanczos')"
+        solve, matvec, n, n_nodes, function="laplacian_eigenmap"
     )
 
 
@@ -758,7 +763,9 @@ def _check_eigpairs(
         message = (
             f"{solver} did not converge: eigenpair residuals above tolerance. {hint}"
         )
-        return eqx.error_if((lam, U), jnp.any(res > tol), message)
+        # ~all(res <= tol), not any(res > tol): NaN compares False, so a
+        # non-finite residual must fail the check, as it does eagerly.
+        return eqx.error_if((lam, U), ~jnp.all(res <= tol), message)
     if not bool(jnp.all(res <= tol)):
         raise RuntimeError(
             f"{solver} did not converge: eigenpair residuals "
@@ -770,6 +777,38 @@ def _check_eigpairs(
     return lam, U
 
 
+@contextlib.contextmanager
+def _fitting(estimator: str) -> Iterator[None]:
+    """Solver failures inside this block name ``estimator`` (`_solver_names`).
+
+    Decorates the estimators' ``fit`` (a ``contextmanager`` is also a
+    decorator); the check message is built at trace time, so it holds under
+    ``jit`` too.
+    """
+    token = _ESTIMATOR.set(estimator)
+    try:
+        yield
+    finally:
+        _ESTIMATOR.reset(token)
+
+
+def _solver_names(function: str, method: str) -> tuple[str, str]:
+    """The ``solver`` and ``hint`` of a `_check_eigpairs` message.
+
+    The public function takes the solver as ``method``, the estimators as
+    ``eigen_solver``; inside an estimator's `fit` (`_fitting`) the message
+    names the estimator and its parameter, so the advice can be followed.
+    """
+    estimator = _ESTIMATOR.get()
+    name, param = (
+        (function, "method") if estimator is None else (estimator, "eigen_solver")
+    )
+    return (
+        f"{name}({param}={method!r})",
+        f"Use {param}='arpack' (SciPy, CPU), or {param}='dense' for a small graph.",
+    )
+
+
 def _lanczos_until_converged(
     solve: Callable[
         [int], tuple[Float[Array, " n"], Float[Array, "N n"], Float[Array, ""]]
@@ -778,7 +817,7 @@ def _lanczos_until_converged(
     n_wanted: int,
     n_nodes: int,
     *,
-    solver: str,
+    function: str,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     """Run ``solve(oversample)`` until `_check_eigpairs` passes.
 
@@ -786,8 +825,9 @@ def _lanczos_until_converged(
     ``_OVERSAMPLE`` and doubles on failure, up to ``_MAX_OVERSAMPLE`` (or the
     full space, where Lanczos is exact); the last run is checked and raises.
     Under ``jit`` there is one run, checked by `equinox.error_if`.
+    ``function`` (the public function) names the solver in the message.
     """
-    hint = "Use eigen_solver='arpack' (SciPy, CPU), or 'dense' for a small graph."
+    solver, hint = _solver_names(function, "lanczos")
     oversample = _OVERSAMPLE
     while True:
         lam, U, bound = solve(oversample)
@@ -880,6 +920,7 @@ class LaplacianEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("LaplacianEigenmaps")
     def fit(
         self, X: Float[Array, "N D"], *, graph: GraphLike | None = None
     ) -> LaplacianEigenmaps:
@@ -988,6 +1029,7 @@ class SchrodingerEigenmaps(_GraphEmbedding):
     def __check_init__(self) -> None:
         _check_common(self)
 
+    @_fitting("SchrodingerEigenmaps")
     def fit(
         self,
         X: Float[Array, "N D"],
