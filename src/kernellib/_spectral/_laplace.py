@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 
+import einx
 import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
@@ -63,15 +64,19 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
         half_widths: The resolved half-widths, ``None`` before `fit`.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(-1.0, 1.0, 50)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 50))
         >>> k = kl.RBF(lengthscale=0.3)
         >>> lap = kl.LaplaceEigenfunctionFeatures(32, boundary_factor=2.5)
         >>> Phi = lap.fit(k, X)(X)
         >>> Phi.shape
         (50, 32)
-        >>> bool(jnp.max(jnp.abs(Phi @ Phi.T - k(X, X))) < 1e-4)
+        >>> bool(
+        ...     jnp.max(jnp.abs(einx.dot("n f, m f -> n m", Phi, Phi) - k(X, X)))
+        ...     < 1e-4
+        ... )
         True
     """
 
@@ -118,7 +123,7 @@ class LaplaceEigenfunctionFeatures(AbstractFeatureMap):
         _per_dim(self.n_per_dim, d, "n_per_dim")
         if self.L is None:
             half_widths = tuple(
-                float(v) for v in self.boundary_factor * np.max(np.abs(X), axis=0)
+                float(v) for v in self.boundary_factor * einx.max("n d -> d", np.abs(X))
             )
         else:
             half_widths = tuple(float(v) for v in _per_dim(self.L, d, "L"))

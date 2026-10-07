@@ -18,12 +18,14 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from geonnax.randfeat import orthogonal_blocks, rff_forward
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from kernellib._einx import rearrange, reduce
 from kernellib._kernels import AbstractKernel
 from kernellib._kernels._compose import SpectralComponents, _spectral_components
 from kernellib._operators._fastfood import (
@@ -96,7 +98,11 @@ def _cos_sin_features(
     for (c, k), size in zip(_fitted_components(kernel), sizes, strict=True):
         W = omega[start : start + size] / k._lengthscale_vector(d)
         start += size
-        Phi = jax.vmap(lambda x, W=W, size=size: rff_forward(W.T, 1.0, size, x))(X)
+        Phi = jax.vmap(
+            lambda x, W=W, size=size: rff_forward(
+                rearrange(W, "f d -> d f"), 1.0, size, x
+            )
+        )(X)
         blocks.append(jnp.sqrt(c * k.variance) * Phi)
     return blocks[0] if len(blocks) == 1 else jnp.concatenate(blocks, axis=-1)
 
@@ -126,7 +132,7 @@ class RandomFourierFeatures(AbstractFeatureMap):
         >>> import jax
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(-1.0, 1.0, 6)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 6))
         >>> rff = kl.RandomFourierFeatures(256, jax.random.key(0))
         >>> rff = rff.fit(kl.Matern(nu=1.5, lengthscale=0.5), X)
         >>> rff(X).shape
@@ -194,7 +200,7 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
         >>> X = jnp.ones((3, 4))
         >>> orf = kl.OrthogonalRandomFeatures(8, jax.random.key(0)).fit(kl.RBF(), X)
         >>> W = orf.omega[:4]
-        >>> G = W @ W.T  # one block: orthogonal rows
+        >>> G = einx.dot("i d, j d -> i j", W, W)  # one block: orthogonal rows
         >>> bool(jnp.allclose(G - jnp.diag(jnp.diag(G)), 0.0, atol=1e-6))
         True
     """
@@ -227,12 +233,11 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
             n_blocks = math.ceil(size / d)
             key_dir, key_len = jax.random.split(key)
             Q = orthogonal_blocks(d, n_blocks, key=key_dir).astype(X.dtype)
-            directions = Q / jnp.linalg.norm(Q, axis=0, keepdims=True)  # (D, B*D)
-            lengths = jnp.linalg.norm(
-                k.sample_unit_frequencies(key_len, (n_blocks * d, d), X.dtype),
-                axis=-1,
-            )
-            blocks.append((directions * lengths).T[:size])
+            norms = jnp.sqrt(reduce(Q**2, "d k -> k", "sum"))
+            directions = einx.divide("d k, k -> d k", Q, norms)  # (D, B*D)
+            freqs = k.sample_unit_frequencies(key_len, (n_blocks * d, d), X.dtype)
+            lengths = jnp.sqrt(reduce(freqs**2, "k d -> k", "sum"))
+            blocks.append(einx.multiply("d k, k -> k d", directions, lengths)[:size])
         omega = jnp.concatenate(blocks, axis=0)
         return dataclasses.replace(self, kernel=kernel, omega=omega, sizes=sizes)
 
@@ -298,9 +303,8 @@ class FastFoodFeatures(AbstractFeatureMap):
             key_ff, key_s = jax.random.split(key)
             params = fastfood_params(d, size, k.lengthscale, key_ff)
             shape = (params.n_stacks, params.d_padded, params.d_padded)
-            S = jnp.linalg.norm(
-                k.sample_unit_frequencies(key_s, shape, params.G.dtype), axis=-1
-            )
+            freqs = k.sample_unit_frequencies(key_s, shape, params.G.dtype)
+            S = jnp.sqrt(reduce(freqs**2, "... d -> ...", "sum"))
             parts.append(dataclasses.replace(params, S=S))
         return dataclasses.replace(
             self, kernel=kernel, params=parts[0] if len(parts) == 1 else tuple(parts)
@@ -433,7 +437,7 @@ class NystromFeatures(AbstractFeatureMap):
         Examples:
             >>> import jax.numpy as jnp
             >>> import kernellib as kl
-            >>> Z = jnp.linspace(-1.0, 1.0, 4)[:, None]
+            >>> Z = einx.id("n -> n 1", jnp.linspace(-1.0, 1.0, 4))
             >>> nys = kl.NystromFeatures.from_landmarks(kl.RBF(), Z)
             >>> nys(jnp.zeros((3, 1))).shape
             (3, 4)

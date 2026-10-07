@@ -94,10 +94,11 @@ def to_operator(
             be jitted over or differentiated; use ``implicit=False`` for that.
 
     Examples:
+        >>> import einx
         >>> import gaussx as gx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> X = jnp.linspace(0.0, 1.0, 5)[:, None]
+        >>> X = einx.id("n -> n 1", jnp.linspace(0.0, 1.0, 5))
         >>> K = kl.to_operator(kl.RBF(lengthscale=0.3), X, noise=0.1, implicit=True)
         >>> gx.solve(K, jnp.ones(5)).shape
         (5,)

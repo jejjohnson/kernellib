@@ -7,10 +7,13 @@ without ever forming the ``N x N`` matrix.
 
 from __future__ import annotations
 
+import einx
 import gaussx as gx
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
+
+from kernellib._einx import einsum, rearrange
 
 
 __all__ = [
@@ -45,9 +48,9 @@ def nystrom_operator(
     L = gx.cholesky(K_ZZ_op)
     # U = K_XZ @ L^{-T} = solve(L^T, K_XZ^T)^T
     # Solve L @ A_col = K_XZ^T_col for each column
-    K_ZX = K_XZ.T  # (M, N)
+    K_ZX = rearrange(K_XZ, "n m -> m n")  # (M, N)
     A = gx.solve_columns(L, K_ZX)
-    U = A.T  # (N, M)
+    U = rearrange(A, "m n -> n m")  # (N, M)
 
     N = K_XZ.shape[0]
     M = K_XZ.shape[1]
@@ -88,7 +91,9 @@ def rff_operator(
     """
     D_rff = omega.shape[0]
     N = X.shape[0]
-    Phi = jnp.sqrt(2.0 / D_rff) * jnp.cos(X @ omega.T + b[None, :])  # (N, D_rff)
+    Phi = jnp.sqrt(2.0 / D_rff) * jnp.cos(
+        einx.add("n f, f -> n f", einsum(X, omega, "n d, f d -> n f"), b)
+    )  # (N, D_rff)
 
     base = lx.DiagonalLinearOperator(jnp.zeros(N))
     D = jnp.ones(D_rff)

@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._einx import rearrange
+from kernellib._einx import einsum, rearrange
 
 
 def batched_kernel_matvec(
@@ -94,7 +94,7 @@ def batched_kernel_rmatvec(
         K_batch = jax.vmap(lambda x_i: jax.vmap(lambda z_j: kernel_fn(x_i, z_j))(Z))(
             X_batch
         )
-        acc = acc + K_batch.T @ u_batch
+        acc = acc + einsum(K_batch, u_batch, "b m, b -> m")
         return acc, None
 
     acc_dtype = jnp.result_type(X, Z, u)

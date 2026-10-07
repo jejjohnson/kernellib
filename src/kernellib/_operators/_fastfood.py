@@ -192,7 +192,7 @@ def fastfood_frequencies(params: FastFoodParams) -> Float[Array, "n_components d
     """
     # Projecting the identity gives V with the 1 / lengthscale scaling that
     # _pad applies to real inputs.
-    return _project(_pad(jnp.eye(params.d), params), params).T
+    return rearrange(_project(_pad(jnp.eye(params.d), params), params), "d f -> f d")
 
 
 def fastfood_features(
@@ -215,6 +215,7 @@ def fastfood_features(
         ValueError: If ``X`` does not have ``params.d`` features.
 
     Examples:
+        >>> import einx
         >>> import jax.numpy as jnp
         >>> import jax.random as jr
         >>> from kernellib import fastfood_features, fastfood_params
@@ -222,7 +223,7 @@ def fastfood_features(
         >>> Phi = fastfood_features(jnp.zeros((3, 2)), p)
         >>> Phi.shape
         (3, 16)
-        >>> bool(jnp.allclose(jnp.sum(Phi**2, axis=1), 1.0))
+        >>> bool(jnp.allclose(einx.sum("n f -> n", Phi**2), 1.0))
         True
     """
     Z = _project(_pad(X, params), params)
