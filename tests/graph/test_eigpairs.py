@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import kernellib as kl
-from kernellib._einx import einsum, rearrange
+from kernellib._einx import einsum, rearrange, reduce
 
 
 def _projector(U):
@@ -93,7 +93,7 @@ class TestKronecker:
             )
 
     def test_closed_form_large_path(self):
-        # n (2n + 1) >= 2**31: the phase is formed in floating point.
+        # n (2n + 1) >= 2**31: the phase is reduced by an exact mulmod.
         n = 40_000
         lam, U = kl.laplacian_eigpairs(kl.grid_graph((n,)), 4)
         k = np.arange(4)
@@ -104,6 +104,68 @@ class TestKronecker:
         )
         ref[:, 0] = 1.0 / np.sqrt(n)
         assert np.allclose(np.abs(U), np.abs(ref), atol=1e-10)
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("periodic", [True, False])
+    def test_float32_large_axis_is_accurate(self, periodic):
+        # Cycle: k = n - 1 is among the 3 smallest; unfolded, its float32
+        # eigenvalue was off by 1e-3 and its phase reached ~1.6e9.
+        n = 40_000
+        g = kl.GridGraph((n,), periodic=periodic, axis_weights=jnp.ones(1, jnp.float32))
+        lam, U = kl.laplacian_eigpairs(g, 3)
+        assert lam.dtype == U.dtype == jnp.float32
+        k = np.arange(n)
+        if periodic:
+            ref_all = 4 * np.sin(np.pi * np.minimum(k, n - k) / n) ** 2
+        else:
+            ref_all = 4 * np.sin(np.pi * k / (2 * n)) ** 2
+        ref = np.sort(ref_all)[:3]
+        lam = np.asarray(lam, np.float64)
+        assert abs(lam[0]) < 1e-12
+        assert np.max(np.abs(lam[1:] - ref[1:]) / ref[1:]) <= 1e-5
+        # Residual against the float64 operator, at float32 rounding level.
+        U = np.asarray(U, np.float64)
+        L = kl.GridGraph((n,), periodic=periodic).laplacian_operator()
+        LU = np.asarray(jax.vmap(L.mv, in_axes=1, out_axes=1)(jnp.asarray(U)))
+        err = LU - einx.multiply("i m, m -> i m", U, ref)
+        assert np.sqrt(np.max(reduce(err**2, "i m -> m", "sum"))) < 1e-6
+        assert np.allclose(einsum(U, U, "i a, i b -> a b"), np.eye(3), atol=1e-5)
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize("periodic", [True, False])
+    def test_high_frequency_columns_in_int32(self, periodic):
+        # The highest frequencies of a long axis, whose products k (2i + 1)
+        # overflow int32, against a float64 reference.
+        from kernellib._graph._eigpairs import _lattice_eigvecs
+
+        n = 40_000
+        k = np.array([1, n // 2 - 1, n // 2 + 1, n - 2, n - 1])
+        U = np.asarray(
+            _lattice_eigvecs(n, periodic, jnp.asarray(k, jnp.int32), jnp.float32),
+            np.float64,
+        )
+        i = np.arange(n)
+        if periodic:
+            m = np.minimum(k, n - k)
+            phase = 2 * np.pi * np.mod(einx.multiply("i, m -> i m", i, m), n) / n
+            ref = np.where(2 * k > n, np.sin(phase), np.cos(phase))
+        else:
+            ref = np.cos(np.pi * einx.multiply("i, m -> i m", i + 0.5, k) / n)
+        ref = ref * np.sqrt(2.0 / n)
+        assert np.allclose(U, ref, atol=1e-6)
+
+    def test_mulmod_is_exact_without_overflow(self):
+        from kernellib._graph._eigpairs import _mulmod
+
+        p = 4 * 50_000_000
+        rng = np.random.default_rng(0)
+        a = rng.integers(0, p, 64)
+        b = rng.integers(0, p, 16)
+        got = _mulmod(jnp.asarray(a, jnp.int32), jnp.asarray(b, jnp.int32), p)
+        a_obj, b_obj = a.astype(object), b.astype(object)
+        ref = np.mod(einx.multiply("i, m -> i m", a_obj, b_obj), p).astype(np.int64)
+        assert got.dtype == jnp.int32
+        assert np.array_equal(np.asarray(got, np.int64), ref)
 
     @pytest.mark.slow
     def test_float32_1000_by_1000_grid_is_accurate(self):

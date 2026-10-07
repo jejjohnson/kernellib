@@ -252,12 +252,17 @@ def _lattice_eigvals(n: int, periodic: bool, dtype: jnp.dtype) -> Float[Array, "
     r"""Eigenvalues of the unit-weight path (or cycle) Laplacian on ``n`` nodes.
 
     Path: $2 - 2\cos(\pi k / n) = 4 \sin^2(\pi k / 2n)$; cycle:
-    $2 - 2\cos(2\pi k / n) = 4 \sin^2(\pi k / n)$, for $k = 0, \dots, n - 1$.
-    The sine form has no cancellation at small $k$, so the bottom of the
-    spectrum keeps full relative precision in float32.
+    $2 - 2\cos(2\pi k / n) = 4 \sin^2(\pi m / n)$ with the folded frequency
+    $m = \min(k, n - k)$, for $k = 0, \dots, n - 1$. The sine form has no
+    cancellation at small $k$, and the fold keeps the half-angle in
+    $[0, \pi/2]$, so the bottom of the spectrum (which includes the cycle's
+    aliased $k = n - 1$) keeps full relative precision in float32, and the
+    two members of a degenerate cycle pair are bitwise equal.
     """
-    k = jnp.arange(n, dtype=dtype)
-    half_angle = (jnp.pi / n if periodic else jnp.pi / (2 * n)) * k
+    k = jnp.arange(n)
+    if periodic:
+        k = jnp.minimum(k, n - k)
+    half_angle = (jnp.pi / n if periodic else jnp.pi / (2 * n)) * k.astype(dtype)
     return 4.0 * jnp.sin(half_angle) ** 2
 
 
@@ -267,18 +272,23 @@ def _lattice_eigvecs(
     r"""Columns ``k`` of the orthonormal eigenbasis matching `_lattice_eigvals`.
 
     Path (DCT-II): $u_k[i] \propto \cos(\pi k (i + 1/2) / n)$. Cycle (real
-    Fourier modes): $\cos(2\pi k i / n)$ for $k \le n / 2$ and
-    $\sin(2\pi k i / n)$ for $k > n / 2$, which shares its eigenvalue with
-    $n - k$. The phase is reduced modulo one period in integer arithmetic
-    while the products fit, so float32 keeps its precision for large ``n``.
+    Fourier modes) with the folded frequency $m = \min(k, n - k)$:
+    $\cos(2\pi m i / n)$ for $k \le n / 2$ and $\sin(2\pi m i / n)$ for
+    $k > n / 2$, the partner of $k' = n - k$ in the same eigenspace. The
+    phase is $2\pi \cdot \mathrm{ticks} / \mathrm{period}$ with ticks
+    reduced modulo the period exactly, in integer arithmetic (`_mulmod`), so
+    no float phase exceeds $2\pi$ and float32 keeps its precision at any
+    ``n``.
     """
     i = jnp.arange(n)
-    # phase = 2 pi ticks / period: path pi k (2i + 1) / 2n, cycle 2 pi k i / n.
-    period, steps = (n, i) if periodic else (4 * n, 2 * i + 1)
-    if n * (2 * n + 1) < 2**31:
-        ticks = jnp.mod(einx.multiply("i, m -> i m", steps, k), period).astype(dtype)
+    k = k.astype(i.dtype)
+    if periodic:
+        # phase = 2 pi (i m mod n) / n.
+        period, steps, freq = n, i, jnp.minimum(k, n - k)
     else:
-        ticks = einx.multiply("i, m -> i m", steps.astype(dtype), k.astype(dtype))
+        # phase = pi k (2i + 1) / 2n = 2 pi (k (2i + 1) mod 4n) / 4n.
+        period, steps, freq = 4 * n, 2 * i + 1, k
+    ticks = _mulmod(steps, freq, period).astype(dtype)
     phase = (2 * jnp.pi / period) * ticks
     if periodic:
         U = einx.where("m, i m, i m -> i m", 2 * k > n, jnp.sin(phase), jnp.cos(phase))
@@ -288,6 +298,27 @@ def _lattice_eigvecs(
         flat = k == 0
     scale = jnp.where(flat, 1.0 / jnp.sqrt(n), jnp.sqrt(2.0 / n)).astype(dtype)
     return einx.multiply("i m, m -> i m", U, scale)
+
+
+def _mulmod(a: Int[Array, " i"], b: Int[Array, " m"], p: int) -> Int[Array, "i m"]:
+    r"""The outer product $(a_i b_m) \bmod p$, exact, for $0 \le a, b < p$.
+
+    Horner's rule over base-$2^s$ digits of $a$,
+    $r \leftarrow (r 2^s + d\, b) \bmod p$, with $s$ the largest shift for
+    which $2 p\, 2^s$ fits the integer dtype: every intermediate is
+    representable, so int32 (JAX's default) cannot overflow. With int64 or a
+    small ``p`` this is a single digit, the plain product.
+    """
+    limit = jnp.iinfo(a.dtype).max
+    if 4 * p > limit:
+        raise ValueError(f"Lattice axis too long for {a.dtype} phases: period {p}.")
+    shift = (limit // (2 * p)).bit_length() - 1  # 2 p 2^shift <= limit
+    n_digits = max(1, -(-(p - 1).bit_length() // shift))
+    r = jnp.zeros((a.shape[0], b.shape[0]), a.dtype)
+    for j in reversed(range(n_digits)):
+        digit = (a >> (j * shift)) & ((1 << shift) - 1)
+        r = jnp.mod((r << shift) + einx.multiply("i, m -> i m", digit, b), p)
+    return r
 
 
 def _lanczos(
