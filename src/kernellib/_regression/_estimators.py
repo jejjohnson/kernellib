@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -13,7 +14,12 @@ from jaxtyping import Array, Bool, Float, Int, PRNGKeyArray
 from kernellib._einx import rearrange
 from kernellib._kernels import AbstractKernel
 from kernellib._operators._bridge import to_cross_operator, to_operator
-from kernellib._regression._base import AbstractEstimator, _check_targets
+from kernellib._regression._base import (
+    AbstractEstimator,
+    _check_targets,
+    _concrete,
+    _warn_small_regularization,
+)
 from kernellib._regression._eigenpro import (
     EigenProPreconditioner,
     eigenpro_correction,
@@ -114,26 +120,41 @@ class Falkon(AbstractEstimator):
       of the preconditioned residual is below ``tol * (max|b| + |b_i|)``;
       ``max_iter`` is a budget, not a failure: the iterate at the budget
       is returned without raising, and ``n_iter`` / ``converged`` report
-      what happened. In float32 the default ``tol=1e-6`` is near machine
-      precision, so ``converged`` is often ``False`` with an accurate fit.
-    - $\lambda$ is not validated, so it must be positive. As
-      $\lambda \to 0$, $\frac1m TT^\top + \lambda I$ is dominated by the
-      jitter, $P$ stops approximating $H^{-1}$, and CG at a fixed budget
-      degrades quietly: no error, just a worse fit. The threshold is
-      relative to the dtype's precision, so float32 breaks down at a much
-      larger $\lambda$ than float64. Use float64 for small $\lambda$, and
-      check ``converged`` and a validation loss.
+      what happened. The default ``tol=None`` resolves at `fit` to
+      $\max(10^{-6}, \sqrt\epsilon)$ for the machine epsilon $\epsilon$ of
+      that dtype: ``1e-6`` in float64 (as before) and about ``3.5e-4`` in
+      float32. In float32 the preconditioned residual stagnates at
+      around $10^{-5}$ to $10^{-4}$ (higher with fewer centres, whose
+      preconditioner is weaker), so a fixed ``1e-6`` reported
+      ``converged=False`` on accurate fits; stopping at $\sqrt\epsilon$
+      leaves the fit unchanged at statistical accuracy. The fitted model
+      holds the resolved value.
+    - $\lambda$ must be positive (``regularization <= 0`` raises when it
+      is concrete). As $\lambda \to 0$, $\frac1m TT^\top + \lambda I$ is
+      dominated by the jitter, $P$ stops approximating $H^{-1}$, and CG at
+      a fixed budget degrades quietly: no error, just a worse fit. The
+      threshold is relative to the dtype's precision, so float32 breaks
+      down at a much larger $\lambda$ than float64; `fit` warns when
+      $\lambda < \epsilon \max_i (K_{mm})_{ii}$, as `KRR` does. Use float64
+      for small $\lambda$, and check ``converged`` and a validation loss.
     - The $\frac nm K_{mm}^2$ approximation assumes uniformly sampled
-      centres. Other ``centers`` methods give better centres, but the
-      preconditioner is not reweighted for them, so CG may need a few more
-      iterations.
+      centres. With ``centers="leverage"``, ``"rpcholesky"`` or
+      ``"greedy"`` the centres are not uniform and the preconditioner is
+      not reweighted for them (Rudi, Calandriello, Carratino & Rosasco,
+      2018, reweight $K_{mm}$ by the sampling probabilities, which these
+      selectors do not expose). $P$ is still symmetric positive definite,
+      so CG converges to the same Nyström solution; it is only a weaker
+      preconditioner, so CG may need more iterations (raise ``max_iter``
+      and check ``converged``). In practice the better centres usually
+      more than make up for it.
 
         Attributes:
         kernel: The kernel.
         n_inducing: Number of centres ``M`` (capped at ``N``).
         regularization: Ridge $\lambda > 0$, scaled by ``n`` as in `KRR`.
         max_iter: CG iteration budget; Falkon needs a few tens.
-        tol: CG relative tolerance.
+        tol: CG relative tolerance; ``None`` (default) resolves at `fit` to
+            $\max(10^{-6}, \sqrt\epsilon)$ for the solve's dtype.
         implicit: Stream ``K_nm`` (needs a pointwise kernel; ignored
             otherwise).
         batch_size: Rows per step of the streamed ``K_nm``.
@@ -166,6 +187,9 @@ class Falkon(AbstractEstimator):
     References:
         - Rudi, Carratino & Rosasco (2017). FALKON: An optimal large scale
           kernel method. NeurIPS. [arXiv:1705.10958](https://arxiv.org/abs/1705.10958)
+        - Rudi, Calandriello, Carratino & Rosasco (2018). On fast leverage
+          score sampling and optimal learning. NeurIPS.
+          [arXiv:1810.13258](https://arxiv.org/abs/1810.13258)
         - Meanti, Carratino, Rosasco & Rudi (2020). Kernel methods through
           the roof: handling billions of points efficiently. NeurIPS.
           [arXiv:2006.10350](https://arxiv.org/abs/2006.10350)
@@ -175,7 +199,7 @@ class Falkon(AbstractEstimator):
     n_inducing: int = eqx.field(default=1000, static=True)
     regularization: float | Float[Array, ""] = 1e-3
     max_iter: int = eqx.field(default=20, static=True)
-    tol: float = eqx.field(default=1e-6, static=True)
+    tol: float | None = eqx.field(default=None, static=True)
     implicit: bool = eqx.field(default=True, static=True)
     batch_size: int = eqx.field(default=1024, static=True)
     jitter: float | None = eqx.field(default=None, static=True)
@@ -184,6 +208,13 @@ class Falkon(AbstractEstimator):
     alpha: Float[Array, " M"] | Float[Array, "M C"] | None = None
     n_iter: Int[Array, ""] | Int[Array, " C"] | None = None
     converged: Bool[Array, ""] | Bool[Array, " C"] | None = None
+
+    def __check_init__(self) -> None:
+        lam = _concrete(self.regularization)
+        if lam is not None and not lam > 0:
+            raise ValueError(f"regularization must be positive, got {lam}.")
+        if self.tol is not None and not self.tol > 0:
+            raise ValueError(f"tol must be positive, got {self.tol}.")
 
     def fit(
         self,
@@ -210,9 +241,14 @@ class Falkon(AbstractEstimator):
             ]
         else:
             Z = X
-        precond = falkon_preconditioner(
-            self.kernel(Z, Z), self.regularization, jitter=self.jitter
-        )
+        K_mm = self.kernel(Z, Z)
+        _warn_small_regularization("Falkon", self.regularization, jnp.diag(K_mm))
+        precond = falkon_preconditioner(K_mm, self.regularization, jitter=self.jitter)
+        tol = self.tol
+        if tol is None:
+            # falkon_solve's dtype: the factors' and the targets', promoted.
+            eps = float(jnp.finfo(jnp.result_type(precond.T, y, jnp.float32)).eps)
+            tol = max(1e-6, eps**0.5)
         K_nm = self._cross(X, Z)
         alpha, info = _per_column(
             lambda col: falkon_solve(
@@ -221,7 +257,7 @@ class Falkon(AbstractEstimator):
                 precond,
                 self.regularization,
                 max_iter=self.max_iter,
-                tol=self.tol,
+                tol=tol,
                 return_info=True,
             ),
             y,
@@ -232,6 +268,7 @@ class Falkon(AbstractEstimator):
             self,
             landmarks=Z,
             alpha=alpha,
+            tol=tol,
             n_iter=info.n_iter,
             converged=info.converged,
         )
@@ -319,7 +356,7 @@ class EigenPro(AbstractEstimator):
     eta = step_size(beta, lam_P, b)
     alpha = 0
     for epoch in range(epochs):
-        for B in batches(permutation(N), b):   # N // b batches
+        for B in batches(permutation(N), b):   # ceil(N / b), last one partial
             g = K(X_B, X) alpha - y_B
             alpha[B] -= eta / b * g
             alpha[S] += eta / (b m) * V D V^T K(S, X_B) g
@@ -346,9 +383,13 @@ class EigenPro(AbstractEstimator):
       ``n_components`` well below ``subsample_size``.
     - There is no ridge: with noisy targets, more epochs fit the noise.
       Treat ``epochs`` as the regularisation parameter.
-    - Each epoch uses ``N // b`` full batches of a fresh permutation, so
-      up to ``b - 1`` points (different ones each epoch) are skipped per
-      epoch.
+    - Each epoch visits every point once, in ``ceil(N / b)`` batches of a
+      fresh permutation. When ``b`` does not divide ``N`` the last batch is
+      partial: it is padded to ``b`` rows (so the ``jit``-compiled scan
+      keeps fixed shapes) and the padded rows' residuals are masked to
+      zero. It keeps the full batch's per-point rate $\eta/b$, so a partial
+      batch of $r$ points takes the step $\eta r / b \lesssim \eta(r)$,
+      within the stable range of the formula above for $r$ points.
 
         Attributes:
         kernel: The kernel.
@@ -445,11 +486,17 @@ class EigenPro(AbstractEstimator):
         S = precond.subsample_indices
         X_S = X[S]
         Y = y if y.ndim == 2 else y[:, None]
-        n_batches = n // b
+        n_batches = -(-n // b)  # ceil: the last batch may be partial
+        # Pad the last batch with index 0 and mask its residuals to zero, so
+        # every scan step has b rows and the padding moves nothing.
+        valid = rearrange(jnp.arange(n_batches * b) < n, "(t b) -> t b", b=b)
 
-        def step(alpha: Array, idx: Array) -> tuple[Array, None]:
+        def step(alpha: Array, batch: tuple[Array, Array]) -> tuple[Array, None]:
+            idx, keep = batch
             X_B = X[idx]
-            g = self.kernel(X_B, X) @ alpha - Y[idx]
+            g = einx.where(
+                "b, b c, -> b c", keep, self.kernel(X_B, X) @ alpha - Y[idx], 0.0
+            )
             alpha = alpha.at[idx].add(-(eta / b) * g)
             correction = eigenpro_correction(
                 precond, self.kernel(X_B, X_S), g, eta / (b * m)
@@ -457,8 +504,13 @@ class EigenPro(AbstractEstimator):
             return alpha.at[S].add(correction), None
 
         def epoch(alpha: Array, k: PRNGKeyArray) -> tuple[Array, None]:
-            order = jax.random.permutation(k, n)[: n_batches * b]
-            alpha, _ = jax.lax.scan(step, alpha, rearrange(order, "(t b) -> t b", b=b))
+            perm = jax.random.permutation(k, n)
+            order = jnp.concatenate(
+                [perm, jnp.zeros(n_batches * b - n, dtype=perm.dtype)]
+            )
+            alpha, _ = jax.lax.scan(
+                step, alpha, (rearrange(order, "(t b) -> t b", b=b), valid)
+            )
             return alpha, None
 
         alpha0 = jnp.zeros_like(Y, dtype=jnp.result_type(Y, X, float))

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
+import warnings
+
+import equinox as eqx
 import gaussx as gx
 import jax
 import jax.numpy as jnp
@@ -217,7 +221,8 @@ class TestIterationStatistics:
         }
         with pytest.raises(Exception, match=r"max_steps|maximum number of"):
             kl.KRR(kl.RBF(lengthscale=0.3), **kwargs).fit(X, y)
-        model = kl.KRR(kl.RBF(lengthscale=0.3), throw=False, **kwargs).fit(X, y)
+        with pytest.warns(RuntimeWarning, match="did not converge"):
+            model = kl.KRR(kl.RBF(lengthscale=0.3), throw=False, **kwargs).fit(X, y)
         assert not bool(model.converged)
         assert int(model.n_iter) == 20
         assert np.all(np.isfinite(model.alpha))
@@ -258,3 +263,105 @@ class TestIterationStatistics:
             X, y, mask=mask
         )
         assert int(model.n_iter) > 0 and bool(model.converged)
+
+
+def _float32_data(n):
+    """1-D float32 data: the suite runs in x64, so cast explicitly."""
+    X = jax.random.uniform(jax.random.key(0), (n, 1), dtype=jnp.float32)
+    return X, jnp.sin(6.0 * X[:, 0])
+
+
+def _relative_residual(model, X, y):
+    lam_n = model.regularization * X.shape[0]
+    r = model.kernel(X, X) @ model.alpha + lam_n * model.alpha - y
+    return float(jnp.linalg.norm(r) / jnp.linalg.norm(y))
+
+
+_RPCHOLESKY = {"preconditioner": "rpcholesky", "preconditioner_rank": 30}
+
+
+class TestLowPrecision:
+    """#162: float32 at a tiny ridge must not return garbage silently."""
+
+    @pytest.mark.slow
+    def test_regularization_below_the_dtype_floor_warns(self):
+        X, y = _float32_data(30)
+        # The warning comes before the solve, which here proves it right:
+        # the float32 Cholesky of the numerically singular system fails.
+        with (
+            pytest.warns(RuntimeWarning, match="float32 precision floor"),
+            pytest.raises(eqx.EquinoxRuntimeError, match="non-finite"),
+        ):
+            kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-9).fit(X, y)
+        # The same ridge is far above float64's floor.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-9).fit(
+                X.astype(jnp.float64), y.astype(jnp.float64)
+            )
+
+    @pytest.mark.slow
+    def test_float32_tiny_ridge_raises_instead_of_returning_garbage(self):
+        # Before #162, CG reported convergence here on weights whose
+        # residual was of the order of ||y||.
+        X, y = _float32_data(300)
+        model = kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-9, **_RPCHOLESKY)
+        with (
+            pytest.warns(RuntimeWarning, match="precision floor"),
+            pytest.raises(eqx.EquinoxRuntimeError, match="residual"),
+        ):
+            model.fit(X, y, key=jax.random.key(2))
+
+    @pytest.mark.slow
+    def test_float32_tiny_ridge_without_throw_reports_unconverged(self):
+        X, y = _float32_data(300)
+        model = kl.KRR(
+            kl.RBF(lengthscale=0.2), regularization=1e-9, throw=False, **_RPCHOLESKY
+        )
+        with pytest.warns(RuntimeWarning) as record:
+            fitted = model.fit(X, y, key=jax.random.key(2))
+        messages = " ".join(str(w.message) for w in record)
+        assert "precision floor" in messages and "did not converge" in messages
+        assert not bool(fitted.converged)
+        assert _relative_residual(fitted, X, y) > 1e-2
+
+    @pytest.mark.slow
+    def test_float32_moderate_ridge_is_residual_checked_and_converged(self):
+        X, y = _float32_data(300)
+        model = kl.KRR(kl.RBF(lengthscale=0.2), regularization=1e-3, **_RPCHOLESKY)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fitted = model.fit(X, y, key=jax.random.key(2))
+        assert fitted.alpha.dtype == jnp.float32
+        assert bool(fitted.converged)
+        assert _relative_residual(fitted, X, y) < 1e-4
+
+    @pytest.mark.slow
+    def test_residual_check_fires_on_a_bad_solve(self, monkeypatch):
+        # A CG solve that reports success on a wrong solution: the residual
+        # check must catch it, whatever CG's own bookkeeping says.
+        real_solve = lx.linear_solve
+
+        def bad_solve(*args, **kwargs):
+            solution = real_solve(*args, **kwargs)
+            return eqx.tree_at(lambda s: s.value, solution, solution.value + 1.0)
+
+        monkeypatch.setattr(lx, "linear_solve", bad_solve)
+        X, y = _data(40)
+        solver = gx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=500)
+        model = kl.KRR(kl.RBF(lengthscale=0.3), regularization=1e-3, solver=solver)
+        with pytest.raises(eqx.EquinoxRuntimeError, match="residual"):
+            model.fit(X, y)
+        with pytest.warns(RuntimeWarning, match="did not converge"):
+            fitted = dataclasses.replace(model, throw=False).fit(X, y)
+        assert not bool(fitted.converged)
+
+    def test_residual_check_passes_a_sound_solve(self):
+        X, y = _data(40)
+        solver = gx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=500)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fitted = kl.KRR(
+                kl.RBF(lengthscale=0.3), regularization=1e-3, solver=solver
+            ).fit(X, y)
+        assert bool(fitted.converged)

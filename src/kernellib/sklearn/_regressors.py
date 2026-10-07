@@ -148,7 +148,8 @@ class FalkonRegressor(_Regressor):
         n_inducing: Number of centres (capped at ``n``).
         regularization: Ridge $\lambda$, scaled by ``n`` as in `KernelRidge`.
         max_iter: Conjugate-gradient budget.
-        tol: Conjugate-gradient tolerance.
+        tol: Conjugate-gradient tolerance; ``None`` (default) for
+            `kernellib.Falkon`'s dtype-aware default.
         implicit: Stream the ``n x m`` cross kernel.
         batch_size: Rows per streamed step.
         random_state: Seed for the centres and the heuristic subsample.
@@ -180,7 +181,7 @@ class FalkonRegressor(_Regressor):
         n_inducing: int = 1000,
         regularization: float = 1e-3,
         max_iter: int = 20,
-        tol: float = 1e-6,
+        tol: float | None = None,
         implicit: bool = True,
         batch_size: int = 1024,
         random_state: Any = None,
@@ -214,7 +215,7 @@ class FalkonRegressor(_Regressor):
         self.n_iter_ = int(np.max(self.model_.n_iter))
         if not bool(np.all(self.model_.converged)):
             warnings.warn(
-                f"Falkon's conjugate gradients did not reach tol={self.tol} "
+                f"Falkon's conjugate gradients did not reach tol={self.model_.tol} "
                 f"within max_iter={self.max_iter} iterations; increase max_iter.",
                 ConvergenceWarning,
                 stacklevel=2,
