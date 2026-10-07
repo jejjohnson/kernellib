@@ -69,7 +69,9 @@ def nearest_neighbors(
 
     Returns:
         The graph. A point is never its own neighbour; duplicates of it are
-        (at distance zero).
+        (at distance zero). Whatever the backend, the distances have ``X``'s
+        floating dtype, or the default float dtype when ``X`` is an integer
+        array.
 
     Raises:
         ValueError: On an invalid ``n_neighbors`` or ``backend``.
@@ -90,10 +92,14 @@ def nearest_neighbors(
         )
     if backend == "exact":
         return _exact(jnp.asarray(X), n_neighbors, min(batch_size, n))
+    # The optional backends compute in their own precision (pynndescent always
+    # in float32); their distances are cast back to the exact backend's dtype.
+    dtype = _distance_dtype(X)
     if backend == "pynndescent":
-        return _pynndescent(np.asarray(X), n_neighbors, random_state)
+        # A writable copy: numba cannot type the read-only view of a JAX array.
+        return _pynndescent(np.array(X), n_neighbors, random_state, dtype)
     if backend == "sklearn":
-        return _sklearn(np.asarray(X), n_neighbors)
+        return _sklearn(np.asarray(X), n_neighbors, dtype)
     raise ValueError(
         f"backend must be 'exact', 'pynndescent' or 'sklearn', got {backend!r}."
     )
@@ -172,17 +178,31 @@ def _exact(X: Float[Array, "N D"], k: int, batch: int) -> KNNGraph:
     return KNNGraph(indices=idx, distances=dist)
 
 
-def _drop_self(indices: np.ndarray, distances: np.ndarray, k: int) -> KNNGraph:
+def _distance_dtype(X: Array | np.ndarray) -> jnp.dtype:
+    # X's floating dtype, or the default float dtype for an integer X (the
+    # exact backend's sqrt promotes integers the same way); canonicalised, so
+    # float64 becomes float32 when x64 is off.
+    dtype = jnp.result_type(X)
+    if not jnp.issubdtype(dtype, jnp.inexact):
+        dtype = jnp.result_type(float)
+    return dtype
+
+
+def _drop_self(
+    indices: np.ndarray, distances: np.ndarray, k: int, dtype: jnp.dtype
+) -> KNNGraph:
     # The query set is the data, so each row normally starts with the point
     # itself; drop it by index (not by position, which ties can reorder).
     n = indices.shape[0]
     keep = indices != np.arange(n)[:, None]
     idx = np.stack([row[m][:k] for row, m in zip(indices, keep, strict=True)])
     dist = np.stack([row[m][:k] for row, m in zip(distances, keep, strict=True)])
-    return KNNGraph(indices=jnp.asarray(idx), distances=jnp.asarray(dist))
+    return KNNGraph(indices=jnp.asarray(idx), distances=jnp.asarray(dist, dtype))
 
 
-def _pynndescent(X: np.ndarray, k: int, random_state: int | None) -> KNNGraph:
+def _pynndescent(
+    X: np.ndarray, k: int, random_state: int | None, dtype: jnp.dtype
+) -> KNNGraph:
     try:
         from pynndescent import NNDescent
     except ImportError as err:  # pragma: no cover - depends on the environment
@@ -192,10 +212,10 @@ def _pynndescent(X: np.ndarray, k: int, random_state: int | None) -> KNNGraph:
         ) from err
     index = NNDescent(X, n_neighbors=k + 1, random_state=random_state)
     indices, distances = index.neighbor_graph
-    return _drop_self(np.asarray(indices), np.asarray(distances), k)
+    return _drop_self(np.asarray(indices), np.asarray(distances), k, dtype)
 
 
-def _sklearn(X: np.ndarray, k: int) -> KNNGraph:
+def _sklearn(X: np.ndarray, k: int, dtype: jnp.dtype) -> KNNGraph:
     try:
         from sklearn.neighbors import NearestNeighbors
     except ImportError as err:  # pragma: no cover - depends on the environment
@@ -203,4 +223,4 @@ def _sklearn(X: np.ndarray, k: int) -> KNNGraph:
             "backend='sklearn' needs scikit-learn: pip install 'kernellib[sklearn]'."
         ) from err
     distances, indices = NearestNeighbors(n_neighbors=k + 1).fit(X).kneighbors(X)
-    return _drop_self(indices, distances, k)
+    return _drop_self(indices, distances, k, dtype)

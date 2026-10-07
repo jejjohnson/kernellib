@@ -283,3 +283,34 @@ class TestConsumers:
             kl.eigenpro_preconditioner(
                 op, subsample_size=10, n_components=2, subsample_indices=jnp.arange(9)
             )
+
+
+@pytest.mark.parametrize("method", ["leverage", "rpcholesky", "greedy"])
+def test_repeat_calls_with_the_same_shapes_do_not_retrace(method, monkeypatch):
+    # Count traces of the jitted core: a cache hit runs no Python. The shapes
+    # are unusual so that no other test has compiled them already.
+    import kernellib._spectral._landmarks as landmarks
+
+    traces = []
+    original = landmarks._fill_exhausted
+    monkeypatch.setattr(
+        landmarks,
+        "_fill_exhausted",
+        lambda *args: traces.append(1) or original(*args),
+    )
+    original_scores = landmarks._ridge_leverage_scores
+    monkeypatch.setattr(
+        landmarks,
+        "_ridge_leverage_scores",
+        lambda *args: traces.append(1) or original_scores(*args),
+    )
+    kernel = kl.RBF(lengthscale=0.7)
+    X = _X(n=37, d=3)
+    first = kl.select_landmarks(kernel, X, 5, method=method, key=jax.random.key(0))
+    n_traces = len(traces)
+    second = kl.select_landmarks(
+        kernel, X + 1.0, 5, method=method, key=jax.random.key(1)
+    )
+    assert len(traces) == n_traces
+    assert n_traces == 1
+    assert first.shape == second.shape == (5,)
