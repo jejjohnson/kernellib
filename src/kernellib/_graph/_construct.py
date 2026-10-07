@@ -387,7 +387,7 @@ def graph_from_adjacency(W: Float[ArrayLike, "N N"], *, atol: float = 0.0) -> Gr
     W_host = _concrete(W, "W")
     if W_host.ndim != 2 or W_host.shape[0] != W_host.shape[1]:
         raise ValueError(f"W must be square, got shape {W_host.shape}.")
-    if not np.allclose(W_host, W_host.T):
+    if not np.allclose(W_host, einx.id("i j -> j i", W_host)):
         raise ValueError("W must be symmetric.")
     s, r = np.nonzero(np.triu(np.abs(W_host) > atol, k=1))
     W = jnp.asarray(W)
@@ -767,7 +767,7 @@ def _from_neighbors(
     idx = _concrete(knn.indices, "knn.indices")
     n, k = idx.shape
     rows = np.repeat(np.arange(n), k)
-    cols = idx.ravel()  # host index bookkeeping, row-major like (n k)
+    cols = einx.id("n k -> (n k)", idx)  # host index bookkeeping
     valid = (cols >= 0) & (cols != rows)
     entries = np.flatnonzero(valid)
     rows, cols = rows[entries], cols[entries]

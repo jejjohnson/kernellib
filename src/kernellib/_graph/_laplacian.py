@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
+import einx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
+
+from kernellib._einx import reduce
 
 
 __all__ = ["Normalization", "graph_laplacian"]
@@ -31,16 +34,17 @@ def graph_laplacian(
         >>> kl.graph_laplacian(W).tolist()
         [[1.0, -1.0], [-1.0, 1.0]]
     """
-    degree = jnp.sum(W, axis=1)
+    degree = reduce(W, "i j -> i", "sum")
     if normalization == "unnormalized":
         return jnp.diag(degree) - W
     safe = jnp.where(degree > 0, degree, 1.0)
     connected = (degree > 0).astype(W.dtype)
     if normalization == "symmetric":
         d_isqrt = connected / jnp.sqrt(safe)
-        return jnp.diag(connected) - d_isqrt[:, None] * W * d_isqrt[None, :]
+        scaled = einx.multiply("i, i j -> i j", d_isqrt, W)
+        return jnp.diag(connected) - einx.multiply("i j, j -> i j", scaled, d_isqrt)
     if normalization == "random_walk":
-        return jnp.diag(connected) - (connected / safe)[:, None] * W
+        return jnp.diag(connected) - einx.multiply("i, i j -> i j", connected / safe, W)
     raise ValueError(
         "normalization must be 'unnormalized', 'symmetric' or 'random_walk', got "
         f"{normalization!r}."

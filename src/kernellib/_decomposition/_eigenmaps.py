@@ -136,10 +136,11 @@ def _smallest_generalized(
         scale = jnp.ones(A.shape[0], A.dtype)
     else:
         scale = 1.0 / jnp.sqrt(jnp.where(degree > 0, degree, 1.0))
-        lam, U = jnp.linalg.eigh(scale[:, None] * A * scale[None, :])
+        scaled = einx.multiply("i, i j -> i j", scale, A)
+        lam, U = jnp.linalg.eigh(einx.multiply("i j, j -> i j", scaled, scale))
     start = 1 if drop_first else 0
     stop = start + n_components
-    return lam[start:stop], scale[:, None] * U[:, start:stop]
+    return lam[start:stop], einx.multiply("N, N n -> N n", scale, U[:, start:stop])
 
 
 def laplacian_eigenmap(
@@ -524,7 +525,11 @@ def label_potential(
         [[1.0, -1.0, 0.0], [-1.0, 1.0, 0.0], [0.0, 0.0, 0.0]]
     """
     labels = jnp.asarray(labels)
-    same = (labels[:, None] == labels[None, :]) & (labels[:, None] != unlabeled)
+    same = einx.logical_and(
+        "i j, i -> i j",
+        einx.equal("i, j -> i j", labels, labels),
+        labels != unlabeled,
+    )
     A = same.astype(jnp.result_type(float)) * (1.0 - jnp.eye(labels.shape[0]))
     return graph_laplacian(A)
 
@@ -559,7 +564,9 @@ def spatial_spectral_potential(
     rows = jnp.repeat(jnp.arange(X.shape[0]), n_neighbors)
     cols = rearrange(graph.indices, "n k -> (n k)")
     spectral = rearrange(
-        jnp.linalg.norm(X[rows] - X[cols], axis=1), "(n k) -> n k", k=n_neighbors
+        jnp.sqrt(reduce((X[rows] - X[cols]) ** 2, "e d -> e", "sum")),
+        "(n k) -> n k",
+        k=n_neighbors,
     )
     W = adjacency_matrix(
         KNNGraph(indices=graph.indices, distances=spectral),
@@ -1311,8 +1318,11 @@ class SchrodingerEigenmaps(_GraphEmbedding):
         >>> se = kl.SchrodingerEigenmaps(n_components=2, alpha=10.0)
         >>> se = se.fit(X, kl.label_potential(labels))
         >>> Y = se.embedding
-        >>> spread = jnp.linalg.norm(Y[:10] - Y[:10].mean(0), axis=1).mean()
-        >>> bool(spread < 0.2 * jnp.linalg.norm(Y - Y.mean(0), axis=1).mean())
+        >>> import einx
+        >>> def spread(Z):  # mean distance to the centroid
+        ...     sq = einx.sum("n [k]", (Z - einx.mean("[n] k", Z)) ** 2)
+        ...     return jnp.mean(jnp.sqrt(sq))
+        >>> bool(spread(Y[:10]) < 0.2 * spread(Y))
         True
     """
 
