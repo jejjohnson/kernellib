@@ -178,3 +178,83 @@ def test_nystrom_cuts_cg_iterations_below_ten_percent():
     plain = _cg_steps(A, y)
     preconditioned = _cg_steps(A, y, P.as_operator(A))
     assert preconditioned < 0.1 * plain, (plain, preconditioned)
+
+
+class TestIterationStatistics:
+    def test_preconditioned_fit_records_n_iter_and_convergence(self):
+        X, y = _data(200)
+        model = kl.KRR(
+            kl.RBF(lengthscale=0.3),
+            regularization=1e-4,
+            preconditioner="nystrom",
+            preconditioner_rank=40,
+            max_steps=500,
+        ).fit(X, y, key=jax.random.key(0))
+        assert model.n_iter is not None and model.n_iter.shape == ()
+        assert 0 < int(model.n_iter) < model.max_steps
+        assert bool(model.converged)
+
+    def test_multi_output_statistics_are_per_column(self):
+        X, y = _data(60)
+        Y = jnp.stack([y, 2.0 * y, -y], axis=1)
+        model = kl.KRR(
+            kl.RBF(lengthscale=0.3), regularization=1e-3, solver=gx.CGSolver()
+        ).fit(X, Y)
+        assert model.n_iter.shape == (3,) and model.converged.shape == (3,)
+        assert bool(jnp.all(model.converged))
+
+    def test_direct_solve_has_no_statistics(self):
+        X, y = _data(40)
+        model = kl.KRR(kl.RBF(lengthscale=0.3), regularization=1e-3).fit(X, y)
+        assert model.n_iter is None and model.converged is None
+
+    def test_throw_false_returns_the_last_iterate_unconverged(self):
+        # Plain CG at a tiny ridge needs far more than 20 steps.
+        X, y = _data(100)
+        kwargs = {
+            "regularization": 1e-12,
+            "solver": gx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=20),
+        }
+        with pytest.raises(Exception, match=r"max_steps|maximum number of"):
+            kl.KRR(kl.RBF(lengthscale=0.3), **kwargs).fit(X, y)
+        model = kl.KRR(kl.RBF(lengthscale=0.3), throw=False, **kwargs).fit(X, y)
+        assert not bool(model.converged)
+        assert int(model.n_iter) == 20
+        assert np.all(np.isfinite(model.alpha))
+
+    def test_tol_and_max_steps_reach_the_preconditioned_solver(self):
+        X, _ = _data(50)
+        model = kl.KRR(
+            kl.RBF(),
+            preconditioner="rpcholesky",
+            preconditioner_rank=10,
+            tol=1e-4,
+            max_steps=7,
+        )
+        solver = model._solver(X, jax.random.key(0))
+        assert (solver.rtol, solver.atol, solver.max_steps) == (1e-4, 1e-4, 7)
+
+    def test_invalid_tol_and_max_steps(self):
+        with pytest.raises(ValueError, match="tol"):
+            kl.KRR(kl.RBF(), tol=0.0)
+        with pytest.raises(ValueError, match="max_steps"):
+            kl.KRR(kl.RBF(), max_steps=0)
+
+    def test_woodbury_path_records_statistics(self):
+        X, y = _data(60)
+        penalty = kl.hsic_penalty(kl.Linear(), X[:, :1])
+        model = kl.KRR(
+            kl.RBF(lengthscale=0.3),
+            regularization=1e-3,
+            penalty_weight=0.5,
+            solver=gx.CGSolver(),
+        ).fit(X, y, penalty=penalty)
+        assert int(model.n_iter) > 0 and bool(model.converged)
+
+    def test_gmres_path_records_statistics(self):
+        X, y = _data(40)
+        mask = jnp.arange(40) % 2 == 0
+        model = kl.KRR(kl.RBF(lengthscale=0.3), regularization=1e-3, implicit=True).fit(
+            X, y, mask=mask
+        )
+        assert int(model.n_iter) > 0 and bool(model.converged)
