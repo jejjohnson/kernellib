@@ -15,6 +15,7 @@ import einx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from kernellib._einx import reduce
 from kernellib.functional._distances import _pairwise_sq_dist
 
 
@@ -280,7 +281,7 @@ def white_kernel(
     """
     # Pairwise feature difference (N1, N2, D) via named broadcasting.
     diff = einx.subtract("n1 d, n2 d -> n1 n2 d", X1, X2)
-    match = jnp.all(diff == 0.0, axis=-1)
+    match = reduce(diff == 0.0, "n1 n2 d -> n1 n2", "all")
     return variance * match.astype(X1.dtype)
 
 

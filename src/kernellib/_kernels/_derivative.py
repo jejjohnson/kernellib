@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from kernellib._einx import rearrange
 from kernellib._kernels._base import AbstractKernel, AbstractPointwiseKernel
 
 
@@ -176,9 +177,9 @@ def _value_gradient_block(f, x: Float[Array, " D"], y: Float[Array, " D"]):
     gx = jax.grad(f, argnums=0)(x, y)
     gy = jax.grad(f, argnums=1)(x, y)
     hxy = jax.jacfwd(jax.grad(f, argnums=0), argnums=1)(x, y)
-    top = jnp.concatenate([value[None], gy])
-    bottom = jnp.concatenate([gx[:, None], hxy], axis=1)
-    return jnp.concatenate([top[None, :], bottom], axis=0)
+    top = jnp.concatenate([rearrange(value, " -> 1"), gy])
+    bottom = jnp.concatenate([rearrange(gx, "d -> d 1"), hxy], axis=1)
+    return jnp.concatenate([rearrange(top, "d -> 1 d"), bottom], axis=0)
 
 
 def derivative_inputs(

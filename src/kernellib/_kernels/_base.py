@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from kernellib._einx import rearrange, reduce
 from kernellib.functional._distances import _pairwise_sq_dist
 
 
@@ -132,7 +133,9 @@ class AbstractKernel(eqx.Module):
 
         Also works for Gram-only kernels (one ``1 x 1`` Gram per pair).
         """
-        return jax.vmap(lambda x, y: self(x[None], y[None])[0, 0])(X1, X2)
+        return jax.vmap(
+            lambda x, y: self(rearrange(x, "d -> 1 d"), rearrange(y, "d -> 1 d"))[0, 0]
+        )(X1, X2)
 
     def stretch(self, scale: float | Float[Array, ...]) -> AbstractKernel:
         """``k(x / scale, x' / scale)``, a `Warped` with a `Stretch` warp.
@@ -364,7 +367,7 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
         omega = jnp.asarray(omega)
         d = omega.shape[-1]
         ell = self._lengthscale_vector(d)
-        omega_sq = jnp.sum((omega * ell) ** 2, axis=-1)
+        omega_sq = reduce((omega * ell) ** 2, "... d -> ...", "sum")
         return self.variance * jnp.prod(ell) * self.unit_spectral_density(omega_sq, d)
 
     def sample_frequencies(

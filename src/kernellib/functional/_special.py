@@ -5,9 +5,12 @@ Private: `log_bessel_kv` backs `RationalQuadratic.unit_spectral_density`.
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, ArrayLike, Float
+
+from kernellib._einx import reduce
 
 
 # Trapezoid nodes on [0, T]. The integrand below is entire and even in t, so
@@ -69,13 +72,14 @@ def log_bessel_kv(nu: ArrayLike, x: ArrayLike) -> Float[Array, ...]:
     h = T / _KV_NODES
 
     nodes = jnp.arange(_KV_NODES + 1, dtype=x.dtype)
-    t = h[..., None] * nodes
-    nu_t = nu[..., None] * t
+    t = einx.multiply("..., q -> ... q", h, nodes)
+    nu_t = einx.multiply("..., ... q -> ... q", nu, t)
     log_cosh = nu_t + jnp.log1p(jnp.exp(-2.0 * nu_t)) - jnp.log(2.0)
-    g = log_cosh - x[..., None] * (jnp.cosh(t) - 1.0)
+    g = log_cosh - einx.multiply("..., ... q -> ... q", x, jnp.cosh(t) - 1.0)
     weights = jnp.ones(_KV_NODES + 1, dtype=x.dtype).at[0].set(0.5).at[-1].set(0.5)
-    g_max = jax.lax.stop_gradient(jnp.max(g, axis=-1))
-    log_sum = jnp.log(jnp.sum(weights * jnp.exp(g - g_max[..., None]), axis=-1))
+    g_max = jax.lax.stop_gradient(reduce(g, "... q -> ...", "max"))
+    shifted = einx.subtract("... q, ... -> ... q", g, g_max)
+    log_sum = jnp.log(reduce(weights * jnp.exp(shifted), "... q -> ...", "sum"))
     return g_max + log_sum + jnp.log(h) - x
 
 

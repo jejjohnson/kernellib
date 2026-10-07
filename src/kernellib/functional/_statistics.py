@@ -22,7 +22,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from kernellib._einx import einsum, reduce
+from kernellib._einx import einsum, rearrange, reduce
 
 
 __all__ = [
@@ -95,13 +95,14 @@ def center_kernel(
         >>> from kernellib.functional import center_kernel
         >>> K = lx.MatrixLinearOperator(jnp.ones((3, 3)) + jnp.eye(3))
         >>> Kc = center_kernel(K).as_matrix()
-        >>> bool(jnp.allclose(Kc.sum(axis=0), 0.0))
+        >>> import einx
+        >>> bool(jnp.allclose(einx.sum("i j -> j", Kc), 0.0))
         True
 
         A low-rank operator stays low-rank:
 
         >>> import gaussx as gx
-        >>> Phi = jnp.arange(8.0).reshape(4, 2)
+        >>> Phi = einx.id("(n r) -> n r", jnp.arange(8.0), r=2)
         >>> K = gx.LowRankUpdate(lx.DiagonalLinearOperator(jnp.zeros(4)), Phi)
         >>> type(center_kernel(K)).__name__
         'LowRankUpdate'
@@ -112,10 +113,11 @@ def center_kernel(
     if _is_diagonal_low_rank(K):
         return _center_low_rank(K, tags)
     K_mat = K.as_matrix()
-    row_mean = jnp.mean(K_mat, axis=1, keepdims=True)
-    col_mean = jnp.mean(K_mat, axis=0, keepdims=True)
+    row_mean = reduce(K_mat, "i j -> i", "mean")
+    col_mean = reduce(K_mat, "i j -> j", "mean")
     total_mean = jnp.mean(K_mat)
-    K_centered = K_mat - row_mean - col_mean + total_mean
+    K_centered = einx.subtract("i j, i -> i j", K_mat, row_mean)
+    K_centered = einx.subtract("i j, j -> i j", K_centered, col_mean) + total_mean
     return lx.MatrixLinearOperator(K_centered, tags)
 
 
@@ -133,10 +135,12 @@ def _center_low_rank(K: gx.LowRankUpdate, tags: frozenset) -> gx.LowRankUpdate:
     n = delta.shape[0]
     dtype = jnp.result_type(delta, K.U, K.d, K.V)
     ones = jnp.ones((n, 1), dtype=dtype)
-    delta_col = delta[:, None].astype(dtype)
+    delta_col = rearrange(delta, "n -> n 1").astype(dtype)
     # H D_0 H = D_0 - (δ1ᵀ + 1δᵀ)/n + (1ᵀδ/n²) 11ᵀ: three rank-one terms.
-    U = jnp.concatenate([K.U - jnp.mean(K.U, axis=0), delta_col, ones, ones], axis=1)
-    V = jnp.concatenate([K.V - jnp.mean(K.V, axis=0), ones, delta_col, ones], axis=1)
+    U_c = einx.subtract("n a, a -> n a", K.U, reduce(K.U, "n a -> a", "mean"))
+    V_c = einx.subtract("n a, a -> n a", K.V, reduce(K.V, "n a -> a", "mean"))
+    U = jnp.concatenate([U_c, delta_col, ones, ones], axis=1)
+    V = jnp.concatenate([V_c, ones, delta_col, ones], axis=1)
     correction = jnp.stack([-1.0 / n, -1.0 / n, jnp.sum(delta) / n**2]).astype(dtype)
     d = jnp.concatenate([K.d.astype(dtype), correction])
     return gx.LowRankUpdate(base=K.base, U=U, d=d, V=V, tags=tags)
@@ -300,8 +304,8 @@ def _hsic_features(
     """HSIC of ``K = Φx Φxᵀ`` and ``L = Φy Φyᵀ`` without forming them."""
     n = Phi_x.shape[0]
     if estimator == "biased":
-        Cx = Phi_x - jnp.mean(Phi_x, axis=0)
-        Cy = Phi_y - jnp.mean(Phi_y, axis=0)
+        Cx = einx.subtract("n a, a -> n a", Phi_x, reduce(Phi_x, "n a -> a", "mean"))
+        Cy = einx.subtract("n b, b -> n b", Phi_y, reduce(Phi_y, "n b -> b", "mean"))
         return _frob_sq(einsum(Cx, Cy, "n a, n b -> a b")) / (n * n)
     ones_x = jnp.ones(Phi_x.shape[1], dtype=Phi_x.dtype)
     ones_y = jnp.ones(Phi_y.shape[1], dtype=Phi_y.dtype)
@@ -396,8 +400,10 @@ def cka(
         >>> import jax.numpy as jnp
         >>> import lineax as lx
         >>> from kernellib.functional import cka
-        >>> X = jnp.arange(10.0).reshape(5, 2)
-        >>> K = lx.MatrixLinearOperator(X @ X.T, lx.symmetric_tag)
+        >>> import einx
+        >>> X = einx.id("(n d) -> n d", jnp.arange(10.0), d=2)
+        >>> G = einx.dot("n d, m d -> n m", X, X)
+        >>> K = lx.MatrixLinearOperator(G, lx.symmetric_tag)
         >>> bool(jnp.allclose(cka(K, K), 1.0))
         True
     """

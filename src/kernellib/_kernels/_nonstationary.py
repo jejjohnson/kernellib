@@ -9,6 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from kernellib._einx import reduce
 from kernellib._kernels._base import AbstractPointwiseKernel, GramParts
 from kernellib.functional import _nonstationary as _f
 
@@ -49,7 +50,7 @@ class Linear(AbstractPointwiseKernel):
         return _f.linear_kernel(X1, X2, self.variance, self.bias)
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return self.variance * jnp.sum(X * X, axis=-1) + self.bias
+        return self.variance * reduce(X * X, "n d -> n", "sum") + self.bias
 
     def _gram_structure(self, X: Float[Array, "N D"]) -> GramParts:
         # sigma^2 X Xᵀ + b 11ᵀ: rank D + 1 (a zero bias is a zero-weight column).
@@ -98,7 +99,10 @@ class Polynomial(AbstractPointwiseKernel):
         return _f.polynomial_kernel(X1, X2, self.variance, self.bias, self.degree)
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return self.variance * (jnp.sum(X * X, axis=-1) + self.bias) ** self.degree
+        return (
+            self.variance
+            * (reduce(X * X, "n d -> n", "sum") + self.bias) ** self.degree
+        )
 
 
 class Distance(AbstractPointwiseKernel):
@@ -165,4 +169,6 @@ class Distance(AbstractPointwiseKernel):
         return _f.distance_kernel(X1, X2, self.variance, self.exponent)
 
     def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
-        return self.variance * _f._norm_pow(jnp.sum(X * X, axis=-1), self.exponent)
+        return self.variance * _f._norm_pow(
+            reduce(X * X, "n d -> n", "sum"), self.exponent
+        )
