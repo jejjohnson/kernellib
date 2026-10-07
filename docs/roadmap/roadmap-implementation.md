@@ -212,7 +212,7 @@ graph. They don't block merging:
 
 - K4 needs K3 only for its tests;
 - K6's graph-Matérn ↔ SPDE test needs G7 (integration tier);
-- K13 accepts K2 `Graph`s in `laplacian_penalty` once K2 has shipped;
+- K13 accepts K2 `Graph`s in `laplacian_penalty` once K2 has shipped (done: #153);
 - G6's sparse-Cholesky sampling path needs G4;
 - P4 is also blocked outside this plan, by gaussx#312.
 

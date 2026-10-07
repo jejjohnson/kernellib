@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
@@ -136,6 +137,10 @@ def _check_options(
         raise ValueError(f"regularization must be positive, got {regularization}.")
 
 
+# Jitted, so repeated calls with the same shapes reuse one compilation (the
+# Cholesky methods' loop is slow to retrace). Non-array arguments (``method``,
+# ``n_landmarks``, the float options) are static under ``filter_jit``.
+@eqx.filter_jit
 def _select(
     kernel: AbstractKernel,
     X: Float[Array, "N D"],
