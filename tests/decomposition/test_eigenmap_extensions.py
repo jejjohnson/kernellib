@@ -10,6 +10,8 @@ import lineax as lx
 import pytest
 
 import kernellib as kl
+from kernellib._decomposition import _eigenmaps
+from kernellib._decomposition._eigenmaps import _check_eigpairs, _eigpair_residuals
 from kernellib._einx import einsum, reduce
 
 
@@ -321,3 +323,106 @@ class TestProjections:
             kl.SchrodingerEigenmapProjections(n_components=4).fit(X, jnp.ones(20))
         with pytest.raises(RuntimeError, match="not fitted"):
             kl.SchrodingerEigenmapProjections().transform(X)
+
+
+def _image_problem(h=100, seed=0):
+    """A four-class ``h x h`` "image" with five bands: the k-NN graph of the
+    pixels and the spatial-spectral potential on the pixel lattice (#159)."""
+    yy, xx = jnp.meshgrid(jnp.arange(h), jnp.arange(h), indexing="ij")
+    classes = (yy >= h // 2).astype(int) * 2 + (xx >= h // 2).astype(int)
+    means = 2.0 * jax.random.normal(jax.random.key(seed + 1), (4, 5))
+    noise = 0.5 * jax.random.normal(jax.random.key(seed), (h, h, 5))
+    X = einx.id("h w d -> (h w) d", means[classes] + noise)
+    V = kl.spatial_spectral_graph(X, kl.grid_graph((h, h))).laplacian_operator()
+    return kl.graph_from_neighbors(kl.nearest_neighbors(X, 10)), V
+
+
+class TestLanczosResidualCheck:
+    """#159: Lanczos verifies ||A u - lambda u|| and grows its Krylov space
+    rather than silently return unconverged eigenpairs."""
+
+    def test_residuals_and_check_on_known_pairs(self):
+        A = jnp.diag(jnp.array([1.0, 2.0, 3.0, 4.0]))
+        U = jnp.eye(4)[:, :2]
+        res = _eigpair_residuals(lambda v: A @ v, jnp.array([1.0, 2.0]), U)
+        assert jnp.allclose(res, 0.0)
+        res = _eigpair_residuals(lambda v: A @ v, jnp.array([1.0, 2.5]), U)
+        assert jnp.allclose(res, jnp.array([0.0, 0.5]))
+        lam, _ = _check_eigpairs(
+            lambda v: A @ v,
+            jnp.array([1.0, 2.0]),
+            U,
+            4.0,
+            solver="mysolver",
+            hint="Try arpack.",
+        )
+        assert jnp.array_equal(lam, jnp.array([1.0, 2.0]))
+        with pytest.raises(
+            RuntimeError, match=r"mysolver did not converge.*Try arpack"
+        ):
+            _check_eigpairs(
+                lambda v: A @ v,
+                jnp.array([1.0, 2.5]),
+                U,
+                4.0,
+                solver="mysolver",
+                hint="Try arpack.",
+            )
+
+    def test_check_under_jit_raises_at_runtime(self):
+        A = jnp.diag(jnp.array([1.0, 2.0, 3.0]))
+        U = jnp.eye(3)[:, :1]
+
+        @jax.jit
+        def check(lam):
+            return _check_eigpairs(
+                lambda v: A @ v, lam, U, 3.0, solver="mysolver", hint="Try arpack."
+            )
+
+        assert jnp.allclose(check(jnp.array([1.0]))[0], 1.0)
+        with pytest.raises(Exception, match="mysolver did not converge"):
+            jax.block_until_ready(check(jnp.array([1.5])))
+
+    @pytest.mark.parametrize("which", ["laplacian", "schrodinger"])
+    def test_fires_on_an_undersized_krylov_space(self, which, monkeypatch):
+        # Krylov dimension = the number of pairs wanted, and no restart.
+        monkeypatch.setattr(_eigenmaps, "_OVERSAMPLE", 1)
+        monkeypatch.setattr(_eigenmaps, "_MAX_OVERSAMPLE", 1)
+        _, _, g = _graph()
+        with pytest.raises(RuntimeError, match=r"method='lanczos'\) did not converge"):
+            if which == "laplacian":
+                kl.laplacian_eigenmap(g, 3, method="lanczos", key=jax.random.key(0))
+            else:
+                kl.schrodinger_eigenmap(
+                    g,
+                    _labels(60),
+                    3,
+                    alpha=5.0,
+                    method="lanczos",
+                    key=jax.random.key(0),
+                )
+
+    @pytest.mark.slow
+    def test_restarts_with_a_wider_krylov_space(self, monkeypatch):
+        # Starting from an undersized space, the doubling reaches convergence.
+        monkeypatch.setattr(_eigenmaps, "_OVERSAMPLE", 1)
+        monkeypatch.setattr(_eigenmaps, "_MAX_OVERSAMPLE", 64)
+        _, W, g = _graph()
+        V = _labels(60)
+        lam, Y = kl.schrodinger_eigenmap(W, V, 3, alpha=5.0)
+        lam_l, Y_l = kl.schrodinger_eigenmap(
+            g, V, 3, alpha=5.0, method="lanczos", key=jax.random.key(0)
+        )
+        assert jnp.allclose(lam_l, lam, atol=1e-8) and _same_subspace(Y_l, Y)
+
+    @pytest.mark.slow
+    def test_lanczos_matches_arpack_at_scale_with_a_strong_potential(self):
+        # N = 10^4, alpha = 30: Lanczos with a fixed oversample of 200
+        # returned [0.0028, 0.0040, 1.0065, 1.0543] here against ARPACK's
+        # [0.0028, 0.0032, 0.0059, 1.0002]: two eigenpairs missed, silently.
+        g, V = _image_problem()
+        kw = {"alpha": 30.0, "key": jax.random.key(0)}
+        lam_l, Y_l = kl.schrodinger_eigenmap(g, V, 4, method="lanczos", **kw)
+        lam_a, Y_a = kl.schrodinger_eigenmap(g, V, 4, method="arpack", **kw)
+        assert jnp.allclose(lam_l, lam_a, rtol=0.0, atol=1e-6)
+        assert _same_subspace(Y_l, Y_a, atol=1e-6)

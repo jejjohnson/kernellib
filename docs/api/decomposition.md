@@ -116,6 +116,18 @@ se = kl.SchrodingerEigenmaps(
 Y = se.fit(X, V, graph=spectral).embedding  # (H·W, 20), sparse throughout
 ```
 
+`"lanczos"` stays in JAX, but a strong potential widens the spectrum of
+$A = D^{-1/2}(L + \alpha V)D^{-1/2}$ and crowds the wanted eigenvalues near
+0, where a fixed Krylov space may not converge. So each returned pair is
+checked: its residual $\|A u - \lambda u\|$ must be at most
+$\sqrt{\varepsilon}\,c$, with $\varepsilon$ the machine epsilon and
+$c \approx \lambda_{\max}(A)$ the largest Ritz value. A failing run is
+repeated with twice the Krylov oversample, from 200 up to 1600, and then
+raises a `RuntimeError` rather than return a wrong embedding. Each
+restart costs time and memory ($N \times$ the Krylov dimension), so for a
+large cube with a large $\alpha$, `eigen_solver="arpack"` (SciPy, on the
+CPU) is the robust choice.
+
 The [spatial-spectral Schrödinger eigenmaps example](../../spatial-spectral-eigenmaps/)
 runs this on a synthetic hyperspectral cube, and the
 [graphs and spatial models example](../../graphs-and-spatial/) covers grid
