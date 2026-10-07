@@ -199,6 +199,45 @@ class TestMeshGraph:
             _, G = gx.fem_matrices(V, jnp.asarray(T))
             assert np.allclose(L, G.as_matrix(), atol=1e-12)
 
+    def _signed_graph(self):
+        V = jnp.array([[0.0, 0.0], [2.0, 0.0], [1.0, 0.3], [1.0, 2.0]])
+        T = Delaunay(np.asarray(V)).simplices
+        g = kl.mesh_graph(V, T, weighting="cotangent", on_negative="allow")
+        assert np.min(np.asarray(g.weights)) < 0.0
+        return g
+
+    def test_signed_graph_rejects_the_incidence_operator(self):
+        g = self._signed_graph()
+        with pytest.raises(ValueError, match=r"incidence_operator.*non-negative"):
+            g.incidence_operator()
+        with pytest.raises(Exception, match="non-negative edge weights"):
+            jax.block_until_ready(jax.jit(lambda g: g.incidence_operator().values)(g))
+
+    @pytest.mark.parametrize("normalization", ["symmetric", "random_walk"])
+    def test_signed_graph_rejects_the_normalised_laplacians(self, normalization):
+        g = self._signed_graph()
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            g.laplacian_operator(normalization)
+        with pytest.raises(Exception, match="non-negative edge weights"):
+            jax.block_until_ready(
+                jax.jit(lambda g: g.laplacian_operator(normalization).values)(g)
+            )
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            kl.diffusion_kernel(g, normalization="symmetric")
+        with pytest.raises(ValueError, match="non-negative edge weights"):
+            kl.laplacian_eigpairs(g, 2, normalization="symmetric", method="arpack")
+
+    def test_signed_graph_keeps_the_unnormalised_laplacian(self):
+        g = self._signed_graph()
+        L = np.asarray(jax.jit(lambda g: g.laplacian_operator().as_matrix())(g))
+        f = jnp.array([0.3, -1.0, 2.0, 0.5])
+        assert np.isclose(g.dirichlet_energy(f), f @ L @ f)
+        assert np.allclose(kl.structure_matrix(g).as_matrix(), L)
+        # Lanczos shifts by a Gershgorin bound that must hold for signed weights.
+        lam_d, _ = kl.laplacian_eigpairs(g, 3, method="dense")
+        lam_l, _ = kl.laplacian_eigpairs(g, 3, method="lanczos", key=jax.random.key(0))
+        assert np.allclose(lam_l, lam_d, atol=1e-8)
+
     def test_interior_non_delaunay_edge_still_raises_with_the_interior_message(
         self,
     ):

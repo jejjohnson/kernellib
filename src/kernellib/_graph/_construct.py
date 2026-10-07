@@ -576,7 +576,12 @@ def mesh_graph(
     - ``"clip"``: set the negative weights to 0, the usual graph-Laplacian
       fix. The Laplacian is no longer exactly $G$.
     - ``"allow"``: keep the signed weights, so the Laplacian is exactly $G$
-      and still positive semidefinite, but some weights are negative.
+      and still positive semidefinite, but some weights are negative. Such a
+      `Graph` supports the unnormalised `Graph.laplacian_operator` (and
+      `structure_matrix`, `Graph.dirichlet_energy`, `Graph.degree`); the
+      operations that need non-negative weights (`Graph.incidence_operator`,
+      with its $\sqrt{w_e}$, and the normalised Laplacians) raise, or fail
+      an `equinox.error_if` under ``jit``.
 
     `gaussx.fem_matrices` also holds the signed stiffness, as a
     `gaussx.SparseOperator`. Weights within rounding error of zero (right
@@ -589,7 +594,8 @@ def mesh_graph(
         triangles: Vertex indices of each triangle, ``(T, 3)`` (concrete).
         weighting: ``"connectivity"`` (1 per edge) or ``"cotangent"``.
         on_negative: What to do with negative cotangent weights:
-            ``"raise"``, ``"clip"`` (set to 0) or ``"allow"`` (keep).
+            ``"raise"``, ``"clip"`` (set to 0) or ``"allow"`` (keep; only
+            the unnormalised Laplacian then supports the signed weights).
             Ignored for ``weighting="connectivity"``.
 
     Returns:

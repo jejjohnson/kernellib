@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from kernellib._graph._laplacian import Normalization, graph_laplacian
-from kernellib._graph._types import AbstractGraph
+from kernellib._graph._types import AbstractGraph, _check_nonnegative
 from kernellib.functional._graph import graph_matern_spectrum
 
 
@@ -27,6 +27,11 @@ def _spectral(
     if normalization == "random_walk":
         raise ValueError("Graph kernels need a symmetric Laplacian.")
     if isinstance(W, AbstractGraph):
+        if normalization != "unnormalized":
+            # A signed mesh_graph has no normalised Laplacian.
+            W = W.reweight(
+                _check_nonnegative(W.weights, f"a {normalization!r} graph kernel")
+            )
         W = W.to_dense()
     lam, U = jnp.linalg.eigh(graph_laplacian(W, normalization))
     return (U * fn(jnp.clip(lam, min=0.0))) @ U.T
