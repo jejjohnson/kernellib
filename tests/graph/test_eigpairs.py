@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import kernellib as kl
-from kernellib._einx import einsum
+from kernellib._einx import einsum, rearrange
 
 
 def _projector(U):
@@ -60,6 +61,62 @@ class TestKronecker:
         lam, _ = kl.laplacian_eigpairs(kl.grid_graph((50,)), 5)
         k = np.arange(5)
         assert np.allclose(lam, 2 - 2 * np.cos(np.pi * k / 50), atol=1e-12)
+
+    @pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+    @pytest.mark.parametrize(
+        ("shape", "periodic", "axis_weights"),
+        [
+            ((7, 9), False, (1.0, 1.0)),
+            ((6, 8), (False, True), (0.5, 3.0)),
+            ((4, 5, 6), (True, False, True), (1.0, 2.0, 0.5)),
+            ((3, 6, 4), False, (1.0, 1.0, 1.0)),
+        ],
+    )
+    def test_closed_form_matches_dense_eigh(self, shape, periodic, axis_weights, dtype):
+        g = kl.GridGraph(
+            shape, periodic=periodic, axis_weights=jnp.asarray(axis_weights, dtype)
+        )
+        N = g.n_nodes
+        lam, U = kl.laplacian_eigpairs(g, N, method="kronecker")
+        assert lam.dtype == dtype
+        assert U.dtype == dtype
+        L = np.asarray(g.laplacian_operator().as_matrix(), np.float64)
+        lam_ref, U_ref = np.linalg.eigh(L)
+        tol = 1e-5 if dtype == jnp.float32 else 1e-12
+        lam, U = np.asarray(lam, np.float64), np.asarray(U, np.float64)
+        assert np.allclose(lam, lam_ref, atol=tol * lam_ref[-1])
+        # Compare the eigenspace of each cluster of equal eigenvalues.
+        breaks = np.flatnonzero(np.diff(lam_ref) > 1e-8 * lam_ref[-1]) + 1
+        for idx in np.split(np.arange(N), breaks):
+            assert np.allclose(
+                _projector(U[:, idx]), _projector(U_ref[:, idx]), atol=10 * tol
+            )
+
+    def test_closed_form_large_path(self):
+        # n (2n + 1) >= 2**31: the phase is formed in floating point.
+        n = 40_000
+        lam, U = kl.laplacian_eigpairs(kl.grid_graph((n,)), 4)
+        k = np.arange(4)
+        assert np.allclose(lam, 4 * np.sin(np.pi * k / (2 * n)) ** 2, rtol=1e-12)
+        i = np.arange(n)
+        ref = np.sqrt(2.0 / n) * np.cos(
+            np.pi * einx.multiply("i, k -> i k", i + 0.5, k) / n
+        )
+        ref[:, 0] = 1.0 / np.sqrt(n)
+        assert np.allclose(np.abs(U), np.abs(ref), atol=1e-10)
+
+    @pytest.mark.slow
+    def test_float32_1000_by_1000_grid_is_accurate(self):
+        g = kl.GridGraph((1000, 1000), axis_weights=jnp.ones(2, jnp.float32))
+        lam, U = kl.laplacian_eigpairs(g, 20)
+        assert lam.dtype == jnp.float32
+        assert U.shape == (1_000_000, 20)
+        path = 2 - 2 * np.cos(np.pi * np.arange(1000) / 1000)
+        ref = np.sort(rearrange(einx.add("a, b -> a b", path, path), "a b -> (a b)"))
+        ref = ref[:20]
+        assert abs(float(lam[0])) < 1e-6
+        rel = np.abs(np.asarray(lam[1:], np.float64) - ref[1:]) / ref[1:]
+        assert np.max(rel) <= 1e-5
 
     def test_is_the_default_for_face_grids_only(self):
         g = kl.grid_graph((6, 6))
