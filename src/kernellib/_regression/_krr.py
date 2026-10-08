@@ -98,9 +98,11 @@ class KRR(AbstractEstimator):
       $PK + l\lambda I$ with $P = J + l\mu M$ PSD, so its eigenvalues are
       real and at least $l\lambda$: it is as well conditioned as KRR. With
       ``implicit=False`` it is solved by dense LU; with ``implicit=True``,
-      matrix-free by GMRES, with the tolerances (``rtol``, ``atol``,
-      ``max_steps``) of ``solver`` when it has them. A ``preconditioner``
-      applies to the Woodbury path only.
+      matrix-free by GMRES (restarted every ``min(N, 50)`` Krylov
+      iterations), with ``rtol = atol = tol`` and a budget of ``max_steps``
+      restart cycles, or with the ``rtol``, ``atol`` and ``max_steps`` of
+      an explicit ``solver`` that has them (e.g. `gaussx.CGSolver`). A
+      ``preconditioner`` applies to the Woodbury path only.
 
     **Iterative solves.** When `fit` solves iteratively (preconditioned CG,
     an explicit `gaussx.CGSolver` or `gaussx.PreconditionedCGSolver`, or the
@@ -109,13 +111,15 @@ class KRR(AbstractEstimator):
     tolerance was reached within the budget, one per target column for
     ``(N, C)`` targets; on the Woodbury path ``converged`` also requires the
     ``r`` solves against the penalty factor to have converged. Direct
-    solves leave both ``None``. The preconditioned CG built from
-    ``preconditioner`` stops at ``rtol = atol = tol`` or after
-    ``max_steps`` iterations; an explicit ``solver`` keeps its own
-    tolerances. With ``throw=True`` (the default) an iterative solve that
-    hits its budget raises; with ``throw=False`` it returns the last
-    iterate and ``converged=False``, and `fit` warns (when not traced), so
-    check it (and a validation loss).
+    solves leave both ``None``; for GMRES an iteration is a restart cycle.
+    The solvers `KRR` builds itself, the preconditioned CG from
+    ``preconditioner`` and the GMRES of the penalised path, stop at
+    ``rtol = atol = tol`` or after ``max_steps`` iterations; an explicit
+    ``solver`` keeps its own tolerances. With ``throw=True`` (the default)
+    an iterative solve that hits its budget (or, for GMRES, stagnates)
+    raises; with ``throw=False`` it returns the last iterate and
+    ``converged=False``, and `fit` warns (when not traced), so check it
+    (and a validation loss).
 
     **Low precision and small** $\lambda$. CG stops on a recursively updated
     residual, which in low precision can drift from the true one: in
@@ -127,11 +131,12 @@ class KRR(AbstractEstimator):
     one extra matvec. A solve that fails it raises with ``throw=True`` (an
     ``equinox`` runtime error, as for a solve that hits its budget, and
     also under ``jit``), and reports ``converged=False`` with
-    ``throw=False``. Separately, `fit` warns when $\lambda < \epsilon
-    \max_i K_{ii}$: then $\lambda n$ is below the rounding error of
-    $\|K\|_2 \le n \max_i K_{ii}$, the system can be numerically singular
-    in its dtype, and no solver is reliable. Use float64 for small
-    $\lambda$.
+    ``throw=False``. GMRES needs no such check: it stops on the true
+    residual, recomputed at every restart. Separately, `fit` warns when
+    $\lambda < \epsilon \max_i K_{ii}$: then $\lambda n$ is below the
+    rounding error of $\|K\|_2 \le n \max_i K_{ii}$, the system can be
+    numerically singular in its dtype, and no solver is reliable. Use
+    float64 for small $\lambda$.
 
     Attributes:
         kernel: The kernel.
@@ -141,8 +146,10 @@ class KRR(AbstractEstimator):
         preconditioner: ``"none"`` (default), ``"nystrom"`` or
             ``"rpcholesky"``; the latter two need a ``key`` in `fit`.
         preconditioner_rank: Rank of the preconditioner (capped at ``N``).
-        tol: Relative and absolute tolerance of the preconditioned CG solve.
-        max_steps: Iteration budget of the preconditioned CG solve.
+        tol: Relative and absolute tolerance of the iterative solves `KRR`
+            builds itself: preconditioned CG and the penalised path's GMRES.
+        max_steps: Iteration budget of those solves (restart cycles, for
+            GMRES).
         throw: Raise when an iterative solve does not converge within its
             budget; ``False`` returns the last iterate instead.
         penalty_weight: Weight $\mu \ge 0$ of the penalty passed to `fit`.
@@ -423,10 +430,15 @@ class KRR(AbstractEstimator):
             return Jf * Kv + n_lab * lam * v + n_lab * reg * M_mv(Kv)
 
         B = lx.FunctionLinearOperator(system_mv, jax.ShapeDtypeStruct((n,), X.dtype))
+        # An explicit solver with tolerances keeps them, as on the CG paths;
+        # otherwise ``tol`` and ``max_steps`` apply. One GMRES step is a
+        # restart cycle of up to ``restart`` Krylov iterations. Its stopping
+        # test is on the true residual b - B y, recomputed each cycle, so it
+        # needs no `_residual_ok` check.
         gmres = lx.GMRES(
-            rtol=getattr(self.solver, "rtol", 1e-6),
-            atol=getattr(self.solver, "atol", 1e-6),
-            max_steps=getattr(self.solver, "max_steps", None) or 10 * n,
+            rtol=getattr(self.solver, "rtol", self.tol),
+            atol=getattr(self.solver, "atol", self.tol),
+            max_steps=getattr(self.solver, "max_steps", None) or self.max_steps,
             restart=min(n, 50),
         )
 

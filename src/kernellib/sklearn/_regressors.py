@@ -89,9 +89,16 @@ class KernelRidge(_Regressor):
         preconditioner: ``"none"``, ``"nystrom"`` or ``"rpcholesky"``; see
             `kernellib.KRR`.
         preconditioner_rank: Rank of the preconditioner.
+        tol: Tolerance of the iterative solves `kernellib.KRR` builds itself
+            (preconditioned CG); an explicit ``solver`` keeps its own.
+        max_steps: Iteration budget of those solves.
+        throw: Raise when an iterative solve does not converge within its
+            budget; ``False`` keeps the last iterate, warns, and records
+            ``model_.converged = False``.
 
     Attributes:
-        model_: The fitted `kernellib.KRR`.
+        model_: The fitted `kernellib.KRR`, with ``n_iter`` and
+            ``converged`` for an iterative solve.
         kernel_: The kernel used.
         alpha_: Dual weights, ``(n,)`` or ``(n, c)``.
         n_features_in_: Number of input features.
@@ -122,6 +129,9 @@ class KernelRidge(_Regressor):
         implicit: bool = False,
         preconditioner: str = "none",
         preconditioner_rank: int = 200,
+        tol: float = 1e-6,
+        max_steps: int = 1000,
+        throw: bool = True,
     ) -> None:
         self.kernel = kernel
         self.regularization = regularization
@@ -129,6 +139,9 @@ class KernelRidge(_Regressor):
         self.implicit = implicit
         self.preconditioner = preconditioner
         self.preconditioner_rank = preconditioner_rank
+        self.tol = tol
+        self.max_steps = max_steps
+        self.throw = throw
 
     def _build(self, kernel: AbstractKernel, n: int) -> AbstractEstimator:
         return KRR(
@@ -138,6 +151,9 @@ class KernelRidge(_Regressor):
             implicit=self.implicit,
             preconditioner=self.preconditioner,  # ty: ignore[invalid-argument-type]
             preconditioner_rank=self.preconditioner_rank,
+            tol=self.tol,
+            max_steps=self.max_steps,
+            throw=self.throw,
         )
 
 

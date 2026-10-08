@@ -264,6 +264,45 @@ class TestIterationStatistics:
         )
         assert int(model.n_iter) > 0 and bool(model.converged)
 
+    def test_gmres_takes_tol_and_max_steps(self, monkeypatch):
+        built = []
+
+        def spy(**kwargs):
+            built.append(kwargs)
+            return gmres(**kwargs)
+
+        gmres = lx.GMRES
+        monkeypatch.setattr(lx, "GMRES", spy)
+        X, y = _data(40)
+        mask = jnp.arange(40) % 2 == 0
+        kwargs = {"regularization": 1e-3, "implicit": True}
+        kl.KRR(kl.RBF(lengthscale=0.3), tol=1e-9, max_steps=30, **kwargs).fit(
+            X, y, mask=mask
+        )
+        # An explicit solver with tolerances keeps them, as on the CG paths.
+        solver = gx.CGSolver(rtol=1e-7, atol=1e-8, max_steps=40)
+        kl.KRR(kl.RBF(lengthscale=0.3), solver=solver, max_steps=1, **kwargs).fit(
+            X, y, mask=mask
+        )
+        got = [(b["rtol"], b["atol"], b["max_steps"]) for b in built]
+        assert got == [(1e-9, 1e-9, 30), (1e-7, 1e-8, 40)]
+
+    def test_gmres_stops_at_max_steps(self):
+        # lineax's first GMRES step is a dummy pass and convergence needs a
+        # small update, so two steps can never converge.
+        X, y = _data(40)
+        mask = jnp.arange(40) % 2 == 0
+        kwargs = {"regularization": 1e-3, "implicit": True, "max_steps": 2}
+        with pytest.raises(Exception, match=r"max_steps|maximum number of"):
+            kl.KRR(kl.RBF(lengthscale=0.3), **kwargs).fit(X, y, mask=mask)
+        with pytest.warns(RuntimeWarning, match="did not converge"):
+            model = kl.KRR(kl.RBF(lengthscale=0.3), throw=False, **kwargs).fit(
+                X, y, mask=mask
+            )
+        assert not bool(model.converged)
+        assert int(model.n_iter) == 2
+        assert np.all(np.isfinite(model.alpha))
+
 
 def _float32_data(n):
     """1-D float32 data: the suite runs in x64, so cast explicitly."""

@@ -83,6 +83,23 @@ class TestRegressors:
         assert isinstance(model.alpha_, np.ndarray)
         assert isinstance(model.model_, kl.KRR)
 
+    def test_kernel_ridge_passes_solver_knobs_to_krr(self):
+        X, y = _data()
+        kwargs = {"tol": 1e-4, "max_steps": 3, "throw": False}
+        model = KernelRidge(kernel=kl.RBF(lengthscale=0.4), **kwargs)
+        assert {k: model.get_params()[k] for k in kwargs} == kwargs
+        assert clone(model).set_params(max_steps=5).max_steps == 5
+        # A rank-5 preconditioner at a tiny ridge needs more than 3 CG steps.
+        model.set_params(
+            regularization=1e-10, preconditioner="nystrom", preconditioner_rank=5
+        )
+        with pytest.warns(RuntimeWarning, match="did not converge"):
+            model.fit(X, y)
+        krr = model.model_
+        assert (krr.tol, krr.max_steps, krr.throw) == (1e-4, 3, False)
+        assert not bool(krr.converged) and int(krr.n_iter) == 3
+        assert np.all(np.isfinite(model.predict(X)))
+
     def test_default_kernel_is_the_median_heuristic(self):
         X, y = _data()
         model = KernelRidge().fit(X, y)

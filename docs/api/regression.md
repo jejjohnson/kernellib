@@ -174,10 +174,11 @@ $O(Nr^2)$ flops for `"rpcholesky"`. Each CG step: one matvec of $K$
 
 **Numerics.**
 
-- The CG tolerances are fixed: `rtol = atol = 1e-6`, at most 1000 steps. If
-  CG does not converge, `fit` **raises** (lineax's "maximum number of
-  solver steps was reached"). `Falkon` instead returns the iterate at its
-  budget.
+- CG stops at `rtol = atol = tol` (default `1e-6`) or after `max_steps`
+  (default 1000) steps. If it does not converge, `fit` **raises**
+  (lineax's "maximum number of solver steps was reached"); with
+  `throw=False` it returns the iterate at its budget, as `Falkon` always
+  does, sets `converged=False` and warns.
 - The rank is capped at $N$; past the numerical rank of $K$ the
   RPCholesky factor stops adding columns (pivots are guarded as in LAPACK
   `?pstrf`) instead of producing NaNs.
@@ -268,7 +269,10 @@ laprls = kl.KRR(kl.RBF(0.3), 1e-4, penalty_weight=100.0).fit(
 A pure low-rank penalty (`hsic_penalty` with a `Linear` kernel or
 ``approx``) and no mask is solved by Woodbury through ``solver``, so any
 strategy applies. Anything else is solved by dense LU, or matrix-free by
-GMRES with ``implicit=True``.
+GMRES with ``implicit=True``. GMRES takes ``tol`` and ``max_steps`` like
+the preconditioned CG, its steps counted in restart cycles of up to
+``min(N, 50)`` Krylov iterations; an explicit ``solver`` with tolerances
+overrides them.
 
 ::: kernellib.AbstractEstimator
 

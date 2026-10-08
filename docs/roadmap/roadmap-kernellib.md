@@ -1414,9 +1414,12 @@ krr = krr.fit(X, y, key=key)  # n = 10⁵, never materialises K
   raises with `throw=True` (also under `jit`) and gives `converged=False`
   otherwise. `fit` warns when $\lambda < \varepsilon\max_i K_{ii}$: the
   ridge is then below the rounding of $\|K\|$, and no solver is reliable.
-- `kernellib.sklearn.KernelRidge` does not expose `tol`, `max_steps` or
-  `throw` yet
-  ([kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)).
+- **Solver knobs everywhere (v0.0.18,
+  [kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)).**
+  `tol` and `max_steps` also drive the penalised GMRES (§7.2), and
+  `kernellib.sklearn.KernelRidge` exposes `tol`, `max_steps` and `throw`,
+  passed through to `KRR`; the fitted `model_.n_iter` / `model_.converged`
+  report the outcome.
 
 ### 6.4 K10: randomized kernel PCA
 
@@ -1744,12 +1747,18 @@ def laplacian_penalty(
   have no closed form. They are the K12 recipe: `jax.grad` of the loss,
   not an estimator.
 
-**As implemented (K13, v0.0.17).** The matrix-free GMRES path records
-`n_iter` / `converged` and honours `throw`, like CG (§6.3). Its tolerances
-come from `solver` (`rtol`, `atol`, `max_steps`), else `1e-6` and `10 n`
-steps, not from `KRR.tol` / `max_steps`
-([kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)). The
-true-residual check covers CG solves only.
+**As implemented (K13, v0.0.17; tolerances v0.0.18).** The matrix-free
+GMRES path records `n_iter` / `converged` and honours `throw`, like CG
+(§6.3). It stops at `rtol = atol = KRR.tol` or after `KRR.max_steps`
+restart cycles (of up to `min(n, 50)` Krylov iterations each); an explicit
+`solver` with `rtol` / `atol` / `max_steps` overrides them, as on the CG
+paths ([kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)).
+Before v0.0.18 the budget was a fixed `10 n` cycles. The default 1000
+cycles is up to 50 000 Krylov iterations, far beyond any solve that
+converges, and lineax already stops a GMRES that makes no progress for 20
+cycles. The true-residual check stays CG-only: GMRES stops on the true
+residual $b - By$, recomputed at every restart, so it cannot drift the
+way CG's recursively updated residual does.
 
 **Example.**
 
