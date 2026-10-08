@@ -5,7 +5,7 @@ date: 2026-09-30
 # Implementation plan
 
 :::{note}
-**Status: in progress (updated 2026-10-05; drafted 2026-09-30).** Waves
+**Status: in progress (updated 2026-10-08; drafted 2026-09-30).** Waves
 1–7 are mostly shipped; see [what has shipped](#implementation-status).
 The live status is the tracker,
 [kernellib#125](https://github.com/jejjohnson/kernellib/issues/125). This page sequences the work that the
@@ -20,7 +20,7 @@ changes there, regenerate the tables here.
 ## Status: what has shipped
 
 The plan below is unchanged. This section records which release carried
-each phase, as of 2026-10-05. The tracker
+each phase, as of 2026-10-08. The tracker
 [kernellib#125](https://github.com/jejjohnson/kernellib/issues/125) is the
 live status (epics, phase issues, "blocked by" links, and what is ready
 next); this table is only a snapshot.
@@ -29,23 +29,39 @@ next); this table is only a snapshot.
 |---|---|---|
 | gaussx | 0.5.0 | G1, G2, G3, G9, G11, G14 |
 | gaussx | 0.6.0 | G4–G8, G10, G12, G13 |
-| gaussx | 0.6.1–0.6.2 | Fixes, including `BYM2GMRF` for the BYM2 density (gaussx#508, #518), exact structured paths in `AutoSolver` and `inv_quad_logdet`, and Takahashi on diagonal-only columns |
+| gaussx | 0.6.1–0.6.2 | Fixes, including `BYM2GMRF` for the BYM2 density (gaussx#508, #518), exact structured paths in `AutoSolver` and `inv_quad_logdet`, Takahashi on diagonal-only columns, and gradients through data-dependent CG preconditioners (gaussx#312, fixed by #513) |
+| gaussx | 0.6.3–0.6.4 | Fixes from the v0.2.0 review epics (dtype hygiene, dispatch conformance, solver strategies, GP recipes); API changes that touch the roadmap are noted in [gaussx.md](roadmap-gaussx.md) |
+| gaussx | merged, unreleased (after v0.6.4) | G15 (#625), G16 (#628), G17 (#629, #631, #632); epic gaussx#511 closed |
 | kernellib | 0.0.12–0.0.13 | K1, K12–K14 (0.0.13: review follow-ups) |
 | kernellib | 0.0.14 | K2, K7–K10 |
-| kernellib | 0.0.15 | K3, K4, K6 |
+| kernellib | 0.0.15 | K3, K4, K6 (K4 is missing from that release's notes) |
 | kernellib | 0.0.16 | K5, K15; gaussx source raised to v0.6.1 (kernellib#142) |
-| pyrox-lgm | 0.1.0–0.1.1 | P6–P9 (golden R-INLA fixtures in pyrox#275) |
+| kernellib | 0.0.17 | K11 (kernellib#119); follow-ups that changed APIs, recorded in [kernellib.md](roadmap-kernellib.md): `mesh_graph(on_negative=)`, closed-form Kronecker eigenpairs, checked Lanczos and `eigen_solver="lobpcg"` eigenmaps, KRR iteration statistics and float32 checks, `laplacian_penalty` on graphs, centred pre-images |
+| pyrox-lgm | 0.1.0–0.1.1 | P6–P9 (golden R-INLA fixtures in pyrox#275, merged after 0.1.1) |
+| pyrox-gp | 0.1.8 | P1–P3 and P4's solver (`preconditioned_cg_solver`); P5 is a design-doc change only (pyrox#281). The release notes list only P2 and P3 |
 
-- **In progress:** K11 (docs, kernellib#119).
-- **Not started:** gaussx G15–G17 (gaussx#511), pyrox-gp P1–P5
-  (pyrox#257), P10 (pyrox#256), manipy M0–M5, plumax X1.
-- **Milestones reached:** A (numerics fixed), B's gaussx and kernellib
-  parts, C's KRR part (K9), D's kernellib part (K1–K6, K15), and E
-  (first `inla()`; the remaining gap to R-INLA is in the integration over
-  θ, pyrox#274).
+- **Done:** every kernellib phase, K1–K15. gaussx G1–G17 are all merged;
+  G15–G17 wait for the next gaussx release.
+- **In progress:** P4's matrix-free path and its n = 20 000 tests
+  (pyrox#277; epic pyrox#257 stays open for it), P10 (pyrox#256: pins
+  and P2's eigenpairs done; the boundaries and SPDE pages not yet), and
+  the θ-integration gap to R-INLA (pyrox#274).
+- **Not started:** manipy M0–M5 (manipy#1–#7), plumax X1 (plumax#127).
+- **Pins behind:** kernellib still pins gaussx v0.6.1 (latest v0.6.4);
+  pyrox pins kernellib v0.0.15 (latest v0.0.17) and gaussx v0.6.1.
+- **Milestones:**
+  - **Reached:** A (numerics fixed), D (graphs: K1–K6, K15 and P2 in
+    pyrox-gp 0.1.8), and E (first `inla()`; the remaining gap to R-INLA
+    is in the integration over θ, pyrox#274).
+  - **Partly reached:** B (everything but X1), C (G13, K9 and P4's solver;
+    #312 is fixed, P4's matrix-free path is pyrox#277), G (K11 done; P10
+    in progress) and H (P9 done; G17 merged but unreleased; M4 not
+    started).
+  - **Not started:** F (manipy 0.1).
 - **What implementation changed in the specification** is folded back
-  into the repo pages (kernellib#122), as the definition of done in §1
-  asks: look for the "As built" and "As implemented" notes there.
+  into the repo pages (kernellib#122, and the 2026-10-08 refresh), as the
+  definition of done in §1 asks: look for the "As built" and "As
+  implemented" notes there.
 
 ## 1. Rules of the road
 
@@ -214,7 +230,7 @@ graph. They don't block merging:
 - K6's graph-Matérn ↔ SPDE test needs G7 (integration tier);
 - K13 accepts K2 `Graph`s in `laplacian_penalty` once K2 has shipped (done: #153);
 - G6's sparse-Cholesky sampling path needs G4;
-- P4 is also blocked outside this plan, by gaussx#312.
+- P4 is also blocked outside this plan, by gaussx#312 (fixed by gaussx#513 in v0.6.1).
 
 ## 3. Critical paths and slack
 
@@ -369,7 +385,7 @@ far as their latest wave (§3).
   Do it in wave 1, so that P7 can start the moment G6, G7 and K6 are
   released.
 - **P4** waits for gaussx#312 as well as G13. Track #312 as an external
-  blocker.
+  blocker. (#312 was fixed by gaussx#513, v0.6.1.)
 
 ### manipy
 
@@ -393,7 +409,7 @@ far as their latest wave (§3).
 |---|---|---|---|
 | **A. Numerics fixed** | K12 | wave 1 | CKA and HSIC are safe as training penalties (#93, #94) |
 | **B. RandNLA core** | G11–G14, K7, K8, K10, X1, P3, P5 | wave 3 | Randomized factorisations, landmark and inducing selection; plumax off scikit-learn |
-| **C. Preconditioned kernels** | G13, K9 (and P4 once #312 is fixed) | wave 4 | KRR and exact GPs at n = 10⁵ without forming K |
+| **C. Preconditioned kernels** | G13, K9 (and P4 once #312 is fixed; it was, in gaussx v0.6.1) | wave 4 | KRR and exact GPs at n = 10⁵ without forming K |
 | **D. Graphs** | K1–K6, K15, P2 | wave 6 | Sparse graphs end to end: builders, eigenpairs, graph Matérn, GMRF structure |
 | **E. First `inla()`** | G1–G10, P6–P8 | wave 7 | The Scotland BYM2 and POD fixtures match R-INLA ([gallery 1](roadmap-examples.md#ex-bym2), [3](roadmap-examples.md#ex-pod)) |
 | **F. manipy 0.1** | M0–M3, M5 | wave 7 | Alignment and classical DR in JAX, and the Indian Pines reproduction |
@@ -425,6 +441,6 @@ In order:
 | Sparse Cholesky in JAX is slow or hard to make traceable | G4, critical path | Spike in wave 1; the CHOLMOD backend (same phase) is the fallback; level scheduling and supernodes are follow-ups, not blockers |
 | Release latency on cross-repo edges | every gate in §4 | Batch each repo's release per wave; never release per phase |
 | K2 grows too large for one PR | critical path | Split into two PRs inside wave 2 (types and operators, then builders) |
-| gaussx#312 stays open | P4 | P4 has four waves of slack and nothing depends on it |
+| gaussx#312 stays open | P4 | P4 has four waves of slack and nothing depends on it. Did not happen: #312 was fixed in gaussx v0.6.1 |
 | On-demand phases creep into the plan | G17, M4 | They start only when a user asks; they are off every critical path |
 | A roadmap API changes during implementation | any | Update the repo page in the same PR, and regenerate this page's tables if "Needs" changed |

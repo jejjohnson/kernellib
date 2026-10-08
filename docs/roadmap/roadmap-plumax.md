@@ -57,7 +57,10 @@ $$
 - Because it is JAX, the whole filter jits and runs on GPU.
 
 - **Matched-filter background:**
-  - `U, s, Vt = gx.randomized_svd(Xc, rank, oversample=n_oversamples, n_power_iter=n_iter, key=key)`;
+  - `U, s, Vt = gx.randomized_svd(lx.MatrixLinearOperator(Xc), rank, oversample=n_oversamples, n_power_iter=n_iter, key=key)`.
+    `randomized_svd` takes a lineax operator, not an array: as of gaussx
+    v0.6.4 its range finder starts with `op.out_size()`, which a JAX
+    array does not have;
   - `V = Vt.T` (shape `(n_bands, rank)`: `randomized_svd` returns `Vt`
     as `(rank, n_bands)`), and `d = s**2 / n_samples`, with the
     normalisation unchanged.
@@ -76,13 +79,23 @@ $$
 - **Dependencies.** If this was the last scikit-learn use in
   `matched_filter/`, move scikit-learn to an optional extra.
   (Ledoit–Wolf and OAS may still need it; check first.)
+- **The gaussx pin.** As of 2026-10-08, plumax pins gaussx at commit
+  `58e90a6`, one past v0.0.25, and a `[tool.uv]` override forces it on
+  finitevolx and spectraldiffx as well. G12 shipped in gaussx v0.6.0, so X1
+  first moves the pin and the override to ≥ v0.6.0 (the latest is v0.6.4).
+  That spans every gaussx release from 0.0.26 to 0.6.x; how much of
+  plumax's gaussx use it breaks has not been checked.
 
 **Example.**
 
 ```python
 Xc = pixels - pixels.mean(axis=0)  # (n_pixels, n_bands)
 _, s, Vt = gx.randomized_svd(
-    Xc, 30, oversample=10, n_power_iter=5, key=jax.random.key(seed)
+    lx.MatrixLinearOperator(Xc),
+    30,
+    oversample=10,
+    n_power_iter=5,
+    key=jax.random.key(seed),
 )
 Sigma = gx.LowRankUpdate(
     lx.DiagonalLinearOperator(jnp.full(n_bands, eps)), Vt.T, s**2 / n_pixels

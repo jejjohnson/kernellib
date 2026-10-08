@@ -190,6 +190,8 @@ sensors (see [manipy.md §4](roadmap-manipy.md)).
 ```python
 X, shape = manipy.hsi.image_to_array(cube)
 V = manipy.hsi.spatial_spectral_potential_image(cube)
+# "lanczos" is residual-checked: it raises if it has not converged;
+# "arpack" (or "lobpcg" with x64) otherwise
 Y = (
     kl.SchrodingerEigenmaps(n_components=30, alpha=17.8, eigen_solver="lanczos")
     .fit(X, V)
@@ -225,6 +227,8 @@ whose $K_{uu}$ is diagonal.
 
 ```python
 network = kl.graph_from_adjacency(reach_adjacency)  # or kl.knn_graph(sensor_xy, 8)
+# laplacian_eigpairs' Lanczos is unchecked (kernellib#181):
+# verify ||L u - λ u||, or use method="arpack"
 feats = px.LaplacianInducingFeatures.fit(network, 256, method="lanczos", key=key)
 prior = px.SparseGPPrior(px.Matern(nu=1.5, lengthscale=3.0), inducing=feats)
 # X is the vector of node indices; the ELBO costs O(N M) per step

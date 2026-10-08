@@ -5,12 +5,14 @@ date: 2026-09-30
 # Roadmap: graphs, GMRFs, INLA, randomized linear algebra and dependence penalties
 
 :::{note}
-**Status: draft (v0.2.0, 2026-09-30; updated 2026-10-05).** This is a plan,
+**Status: draft (v0.2.0, 2026-09-30; updated 2026-10-08).** This is a plan,
 not documentation of shipped features. The APIs below are proposals; each
 phase lands as its own PR and issue in the repo it touches. Most of it has
-now shipped: gaussx G1–G14, kernellib K1–K10 and K12–K15, and pyrox-lgm
-P6–P9 (releases in the [implementation plan](roadmap-implementation.md#implementation-status); live
+now shipped: kernellib K1–K15 (all of it), gaussx G1–G14 (G15–G17 merged,
+not yet released), pyrox-gp P1–P3 and part of P4, and pyrox-lgm P6–P9
+(releases in the [implementation plan](roadmap-implementation.md#implementation-status); live
 status in the [tracker](https://github.com/jejjohnson/kernellib/issues/125)).
+manipy M0–M5 and plumax X1 have not started.
 Where implementation changed an API, the repo pages say so in "As built" or
 "As implemented" notes.
 :::
@@ -155,8 +157,11 @@ them.
        without one).
      - **The exception:** `key=None` is allowed where the key only seeds
        an iterative solver whose answer does not depend on it, up to
-       tolerance, such as the Lanczos start block in
-       `laplacian_eigpairs`.
+       tolerance, such as the ARPACK start vector of
+       `laplacian_eigpairs(method="arpack")` (seed 0 without a key).
+       kernellib's JAX iterative paths (`"lanczos"`, and the eigenmaps'
+       `"lobpcg"`) require a key; the eigenmap estimators derive it from
+       `random_state`.
 7. **External tools in examples: training loops and data sources.**
    - **Networks and SVI: `pipekit-train`.** Examples that train a network
      (an Equinox module, over mini-batches) use
@@ -247,10 +252,11 @@ pages.
 
 | # | Question | Proposed answer |
 |---|---|---|
-| 1 | `jax.experimental.sparse` is experimental | Accept it, isolated behind `gaussx.SparseOperator` (G1) and `Graph.to_bcoo()` (K2), so a move to a stable API touches two places |
+| 1 | `jax.experimental.sparse` is experimental | Accept it, isolated behind `gaussx.SparseOperator` (G1), `Graph.to_bcoo()` (K2) and kernellib's LOBPCG eigenmap path (`lobpcg_standard` on a BCOO, kernellib v0.0.17), so a move to a stable API touches three places |
 | 2 | Where do the CAR / ICAR distributions live? | **Resolved.** The distributions go in gaussx (G6). The priors with hyperpriors go in pyrox-lgm (P7), not pyrox-gp |
 | 3 | Where does this roadmap live? | kernellib's `docs/roadmap/`, rendered in the MyST site, because gaussx's CLAUDE.md keeps design documents out of the gaussx repo (`.plans/`, gitignored). File the phases as issues in each repo, and link them here |
 | 4 | Should the `key=None → PRNGKey(0)` default stay for new randomized code? | In gaussx, yes, for consistency with gaussx today. kernellib, pyrox and manipy require a key wherever the result depends on it (§3, decision 6). Revisit if silent determinism causes a bug |
+| 5 | Should `laplacian_eigpairs(method="lanczos")` run the same residual check and Krylov growth as the eigenmaps? pyrox-gp calls it directly ([example 5](roadmap-examples.md)) | Probably yes: move the eigenmaps' checked-restart helper into `_graph/_eigpairs.py`, so every Lanczos caller gets it (kernellib#181; [kernellib.md §4.3](roadmap-kernellib.md)) |
 
 ## 6. Decisions log
 
@@ -262,3 +268,4 @@ pages.
 | 2026-09-30 | city2graph reviewed. Not a dependency; it becomes the docs-only data source for real spatial examples (decision 7). kernellib gains `graph_from_edges`, distance-to-weight conversion and `knn_graph(ensure_connected=)` in K2, and proximity graphs as K15. Gallery example 13 (OD flows) added |
 | 2026-09-30 | The waves are recomputed as earliest-start levels from the "Needs" columns (G7, K5, M1, M3–M5 and P4 move earlier), and the [implementation plan](roadmap-implementation.md) is added |
 | 2026-10-05 | Implementation findings from gaussx G4–G10, G13 and pyrox-lgm P6–P7 are folded back into the repo pages (kernellib#122): odd-`n` `rw2_structure` padding (use `n + 1` nodes and a row-selection projector); `pseudo_logdet(structure="laplacian")`; `laplace_mode` and `vb_mean_correction` take no `y` (the likelihood holds it), `BinomialLikelihood(y, n_trials)`, NB `concentration`; `theta_design(method=None)` and its derived CCD weights; lower-triangle sparse storage, `cholesky(SparseOperator)` → `SparseCholeskyFactor`, reverse-over-reverse Hessians; matrix-free conditioning of a spectral prior; `randomized_eigh(n_power_iter=0)` is more accurate than the old Rayleigh–Ritz, and there is no lazy Nyström path; `BYM2GMRF` (gaussx#508); pyrox-lgm's pins, `PCAR1Rho` on \|ρ\|, `PCBYM2Phi`'s null space and deflated SLQ, `BYM2`'s `(tau, phi)`, `SPDE`'s `range_sigma`, `Kronecker`'s fixed group τ, the NUTS soft-constraint scale and odd-`n` `RW2`. K5 and K15 are recorded as built, and the implementation plan gains a status section |
+| 2026-10-08 | Status refresh. kernellib v0.0.17 ships K11 and post-phase fixes that changed APIs, recorded as "As implemented" notes in [kernellib.md](roadmap-kernellib.md): `mesh_graph(on_negative="raise" \| "clip" \| "allow")`, with signed-weight graphs rejected where weights must be non-negative (kernellib#157); closed-form Kronecker eigenpairs (#156); residual-checked, restarting Lanczos eigenmaps (#159) and `eigen_solver="lobpcg"` (#91); KRR `tol` / `max_steps` / `throw`, fitted `n_iter` / `converged`, a true-residual check and a small-λ warning, and Falkon's dtype-aware `tol` (#160, #162); `laplacian_penalty` on sparse graphs (#153); centred KernelPCA pre-images (#154). gaussx G15–G17 are merged (gaussx#511) but unreleased after v0.6.4, and their "As built" notes are in [gaussx.md](roadmap-gaussx.md). gaussx#312 (gradients through preconditioned CG) was fixed in gaussx v0.6.1, so P4 has no external blocker. pyrox-gp 0.1.8 ships P1–P3 and P4's solver; P4's matrix-free path is pyrox#277 |
