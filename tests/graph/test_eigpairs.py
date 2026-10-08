@@ -10,6 +10,7 @@ import pytest
 
 import kernellib as kl
 from kernellib._einx import einsum, rearrange, reduce
+from kernellib._graph import _eigpairs
 
 
 def _projector(U):
@@ -263,6 +264,113 @@ class TestDenseAndSparse:
         assert np.isclose(grad[0], fd, rtol=1e-4, atol=1e-8)
 
 
+class TestLanczosResidualCheck:
+    """#181: laplacian_eigpairs(method="lanczos") verifies ||L u - lambda u||
+    and grows its Krylov space rather than return unconverged pairs."""
+
+    @staticmethod
+    def _spy_ranks(monkeypatch):
+        """Record the Krylov dimension of every gaussx.eig call."""
+        ranks = []
+        eig = _eigpairs.gx.eig
+
+        def spy(op, *, rank, key):
+            ranks.append(rank)
+            return eig(op, rank=rank, key=key)
+
+        monkeypatch.setattr(_eigpairs.gx, "eig", spy)
+        return ranks
+
+    def test_fires_on_an_undersized_krylov_space(self, monkeypatch):
+        # Krylov dimension n + 1 and no restart: one run, which fails.
+        ranks = self._spy_ranks(monkeypatch)
+        g = _geometric_graph(300)
+        with pytest.raises(RuntimeError) as info:
+            kl.laplacian_eigpairs(
+                g,
+                5,
+                method="lanczos",
+                key=jax.random.key(0),
+                oversample=1,
+                max_oversample=1,
+            )
+        assert ranks == [6]
+        message = str(info.value)
+        assert "laplacian_eigpairs(method='lanczos') did not converge" in message
+        assert "Use method='arpack'" in message and "method='dense'" in message
+
+    def test_fires_under_jit(self, monkeypatch):
+        # Under jit there is no restart: one run at oversample, checked by
+        # equinox.error_if, even with max_oversample left at its default.
+        ranks = self._spy_ranks(monkeypatch)
+        g = _geometric_graph(300)
+
+        @jax.jit
+        def eigpairs(w):
+            return kl.laplacian_eigpairs(
+                g.reweight(w), 5, method="lanczos", key=jax.random.key(0), oversample=1
+            )
+
+        with pytest.raises(Exception, match="did not converge"):
+            jax.block_until_ready(eigpairs(g.weights))
+        assert ranks == [6]
+
+    def test_non_finite_residuals_fail_under_jit(self):
+        # NaN <= tol is False: NaN weights must fail the traced check too.
+        g = _geometric_graph(60)
+
+        @jax.jit
+        def eigpairs(scale):
+            return kl.laplacian_eigpairs(
+                g.reweight(scale * g.weights),
+                3,
+                method="lanczos",
+                key=jax.random.key(0),
+            )
+
+        lam, _ = eigpairs(jnp.array(1.0))
+        assert np.allclose(lam, kl.laplacian_eigpairs(g, 3)[0], atol=1e-8)
+        with pytest.raises(Exception, match="did not converge"):
+            jax.block_until_ready(eigpairs(jnp.array(jnp.nan)))
+
+    @pytest.mark.slow
+    def test_restarts_double_the_oversample(self, monkeypatch):
+        # From an undersized space the margin doubles (capped at
+        # max_oversample) until the pairs pass, and they are then right.
+        ranks = self._spy_ranks(monkeypatch)
+        g = _geometric_graph(60)
+        lam, U = kl.laplacian_eigpairs(
+            g,
+            3,
+            method="lanczos",
+            key=jax.random.key(0),
+            oversample=1,
+            max_oversample=40,
+        )
+        assert len(ranks) > 1
+        assert ranks == [3 + min(2**i, 40) for i in range(len(ranks))]
+        lam_d, U_d = kl.laplacian_eigpairs(g, 3)
+        assert np.allclose(lam, lam_d, atol=1e-8)
+        assert np.allclose(_projector(U), _projector(U_d), atol=1e-6)
+
+    @pytest.mark.slow
+    def test_restart_recovers_arpack_on_a_large_graph(self, monkeypatch):
+        # N = 1500: a single run at the default oversample of 200 returns
+        # residuals ~4e-3 against a tolerance of ~4e-7 (eigenvalues wrong
+        # past the fourth digit); the restart at 400 converges.
+        g = _geometric_graph(1500)
+        n = _gap_n(kl.laplacian_eigpairs(g, 11)[0], 10)
+        kw = {"method": "lanczos", "key": jax.random.key(0)}
+        with pytest.raises(RuntimeError, match="did not converge"):
+            kl.laplacian_eigpairs(g, n, max_oversample=200, **kw)
+        ranks = self._spy_ranks(monkeypatch)
+        lam_l, U_l = kl.laplacian_eigpairs(g, n, **kw)
+        assert ranks == [n + 200, n + 400]
+        lam_a, U_a = kl.laplacian_eigpairs(g, n, method="arpack")
+        assert np.allclose(lam_l, lam_a, rtol=0.0, atol=1e-10)
+        assert np.allclose(_projector(U_l), _projector(U_a), atol=1e-8)
+
+
 class TestConventions:
     @pytest.mark.parametrize("method", ["dense", "kronecker", "arpack"])
     def test_sign_convention(self, method):
@@ -322,4 +430,8 @@ class TestValidation:
         with pytest.raises(ValueError, match="oversample"):
             kl.laplacian_eigpairs(
                 g, 5, method="lanczos", key=jax.random.key(0), oversample=-1
+            )
+        with pytest.raises(ValueError, match="max_oversample"):
+            kl.laplacian_eigpairs(
+                g, 5, method="lanczos", key=jax.random.key(0), max_oversample=-1
             )

@@ -227,8 +227,8 @@ whose $K_{uu}$ is diagonal.
 
 ```python
 network = kl.graph_from_adjacency(reach_adjacency)  # or kl.knn_graph(sensor_xy, 8)
-# laplacian_eigpairs' Lanczos is unchecked (kernellib#181):
-# verify ||L u - λ u||, or use method="arpack"
+# laplacian_eigpairs' Lanczos is residual-checked (kernellib#181): it
+# restarts with a larger Krylov space, then raises; method="arpack" otherwise
 feats = px.LaplacianInducingFeatures.fit(network, 256, method="lanczos", key=key)
 prior = px.SparseGPPrior(px.Matern(nu=1.5, lengthscale=3.0), inducing=feats)
 # X is the vector of node indices; the ELBO costs O(N M) per step

@@ -256,7 +256,7 @@ pages.
 | 2 | Where do the CAR / ICAR distributions live? | **Resolved.** The distributions go in gaussx (G6). The priors with hyperpriors go in pyrox-lgm (P7), not pyrox-gp |
 | 3 | Where does this roadmap live? | kernellib's `docs/roadmap/`, rendered in the MyST site, because gaussx's CLAUDE.md keeps design documents out of the gaussx repo (`.plans/`, gitignored). File the phases as issues in each repo, and link them here |
 | 4 | Should the `key=None → PRNGKey(0)` default stay for new randomized code? | In gaussx, yes, for consistency with gaussx today. kernellib, pyrox and manipy require a key wherever the result depends on it (§3, decision 6). Revisit if silent determinism causes a bug |
-| 5 | Should `laplacian_eigpairs(method="lanczos")` run the same residual check and Krylov growth as the eigenmaps? pyrox-gp calls it directly ([example 5](roadmap-examples.md)) | Probably yes: move the eigenmaps' checked-restart helper into `_graph/_eigpairs.py`, so every Lanczos caller gets it (kernellib#181; [kernellib.md §4.3](roadmap-kernellib.md)) |
+| 5 | Should `laplacian_eigpairs(method="lanczos")` run the same residual check and Krylov growth as the eigenmaps? pyrox-gp calls it directly ([example 5](roadmap-examples.md)) | **Resolved.** Yes: the eigenmaps' residual check and Krylov-growing restarts moved into `_graph/_eigpairs.py`, so `laplacian_eigpairs(method="lanczos")` and every caller of it (pyrox-gp included) get them, and the eigenmaps reuse them (kernellib#181; [kernellib.md §4.3](roadmap-kernellib.md)) |
 
 ## 6. Decisions log
 

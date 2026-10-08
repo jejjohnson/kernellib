@@ -13,16 +13,20 @@ r"""Smallest Laplacian eigenpairs at every scale, and connected components.
   ``H W`` scalars;
 - **Lanczos** (``method="lanczos"``) in JAX for large sparse graphs: the
   smallest eigenvalues of $L$ are the largest of $cI - L$ for a Gershgorin
-  bound $c \ge \lambda_{\max}$, where Lanczos converges fastest;
+  bound $c \ge \lambda_{\max}$, where Lanczos converges fastest. The
+  returned pairs are residual-checked (`_check_eigpairs`) and an unconverged
+  run is repeated with a larger Krylov space (`_lanczos_until_converged`);
 - **ARPACK** (``method="arpack"``) through SciPy, on the CPU, untraced, for
   graphs where Lanczos converges badly.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Literal
 
 import einx
+import equinox as eqx
 import gaussx as gx
 import jax
 import jax.numpy as jnp
@@ -30,6 +34,7 @@ import lineax as lx
 import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
+from jax.core import Tracer
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 from scipy.sparse.csgraph import connected_components
 
@@ -43,6 +48,10 @@ __all__ = ["laplacian_eigpairs", "n_components_graph"]
 
 EigpairMethod = Literal["dense", "kronecker", "lanczos", "arpack"]
 
+# Who failed and what to do instead, in a `laplacian_eigpairs` Lanczos error.
+_LANCZOS_SOLVER = "laplacian_eigpairs(method='lanczos')"
+_LANCZOS_HINT = "Use method='arpack' (SciPy, CPU), or method='dense' for a small graph."
+
 
 def laplacian_eigpairs(
     graph: AbstractGraph | Float[Array, "N N"],
@@ -52,6 +61,7 @@ def laplacian_eigpairs(
     method: EigpairMethod | None = None,
     key: PRNGKeyArray | None = None,
     oversample: int = 200,
+    max_oversample: int = 1600,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
     r"""The ``n`` smallest eigenpairs of a graph Laplacian.
 
@@ -61,8 +71,10 @@ def laplacian_eigpairs(
       of their sums, outer-product eigenvectors. No eigensolver runs: the
       cost is a sort of the ``N`` sums, and float32 keeps full relative
       precision at the bottom of the spectrum.
-    - ``"lanczos"``: `gaussx.eig` of $cI - L$, with Krylov dimension
-      ``n + oversample``.
+    - ``"lanczos"``: `gaussx.eig` of $cI - L$, for the Gershgorin bound
+      $c = \max_i (d_i + \sum_j |W_{ij}|) \ge \lambda_{\max}(L)$ ($2$ for
+      ``"symmetric"``), with Krylov dimension ``n + oversample``,
+      residual-checked (below).
     - ``"arpack"``: SciPy ``eigsh``, on the CPU. The only path that is not
       traced or differentiable.
 
@@ -73,8 +85,15 @@ def laplacian_eigpairs(
 
     Lanczos needs a Krylov space well beyond ``n`` to converge at the bottom
     of a graph spectrum, where the eigenvalues are small and clustered:
-    ``oversample`` (default 200) is that margin. If the eigenvalues are
-    still inaccurate, raise it or use ``"arpack"``.
+    ``oversample`` (default 200) is that margin. ``"lanczos"`` checks what
+    it returns: the residual $\|L u_i - \lambda_i u_i\|$ of every pair must
+    be at most $\sqrt{\varepsilon}\, \max(c, 1)$, with $\varepsilon$ the
+    machine epsilon of the dtype. A failing run is repeated with twice the
+    oversample, up to ``max_oversample`` or until the Krylov space spans all
+    ``N`` nodes; if the last run still fails, a ``RuntimeError`` is raised
+    rather than wrong eigenpairs returned. Under ``jit`` there is a single
+    run, at ``oversample``, and the check is attached to the outputs with
+    `equinox.error_if`.
 
     Every eigenvector is ``ℓ²``-normalised and sign-fixed: its
     largest-magnitude entry is positive. A disconnected graph has one zero
@@ -90,16 +109,21 @@ def laplacian_eigpairs(
         method: ``"dense"``, ``"kronecker"``, ``"lanczos"``, ``"arpack"``,
             or ``None`` for the type-based default.
         key: PRNG key; required by ``"lanczos"``, seeds ``"arpack"``.
-        oversample: Extra Krylov dimension for ``"lanczos"``.
+        oversample: Extra Krylov dimension of the first ``"lanczos"`` run.
+        max_oversample: Largest extra Krylov dimension a ``"lanczos"``
+            restart tries; ``max_oversample <= oversample`` means one run.
 
     Returns:
         ``(eigenvalues, eigenvectors)``: shapes ``(n,)`` ascending and
         ``(N, n)``.
 
     Raises:
-        ValueError: For an invalid ``n``, ``method`` or ``normalization``,
-            ``"kronecker"`` on anything but a face-connected unnormalised
-            `GridGraph`, or ``"lanczos"`` without a ``key``.
+        ValueError: For an invalid ``n``, ``method``, ``normalization`` or
+            oversample, ``"kronecker"`` on anything but a face-connected
+            unnormalised `GridGraph`, or ``"lanczos"`` without a ``key``.
+        RuntimeError: If ``"lanczos"`` has not converged at the largest
+            Krylov space it tries (under ``jit``, when the result is
+            computed).
 
     Examples:
         >>> import jax
@@ -112,8 +136,41 @@ def laplacian_eigpairs(
         >>> U.shape
         (90000, 4)
     """
+    return _laplacian_eigpairs(
+        graph,
+        n,
+        normalization=normalization,
+        method=method,
+        key=key,
+        oversample=oversample,
+        max_oversample=max_oversample,
+        solver=_LANCZOS_SOLVER,
+        hint=_LANCZOS_HINT,
+    )
+
+
+def _laplacian_eigpairs(
+    graph: AbstractGraph | Float[Array, "N N"],
+    n: int,
+    *,
+    normalization: str,
+    method: EigpairMethod | None,
+    key: PRNGKeyArray | None,
+    oversample: int,
+    max_oversample: int,
+    solver: str,
+    hint: str,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    """`laplacian_eigpairs`, with a Lanczos failure named by ``solver``.
+
+    ``solver`` and ``hint`` name the failing call and what to do instead in
+    the ``"lanczos"`` error (`_check_eigpairs`), so a caller that takes the
+    solver by another parameter (the eigenmaps' ``eigen_solver``) can say so.
+    """
     if oversample < 0:
         raise ValueError(f"oversample must be >= 0, got {oversample}.")
+    if max_oversample < 0:
+        raise ValueError(f"max_oversample must be >= 0, got {max_oversample}.")
     if normalization not in ("unnormalized", "symmetric"):
         raise ValueError(
             "normalization must be 'unnormalized' or 'symmetric', got "
@@ -138,7 +195,16 @@ def laplacian_eigpairs(
     elif method == "lanczos":
         if key is None:
             raise ValueError("method='lanczos' needs a PRNG key.")
-        lam, U = _lanczos(graph, n, normalization, oversample, key)
+        lam, U = _lanczos(
+            graph,
+            n,
+            normalization,
+            key,
+            oversample=oversample,
+            max_oversample=max_oversample,
+            solver=solver,
+            hint=hint,
+        )
     elif method == "arpack":
         lam, U = _arpack(graph, n, normalization, key)
     else:
@@ -321,34 +387,186 @@ def _mulmod(a: Int[Array, " i"], b: Int[Array, " m"], p: int) -> Int[Array, "i m
     return r
 
 
+def _gershgorin_bound(
+    graph: AbstractGraph | Float[Array, "N N"], normalization: str
+) -> float | Float[Array, ""]:
+    r"""A Gershgorin bound $c \ge \lambda_{\max}(L)$, safe for signed weights.
+
+    $\max_i (d_i + \sum_j |W_{ij}|)$ for the unnormalised Laplacian, which
+    is $2 \max_i d_i$ for non-negative weights (signed ones: a `mesh_graph`
+    with ``on_negative="allow"``); $2$ for the symmetric one.
+    """
+    if normalization != "unnormalized":
+        return 2.0
+    if isinstance(graph, AbstractGraph):
+        degree = graph.degree()
+        spread = graph._degree(jnp.abs(graph.weights))
+    else:
+        degree = reduce(jnp.asarray(graph), "i j -> i", "sum")
+        spread = reduce(jnp.abs(jnp.asarray(graph)), "i j -> i", "sum")
+    return jnp.max(degree + spread)
+
+
 def _lanczos(
     graph: AbstractGraph | Float[Array, "N N"],
     n: int,
     normalization: str,
-    oversample: int,
     key: PRNGKeyArray,
+    *,
+    oversample: int,
+    max_oversample: int,
+    solver: str,
+    hint: str,
 ) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    """Lanczos on $cI - L$, residual-checked, with a growing Krylov space."""
     if isinstance(graph, AbstractGraph):
         L = graph.laplacian_operator(normalization)  # ty: ignore[invalid-argument-type]
-        degree = graph.degree()
-        spread = graph._degree(jnp.abs(graph.weights))
     else:
         L = lx.MatrixLinearOperator(_dense_laplacian(graph, normalization))
-        degree = reduce(jnp.asarray(graph), "i j -> i", "sum")
-        spread = reduce(jnp.abs(jnp.asarray(graph)), "i j -> i", "sum")
-    # Gershgorin: lambda_max(L) <= max(d_i + sum_j |W_ij|), i.e. 2 max(degree)
-    # for non-negative weights (signed ones: a mesh_graph with
-    # on_negative="allow"); the symmetric form is <= 2.
-    c = jnp.max(degree + spread) if normalization == "unnormalized" else 2.0
+    c = _gershgorin_bound(graph, normalization)
     shifted = lx.FunctionLinearOperator(
         lambda v: c * v - L.mv(v),
         L.in_structure(),
         tags=(lx.symmetric_tag, lx.positive_semidefinite_tag),
     )
-    rank = min(n + oversample, L.in_size())
-    mu, V = gx.eig(shifted, rank=rank, key=key)
-    top = jnp.argsort(-mu)[:n]
-    return c - mu[top], V[:, top]
+    n_nodes = L.in_size()
+
+    def solve(extra: int):
+        mu, V = gx.eig(shifted, rank=min(n + extra, n_nodes), key=key)
+        top = jnp.argsort(-mu)[:n]
+        return c - mu[top], V[:, top], c
+
+    return _lanczos_until_converged(
+        solve,
+        L.mv,
+        n,
+        n_nodes,
+        oversample=oversample,
+        max_oversample=max_oversample,
+        solver=solver,
+        hint=hint,
+    )
+
+
+# -- eigenpair verification --------------------------------------------------
+
+
+def _eigpair_residuals(
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    lam: Float[Array, " n"],
+    U: Float[Array, "N n"],
+) -> Float[Array, " n"]:
+    r"""Relative residuals $\|A u_i - \lambda_i u_i\| / \|u_i\|$ of eigenpairs.
+
+    ``n`` matvecs. ``matvec`` is $v \mapsto A v$ for the symmetric matrix
+    the pairs claim to diagonalise (not a shifted or flipped one).
+    """
+    AU = jax.vmap(matvec, in_axes=1, out_axes=1)(U)
+    R = AU - einx.multiply("N n, n -> N n", U, lam)
+    norm_r = jnp.sqrt(reduce(R**2, "N n -> n", "sum"))
+    norm_u = jnp.sqrt(reduce(U**2, "N n -> n", "sum"))
+    return norm_r / jnp.maximum(norm_u, jnp.finfo(U.dtype).tiny)
+
+
+def _residual_tolerance(
+    bound: float | Float[Array, ""], dtype: jnp.dtype
+) -> Float[Array, ""]:
+    r"""$\sqrt{\varepsilon}\, \max(c, 1)$: half the digits of the dtype.
+
+    $c \approx \lambda_{\max}(A)$, a bound or a close estimate. A residual
+    $r$ bounds the eigenvalue error by $r$, and by $r^2 / \mathrm{gap}$ once
+    the pair is isolated, so a passing pair is accurate to about
+    $\varepsilon c^2 / \mathrm{gap}$.
+    """
+    return jnp.sqrt(jnp.finfo(dtype).eps) * jnp.maximum(jnp.abs(bound), 1.0)
+
+
+def _check_eigpairs(
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    lam: Float[Array, " n"],
+    U: Float[Array, "N n"],
+    bound: float | Float[Array, ""],
+    *,
+    solver: str,
+    hint: str,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    r"""Raise if any returned eigenpair of $A$ has not converged.
+
+    The residual test of `_eigpair_residuals` against `_residual_tolerance`
+    (``bound`` is $c \approx \lambda_{\max}(A)$). An iterative solver that
+    returns the wrong pairs gives a wrong embedding with no other symptom,
+    so this raises rather than warns. With concrete values it raises a
+    ``RuntimeError``; under ``jit`` it attaches the same check to the
+    outputs with `equinox.error_if`.
+
+    Args:
+        matvec: $v \mapsto A v$.
+        lam: Claimed eigenvalues, ``(n,)``.
+        U: Claimed eigenvectors, ``(N, n)``.
+        bound: Spectral scale $c \approx \lambda_{\max}(A)$.
+        solver: Name of the solver, for the message.
+        hint: What to do instead, for the message.
+
+    Returns:
+        ``(lam, U)``, unchanged (under ``jit``, wrapped in the check).
+
+    Raises:
+        RuntimeError: If a residual exceeds the tolerance.
+    """
+    res = _eigpair_residuals(matvec, lam, U)
+    tol = _residual_tolerance(bound, U.dtype)
+    if isinstance(res, Tracer) or isinstance(tol, Tracer):
+        message = (
+            f"{solver} did not converge: eigenpair residuals above tolerance. {hint}"
+        )
+        # ~all(res <= tol), not any(res > tol): NaN compares False, so a
+        # non-finite residual must fail the check, as it does eagerly.
+        return eqx.error_if((lam, U), ~jnp.all(res <= tol), message)
+    if not bool(jnp.all(res <= tol)):
+        raise RuntimeError(
+            f"{solver} did not converge: eigenpair residuals "
+            f"||A u - lambda u|| = {np.asarray(res).tolist()} exceed the "
+            f"tolerance {float(tol):.3g} (sqrt(eps) * {float(bound):.3g}), so "
+            f"the eigenvalues {np.asarray(lam).tolist()} are not trustworthy. "
+            f"{hint}"
+        )
+    return lam, U
+
+
+def _lanczos_until_converged(
+    solve: Callable[
+        [int],
+        tuple[Float[Array, " n"], Float[Array, "N n"], float | Float[Array, ""]],
+    ],
+    matvec: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    n_wanted: int,
+    n_nodes: int,
+    *,
+    oversample: int,
+    max_oversample: int,
+    solver: str,
+    hint: str,
+) -> tuple[Float[Array, " n"], Float[Array, "N n"]]:
+    """Run ``solve(oversample)`` until `_check_eigpairs` passes.
+
+    ``solve`` returns ``(lam, U, bound)`` from a Krylov space of dimension
+    ``n_wanted + oversample`` (capped at ``n_nodes``). The oversample starts
+    at ``oversample`` and doubles on failure, up to ``max_oversample`` or
+    the full space; the last run is checked and raises, its message naming
+    ``solver`` and suggesting ``hint``. (A Krylov space near the full space
+    is no safe harbour: without breakdown detection Lanczos can lose the
+    pairs there, which the check then reports.) Under ``jit`` there is one
+    run, checked by `equinox.error_if`.
+    """
+    while True:
+        lam, U, bound = solve(oversample)
+        last = oversample >= max_oversample or n_wanted + oversample >= n_nodes
+        res = _eigpair_residuals(matvec, lam, U)
+        if last or isinstance(res, Tracer):
+            return _check_eigpairs(matvec, lam, U, bound, solver=solver, hint=hint)
+        if bool(jnp.all(res <= _residual_tolerance(bound, U.dtype))):
+            return lam, U
+        oversample = min(max(2 * oversample, 1), max_oversample)
 
 
 def _arpack(
