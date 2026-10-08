@@ -293,14 +293,28 @@ Notes:
   - `incidence_operator`, which needs $\sqrt{w_e}$;
   - the `"symmetric"` and `"random_walk"` Laplacians, and what goes through
     them: `laplacian_eigpairs(normalization="symmetric")` with any method
-    (ARPACK checks explicitly), `laplacian_eigenmap` under the degree
-    constraint with `"dense"`, `"lanczos"` or `"arpack"`, and
+    (ARPACK checks explicitly), and
     `laplacian_penalty(normalization="symmetric")`;
-  - the graph kernels with a normalised Laplacian (§4.4).
+  - the graph kernels with a normalised Laplacian (§4.4);
+  - every embedding with the degree constraint, $L y = \lambda D y$, with
+    any solver: `laplacian_eigenmap` / `LaplacianEigenmaps` and
+    `schrodinger_eigenmap` / `SchrodingerEigenmaps` under
+    `constraint="degree"` (`"dense"`, `"lanczos"`, `"arpack"`, `"lobpcg"`,
+    for a graph or a dense adjacency), and LPP, SEP and their kernel
+    versions, whose constraint $\bar X^\top D \bar X$ always holds $D$
+    ([kernellib#180](https://github.com/jejjohnson/kernellib/issues/180)).
+    $D$ need not be positive, and $D^{-1/2} L D^{-1/2}$ is the symmetric
+    Laplacian, whose $[0, 2]$ spectrum the `"lobpcg"` shift assumes. The
+    message names the function or estimator and suggests
+    `constraint="identity"`.
 
-  The eigenmaps' other degree-constraint paths (`schrodinger_eigenmap` with
-  any method, and `laplacian_eigenmap(method="lobpcg")`) do not check the
-  sign yet ([kernellib#180](https://github.com/jejjohnson/kernellib/issues/180)).
+  The identity constraint, $(L + \alpha V) y = \lambda y$, accepts signed
+  weights with every solver: it is a symmetric eigenproblem for any
+  weights, and the cotangent $L$ is PSD. Its `"lanczos"` scale and
+  `"lobpcg"` shift are the signed-safe Gershgorin bound
+  $\max_i (d_i + \sum_j |W_{ij}|)$. That is $2 \max_i d_i$ for
+  non-negative weights; on a signed graph $2 \max_i d_i$ can fall below
+  $\lambda_{\max}(L)$.
 - **Node order is row-major (C order)**, matching
   `rearrange("h w c -> (h w) c", image)`. The old MATLAB and Python code
   used column-major order. Say so in the docstring.
@@ -924,9 +938,11 @@ Both pass `check_estimator` (integration tier).
 - **`eigen_solver="lobpcg"` (kernellib#91).** A fifth solver on both
   functions (`method=`) and both estimators (`eigen_solver=`). The graph
   stays a BCOO, and `jax.experimental.sparse.linalg.lobpcg_standard` runs
-  on $cI - S$, $S = s(L + \alpha V)s$, with $c = 2$ ($2\max_i d_i$ under
-  the identity constraint) plus $|\alpha|$ times the Gershgorin bound of
-  $sVs$: on the device, under `jit`, with no SciPy and no gradients.
+  on $cI - S$, $S = s(L + \alpha V)s$, with $c = 2$ (under the identity
+  constraint, the signed-safe Gershgorin bound
+  $\max_i(d_i + \sum_j |W_{ij}|)$ of $L$, since kernellib#180) plus
+  $|\alpha|$ times the Gershgorin bound of $sVs$: on the device, under
+  `jit`, with no SciPy and no gradients.
   - It needs x64 (float32 LOBPCG returns a wrong embedding, not an
     imprecise one), a `key` (the estimators derive it from
     `random_state`) and $5(n + \text{drop\_first}) < N$; otherwise a
