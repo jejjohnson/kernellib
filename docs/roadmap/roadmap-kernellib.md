@@ -586,12 +586,20 @@ lam, U = kl.laplacian_eigpairs(
   precision at the bottom of the spectrum for any axis length, and the two
   members of a cycle pair are bitwise equal. The cost is a sort of the $N$
   sums plus $O(Nn)$ for the eigenvectors.
-- **`laplacian_eigpairs(method="lanczos")` is not residual-checked.** It is
-  one Krylov run of dimension `n + oversample`; the check and the growing
-  restarts are in the eigenmaps (§4.8, #159), which call it. A direct
-  caller, such as pyrox-gp's `LaplacianInducingFeatures`, should check
-  $\|Lu - \lambda u\|$ itself or use `"arpack"`
-  ([kernellib#181](https://github.com/jejjohnson/kernellib/issues/181)).
+- **`laplacian_eigpairs(method="lanczos")` is residual-checked
+  ([kernellib#181](https://github.com/jejjohnson/kernellib/issues/181)).**
+  The check and the growing restarts moved here from the eigenmaps (§4.8,
+  #159), which now reuse them: every returned pair must satisfy
+  $\|Lu_i - \lambda_i u_i\| \le \sqrt\varepsilon\,\max(c, 1)$, with $c$
+  the signed-safe Gershgorin bound above. A failing run is repeated with
+  the oversample doubled (200 → 400 → 800 → 1600, capped by
+  `max_oversample=1600`, or the full space), then a `RuntimeError` suggests
+  `method="arpack"`, or `"dense"` for a small graph. Under `jit` there is
+  one run, at `oversample`, checked by `equinox.error_if`; a NaN residual
+  fails it. A direct caller such as pyrox-gp's `LaplacianInducingFeatures`
+  now gets an error instead of wrong eigenpairs. On a 1500-node 8-NN graph
+  the first run (oversample 200) leaves residuals of `4e-3` against a
+  tolerance of `4e-7`, and the restart at 400 converges.
   There is no `method="lobpcg"` here: LOBPCG is an eigenmap solver only
   (§4.8).
 
@@ -910,8 +918,9 @@ Both pass `check_estimator` (integration tier).
   (`laplacian_eigenmap(method='lanczos')` or
   `SchrodingerEigenmaps(eigen_solver='lanczos')`) and suggests `"arpack"` or
   `"dense"`. Under `jit` there is one run, checked by `equinox.error_if`.
-  The Laplacian bound does not yet allow for signed weights
-  ([kernellib#180](https://github.com/jejjohnson/kernellib/issues/180)).
+  Since kernellib#181 the Laplacian path is `laplacian_eigpairs`' own
+  check (§4.3), whose scale is the signed-safe Gershgorin bound
+  $\max_i(d_i + \sum_j |W_{ij}|)$.
 - **`eigen_solver="lobpcg"` (kernellib#91).** A fifth solver on both
   functions (`method=`) and both estimators (`eigen_solver=`). The graph
   stays a BCOO, and `jax.experimental.sparse.linalg.lobpcg_standard` runs
@@ -2042,7 +2051,7 @@ Built: v0.0.16 (kernellib#145). The tests are given with the API (§4b).
 
 | Risk | Mitigation |
 |---|---|
-| Lanczos converges slowly at the small end of a clustered Laplacian spectrum | Eigenmaps check every Lanczos pair's residual and double the Krylov space up to 1600 before raising (v0.0.17); `"arpack"` is the robust fallback, and `"lobpcg"` (x64) a JAX one. `laplacian_eigpairs` itself is unchecked (§4.3, [kernellib#181](https://github.com/jejjohnson/kernellib/issues/181)) |
+| Lanczos converges slowly at the small end of a clustered Laplacian spectrum | `laplacian_eigpairs(method="lanczos")` and the eigenmaps check every Lanczos pair's residual and double the Krylov space up to 1600 before raising (eigenmaps since v0.0.17; `laplacian_eigpairs` since [kernellib#181](https://github.com/jejjohnson/kernellib/issues/181), §4.3); `"arpack"` is the robust fallback, and `"lobpcg"` (x64) a JAX one |
 | Signed cotangent weights break $L = B^\top B$ | `mesh_graph(on_negative=)` makes the choice explicit, and operations that need $w \ge 0$ raise (§4.1) |
 | BCOO matvec is slow on some backends | Benchmark against a `segment_sum` matvec in K2 and pick per backend inside `SparseOperator` (gaussx), not here |
 | Degenerate eigenvalues make eigenvector tests flaky | Compare subspaces (principal angles), never individual vectors |

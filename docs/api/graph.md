@@ -133,8 +133,13 @@ and sign-fixed (each eigenvector's largest-magnitude entry is positive). The
 method follows the graph's type: closed-form Kronecker eigenpairs for a
 face-connected `GridGraph` (a `2000 x 2000` grid in seconds), dense `eigh`
 otherwise. Pass `method="lanczos"` (JAX, differentiable; needs a `key`) or
-`method="arpack"` (SciPy, CPU) for large sparse graphs. A disconnected graph
-has one zero eigenvalue per component: `n_components_graph` counts them.
+`method="arpack"` (SciPy, CPU) for large sparse graphs. `"lanczos"` checks
+the residual $\|L u - \lambda u\|$ of every pair it returns: an unconverged
+run is repeated with a larger Krylov space (`oversample` doubled up to
+`max_oversample`), and then raises a `RuntimeError` rather than return wrong
+eigenpairs (under `jit`: one run, checked by `equinox.error_if`). A
+disconnected graph has one zero eigenvalue per component:
+`n_components_graph` counts them.
 
 ```python
 lam, U = kl.laplacian_eigpairs(kl.grid_graph((2000, 2000)), 256)  # Kronecker
