@@ -81,7 +81,7 @@ From the [examples gallery](roadmap-examples.md):
 | gaussx#354 | Closed by G13 |
 | gaussx#371 | Folded into G14 (build-once preconditioners) |
 | gaussx#345 | G13 and G14 must not reintroduce it: the preconditioner is built from `K` and takes the noise shift `σ²` explicitly, so the noise is never counted twice |
-| gaussx#312 | Not fixed here, but it blocks P4 (hyperparameter gradients through preconditioned CG). It belongs to epic #283 |
+| gaussx#312 | Not fixed here; it blocked P4 (hyperparameter gradients through preconditioned CG). Fixed in gaussx 0.6.1 (gaussx#513, under epic #283), so P4 is no longer blocked by it |
 | gaussx#413 | G12 documents which end of the spectrum each method targets: randomized methods target the **top** |
 | kernellib#34 (closed) | Leverage-score landmarks already exist; K8 generalises them into `select_landmarks` |
 | kernellib#91 | Not absorbed. The small end of a graph Laplacian's spectrum is LOBPCG / Lanczos territory; randomized range finders target the top |

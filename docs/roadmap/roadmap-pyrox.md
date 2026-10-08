@@ -26,7 +26,7 @@ which pins kernellib v0.0.5 and `gaussx>=0.2.0`.
 | P1 | pyrox-gp | `latent_init` (replaces the missing `pca_init`) | manifold | kernellib pin ≥ v0.0.8 |
 | P2 | pyrox-gp | Graph Matérn `LaplacianInducingFeatures` | manifold, INLA | K3, K4 |
 | P3 | pyrox-gp | `init_inducing` | RandNLA | K8 |
-| P4 | pyrox-gp | Large-`n` exact-GP recipe (preconditioned CG + SLQ) | RandNLA | G13, and gaussx#312 fixed |
+| P4 | pyrox-gp | Large-`n` exact-GP recipe (preconditioned CG + SLQ) | RandNLA | G13, and gaussx#312 fixed (done: gaussx#513, v0.6.1) |
 | P5 | pyrox-gp | LogFalkon centres (pyrox#50) | RandNLA | K8 |
 | P6 | pyrox-lgm | Scaffold `packages/pyrox-lgm` | INLA | — |
 | P7 | pyrox-lgm | Components with a NumPyro face (including the spatial priors), PC priors | INLA, manifold | G6, G7, K6 |
@@ -40,7 +40,8 @@ which pins kernellib v0.0.5 and `gaussx>=0.2.0`.
    phantom function from the design docs.
 2. **P2, P3, P5** as their kernellib phases are tagged.
 3. **P7 → P8 → P9** follow gaussx's Part A.
-4. **P4 waits on gaussx#312.**
+4. **P4 waits on gaussx#312.** It was fixed by gaussx#513, released in
+   gaussx v0.6.1.
 5. **P10** is updated alongside each phase.
 
 ---
@@ -114,6 +115,22 @@ which pins kernellib v0.0.5 and `gaussx>=0.2.0`.
 ## 2. pyrox-gp
 
 ### 2.1 P1: `latent_init`
+
+:::{note} As built (pyrox-gp 0.1.8, pyrox#276)
+The signature below shipped unchanged, with these differences:
+
+- **Pin.** The workspace already pinned kernellib v0.0.15 (pyrox#259),
+  later than the v0.0.8 this phase needs, so no bump was made.
+- **Signs and centring.** Each column's sign is fixed so that its
+  largest-magnitude entry is positive. `standardize=True` also centres each
+  column, so the columns have zero mean and unit variance.
+- **Wiring.** No `init_latents` argument was added. The init-strategy
+  helper exists only in a docstring example, which now starts `Z_T` with
+  `init_to_value(values={"Z_T": latent_init(Y, Q).T})`.
+- **Tests** are in `tests/gp/test_latent_init.py`. The slow ELBO test runs
+  2000 steps: at 600 the sampled start was not reproducible.
+- pyrox-gp 0.1.8's CHANGELOG omits this PR, but the tag contains it.
+:::
 
 **The maths.** **Probabilistic PCA**, $y = Wx+\varepsilon$ with
 $x\sim\mathcal N(0,I_Q)$, has the maximum-likelihood solution
@@ -202,6 +219,22 @@ a design note first; don't build it before GPLVM (Gap 7) exists.
 
 ### 2.2 P2: graph Matérn inducing features
 
+:::{note} As built (pyrox-gp 0.1.8, pyrox#282)
+Shipped as planned, released as a `fix:`, with these differences:
+
+- **`n_nodes` is a property** (`eigvecs.shape[0]`), not a static field.
+  It always equals `V`, and a property keeps the existing
+  `LaplacianInducingFeatures(eigvals=, eigvecs=)` construction working.
+- **Tests** are in `tests/gp/test_graph_inducing.py`, not
+  `tests/basis/test_laplacian.py`. The cross-library test checks Matérn
+  against `kl.matern_graph_kernel` (ν ∈ {½, 3/2, 5/2}) and RBF against the
+  normalised `kl.diffusion_kernel`. It is unmarked rather than
+  `integration`: pyrox registers no such marker, and the test runs in under
+  a second.
+- Eigenpairs now come from `kl.laplacian_eigpairs`, so the class no longer
+  uses geonnax's `graph_laplacian_eigpairs` internally (§4).
+:::
+
 **The maths.** **Inter-domain features on a graph.** For
 $f\sim\mathcal{GP}\big(0,\ U\Phi(\Lambda)U^\top\big)$ on the nodes, take
 the projections onto Laplacian eigenvectors, $u_k = \phi_k^\top f$. Then
@@ -283,6 +316,21 @@ prior = px.SparseGPPrior(px.Matern(nu=1.5, lengthscale=2.0), inducing=feats)
 
 
 ### 2.3 P3: `init_inducing`
+
+:::{note} As built (pyrox-gp 0.1.8, pyrox#280)
+The signature below shipped unchanged, with these differences:
+
+- **Kernels.** A pyrox kernel is frozen at its current hyperparameters. A
+  plain kernellib kernel has no priors and passes through unchanged.
+- **The slow test** compares the collapsed (Titsias) bound, not the SVGP
+  ELBO after a fixed number of steps. On clustered data with fixed keys,
+  `"rpcholesky"` reaches a bound at least as high as `"uniform"`.
+- **Docs.** The note went into a new "Inducing-point initialisation"
+  section of `docs/api/gp.md` and into
+  `design_docs/pyrox/features/gp/inducing_features.md`, not the sparse-GP
+  page. Switching the SVGP examples from `X[:M]` to `init_inducing` was not
+  done in #280, which touched no example or notebook.
+:::
 
 **The maths.** Choosing inducing inputs $Z$ from $X$ by **greedy conditional variance**
 is pivoted Cholesky on $K_{ff}$. Burt, Rasmussen & van der Wilk (2019,
@@ -367,42 +415,77 @@ Everything is matvec-bound, at $O(n^2)$ per matvec with an implicit
 kernel operator and $O(n)$ memory.
 
 This is a documented recipe plus a small constructor helper, not a new
-model:
+model.
+
+:::{note} As built (pyrox-gp 0.1.8, pyrox#278; the matrix-free path is pyrox#277)
+The code below is the shipped signature. P4 shipped in part:
+
+- **A required `shift`.** The plan assumed the exact-GP model passes
+  `K + σ²I` as a sum. In fact `GPPrior._noisy_operator` assembles one dense
+  matrix with the noise on its diagonal, so the strategy cannot separate
+  them. `shift` is a user-given lower bound on σ². The preconditioner is
+  rebuilt at every solve from `A − shift·I`, so the noise is not counted
+  twice (gaussx#345).
+- **It returns a `gx.CGSolver`.** `"nystrom"` wraps
+  `gx.NystromPreconditioner.from_operator`, and `"rpcholesky"` is
+  `gx.PartialCholeskyPreconditioner(pivoting="random")`.
+- **The blocker is gone.** gaussx#312 was fixed by gaussx#513, released in
+  gaussx v0.6.1, which pyrox pins.
+- **Tests.** pyrox#278 checks a Matérn-3/2 exact GP at `n = 600` against
+  `DenseSolver`, with both preconditioners: gradients agree within 2 %, and
+  the value within 3 nats (SLQ with 20 probes). The `n = 20 000` and
+  CG-budget tests below need `K` never to be formed, so they moved to
+  pyrox#277.
+- **Still open (pyrox#277):** a matrix-free `GPPrior` path that builds the
+  system as `K_op + (jitter + σ²)·I` from kernellib's implicit kernel
+  operator, and takes σ² from that sum, which makes `shift` optional.
+- pyrox-gp 0.1.8's CHANGELOG omits this PR, but the tag contains it.
+:::
 
 ```python
 def preconditioned_cg_solver(
     *,
+    shift: float,  # lower bound on σ²; optional once pyrox#277 lands
     preconditioner: Literal["nystrom", "rpcholesky"] = "nystrom",
     rank: int = 200,
     logdet: Literal["slq", "nystrom"] = "slq",
     key: PRNGKeyArray,
-) -> gx.AbstractSolverStrategy:
+    rtol: float = 1e-6,
+    atol: float = 1e-6,
+    max_steps: int = 1000,
+    num_probes: int = 20,
+    lanczos_order: int = 30,
+) -> gx.AbstractSolverStrategy:  # a gx.CGSolver
     """A gaussx solver strategy for exact GPs at n ≈ 10⁵–10⁶."""
 ```
 
-- **The noise term.** The exact-GP model already builds `K + σ²I` as a
-  sum. The helper returns a strategy that builds the preconditioner from
-  `K` with `shift=σ²` (the #345 rule, [G13](roadmap-gaussx.md)).
+- **The noise term.** The plan was for the exact-GP model to build
+  `K + σ²I` as a sum, and for the helper to build the preconditioner from
+  `K` with `shift=σ²` (the #345 rule, [G13](roadmap-gaussx.md)). As built,
+  `shift` is a user bound until pyrox#277 (see the note above).
 - **`logdet="nystrom"`** uses gaussx's tier-2 `NystromLogdet` (Wenger et
   al., 2022) once it exists. Until then only `"slq"` is accepted.
-- **Blocker.** Hyperparameter learning needs gradients through the
-  preconditioned solve, which raises today (gaussx#312, under epic #283).
-  P4 does not start until #312 is closed. The preconditioner itself is
+- **Blocker (resolved).** Hyperparameter learning needs gradients through
+  the preconditioned solve, which raised until gaussx#312 (under epic #283)
+  was fixed by gaussx#513, in gaussx v0.6.1. The preconditioner itself is
   `stop_gradient`ed and needs no derivative.
-- **Tests (integration tier):**
+- **Tests (integration tier; moved to pyrox#277):**
   - on `n = 20 000` with a Matérn-3/2 kernel, the marginal likelihood and
     its gradient match the dense solver at `n = 3000` (a subset) to SLQ
     tolerance;
   - the CG iteration count stays below a fixed budget as `n` grows.
 - **Docs:** update `api/gp/moments.md` to point at this recipe in place
-  of its pivoted-Cholesky-only BBMM description.
+  of its pivoted-Cholesky-only BBMM description. Done in pyrox#278, which
+  also notes the dense-assembly limit there.
 
 
 **Example.**
 
 ```python
 # 10⁵ weather stations, Matérn-3/2 plus noise; hyperparameters by gradient ascent
-solver = px.preconditioned_cg_solver(preconditioner="nystrom", rank=500, key=key)
+solver = px.preconditioned_cg_solver(
+    shift=1e-2, preconditioner="nystrom", rank=500, key=key
+)
 prior = px.GPPrior(kernel=px.Matern(nu=1.5), X=stations_xyz, solver=solver)
 # inside the model: px.gp_factor("temp", prior, temp_obs, noise_var); fit with SVI, whose gradients use CG
 ```
@@ -413,6 +496,15 @@ LogFalkon's design (`features/gp/logfalkon.md`) chooses centres "uniformly
 or via leverage score". When it is built, it takes a `centers` argument
 with the same four methods and delegates to `kernellib.select_landmarks`.
 This is a line in that feature's spec, not separate work.
+
+:::{note} As built (pyrox#281)
+A spec change only, since LogFalkon itself is not built yet (pyrox#50).
+`design_docs/pyrox/features/gp/logfalkon.md` now specifies
+`centers: Literal["uniform", "rpcholesky", "greedy", "leverage"] = "rpcholesky"`
+in place of `center_selection`. It delegates to `kernellib.select_landmarks`
+on the frozen kernel, with the same semantics as `init_inducing`. There is
+no code and no test; `centers` is tested with LogFalkon.
+:::
 
 
 ---
@@ -834,6 +926,18 @@ $\gamma_3$. Each marginal becomes the skew-normal with those moments.
 
 ## 4. P10: repo-level changes
 
+:::{note} As built (partial, pyrox#256 open, as of 2026-10-08)
+- **Done:**
+  - the pins (below);
+  - P2 no longer calls geonnax's `graph_laplacian_eigpairs` (pyrox#282),
+    and only the `_basis` re-export and its test still use it;
+  - pyrox#50 has a comment moving its LogFalkon item to P5.
+- **Not done:**
+  - `boundaries.md` has no rows for pyrox-lgm, GMRFs or geonnax;
+  - `spde_fem.md` still says `status: draft`;
+  - pyrox#50's SPDE-FEM item is not retargeted to P7 and P8.
+:::
+
 - **`design_docs/pyrox/boundaries.md`:**
   - add rows: graph construction, Laplacians, graph spectra, GMRF
     structure → kernellib; sparse operators, GMRF distributions,
@@ -877,6 +981,11 @@ $\gamma_3$. Each marginal becomes the skew-normal with those moments.
     P2; the tag containing K8 for P3 and P5; gaussx with G13, after #312,
     for P4.
   - pyrox-lgm: gaussx with G6–G10, and kernellib with K6.
+  - As built (pyrox#259): both packages pin gaussx v0.6.1 and kernellib
+    v0.0.15 by git tag. That covers every item above: G13 and the #312
+    fix are in gaussx v0.6.1, and K3, K4, K6 and K8 are in kernellib
+    v0.0.15. The root `pyproject.toml` also overrides gaussx to v0.6.1
+    (see the P6 note).
 - No changes to `pyrox` (core) or `pyrox-nn`.
 
 ---
@@ -889,6 +998,6 @@ P1–P5's tests are listed with each section above. P6–P9:
 |---|---|---|
 | P6 | Scaffold `packages/pyrox-lgm` (pyproject, `__init__`, API test, import guard, docs stub) | Workspace `uv sync`; the import guard (no pyrox-gp import) |
 | P7 | Components, NumPyro face, PC priors | Each PC prior's calibration statement holds (`P(σ > U) = α` by quadrature); `PCBYM2Phi`'s SLQ spectrum agrees with dense at `n = 500`; `.sample()` under `handlers.seed` / `trace` has the right sites; NUTS on a 12 × 12 grid BYM2 Poisson has no divergences (integration) |
-| P8 | `LGM`, `inla()`, `INLAResult` | Golden R-INLA fixtures (generated offline, as in gaussx.md §6): RW2 Gaussian on a sine (exact), AR(1), Scotland BYM2 Poisson, SPDE Poisson on a small mesh, Bernoulli POD toy (rw2 + fixed effects). Latent means within 1e-3 relative; hyperparameter posterior medians within 5 %; log marginal likelihood within 0.1. Benchmark: POD toy under 5 s on CPU (#155's target) |
+| P8 | `LGM`, `inla()`, `INLAResult` | Golden R-INLA fixtures (generated offline, as in gaussx.md §6): RW2 Gaussian on a sine (exact), AR(1), Scotland BYM2 Poisson, SPDE Poisson on a small mesh, Bernoulli POD toy (rw2 + fixed effects). Latent means within 1e-3 relative; hyperparameter posterior medians within 5 %; log marginal likelihood within 0.1. Benchmark: POD toy under 5 s on CPU (#155's target). **As built (pyrox#275):** five fixtures from R-INLA 26.8.7. At fixed θ the fit matches R-INLA to 1e-6. The targets above are not met, so the test's tolerances are set from the measured gaps (for example AR(1) noise precision −66 % and POD τ −47 % in the median, and log marginal likelihood gaps of 0.27–0.80). All of the remaining gap is in the integration over θ, tracked in pyrox#274 |
 | P9 | Sugar, diagnostics, SLA, hybrid notebook | CPO equals brute-force leave-one-out on a tiny problem; SLA moves marginal skewness towards the full-Laplace reference. **Done:** CPO / PIT equal the exact leave-one-out at fixed θ (Gaussian) and match Poisson refits within 0.3 %; SLA means within 0.03 sd and skewness within 0.05 of full Laplace (pyrox#267, #269, #270) |
 | P10 | pyrox-gp doc retarget, `boundaries.md`, pyrox#50 | Docs build |

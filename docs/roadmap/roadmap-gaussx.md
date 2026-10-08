@@ -11,6 +11,11 @@ kernel-free and graph-free linear algebra, used by the three projects
 gaussx operators. gaussx never imports kernellib. The baseline is gaussx
 0.4.0.
 
+**Status (2026-10-08).** G1–G17 are all merged. G1–G14 shipped in gaussx
+0.5.0 and 0.6.0. G15–G17 are merged but unreleased (after v0.6.4;
+gaussx#511 is closed). Where the API changed during implementation, the
+sections below carry "As built" notes.
+
 | Phase | What | Projects | Needs |
 |---|---|---|---|
 | G1 | `SparseOperator` with a static `SparsityPattern` | manifold, INLA | — |
@@ -91,7 +96,7 @@ src/gaussx/
 │   ├── _svd.py                      # randomized_svd, randomized_eigh                     (G12)
 │   ├── _nystrom.py                  # randomized_nystrom                                  (G13)
 │   ├── _rpcholesky.py               # rp_cholesky                                         (G14)
-│   ├── _trace.py                    # hutchpp, xtrace                                     (G17)
+│   ├── _trace.py                    # hutchpp_trace (private; XTrace via matfree)         (G17)
 │   └── _interpolative.py            # column_id, cur                                      (G17)
 ├── _linalg/
 │   ├── _diag_inv.py                 # structural dispatch (G3, G4); method="xdiag" (G16)
@@ -101,7 +106,7 @@ src/gaussx/
 │   ├── _svd.py                      # method="randomized"                                 (G12)
 │   ├── _logdet.py                   # pseudo_logdet                                       (G5)
 │   ├── _root.py                     # guarded_pivoted_cholesky shares its loop with rp_cholesky (G14)
-│   └── _trace.py                    # method="hutchpp" | "xtrace"                         (G17)
+│   └── _trace.py                    # algorithm="hutchpp" | "xtrace"                      (G17)
 ├── _preconditioners/
 │   ├── _nystrom.py                  # REWRITTEN on randomized_nystrom                     (G13)
 │   └── _partial_cholesky.py         # pivoting="greedy" | "random"; from_operator         (G14)
@@ -420,6 +425,10 @@ def selected_inverse(op: BlockTriDiag) -> BlockTriDiag: ...  # the band of op⁻
     for an `H × W` grid, and it is exact.
   - A `pinv=True` flag zeroes the entries at `f = 0`, for intrinsic priors
     on grids. That is the exact BYM2 and ICAR scaling constant on a raster.
+  - **As built (gaussx#573, 0.6.4).** `method="auto"` also takes exact
+    paths for `DiagonalLinearOperator` (`1/d`), `BlockDiag` (per block),
+    `LowRankUpdate` (Woodbury, `O(N k²)`) and the scalar wrappers
+    `Mul` / `Div` / `Neg`. An explicit `method="cholesky"` stays dense.
 - **Shifted Kronecker products, `A ⊗ B + c·I`.** In the joint eigenbasis,
   `(A ⊗ B + cI)⁻¹ = (U_A ⊗ U_B)(Λ_A ⊗ Λ_B + c)⁻¹(U_A ⊗ U_B)ᵀ`, so
   `solve`, `logdet` and `diag_inv` are exact. gaussx's `SumOfKroneckers`
@@ -428,7 +437,10 @@ def selected_inverse(op: BlockTriDiag) -> BlockTriDiag: ...  # the band of op⁻
   (`SpectralFunction` from G7, `DiagonalisedOperator`, `KroneckerSum`) keep
   it, so a space-time `AR(1) ⊗ grid SPDE + cI` never forms the spatial
   factor. It is the preconditioner for masked space-time grids (the
-  [SST example](roadmap-examples.md#ex-sst)).
+  [SST example](roadmap-examples.md#ex-sst)). As built,
+  `DiagonalisedOperator` is renamed `DiagonalizedOperator` (gaussx#617;
+  merged, unreleased after v0.6.4). The old name stays as a deprecated
+  alias until 0.7.0.
 - **Fix #344** (`BlockTriDiag`'s `symmetric_tag`) in the same PR: every
   banded GMRF depends on it.
 
@@ -1591,6 +1603,16 @@ gh-237.
 build-once `from_operator(operator, rank, *, shift, pivoting, key)` from
 #371, with the same `shift` semantics as G13. So #345 cannot recur.
 
+**As built (gaussx#594, 0.6.4).** `from_operator` also takes
+`diagonal=None` and `column=None`. `column` maps `k ↦ K[:, k]` and
+replaces the operator's matvec with a unit vector (gaussx#544); with both
+given, the build never applies the operator. Without `diagonal`, a
+matrix-free operator's diagonal is a 20-probe Hutchinson estimate used
+only to choose pivots. Each pivot's value is read from its exact column,
+so `F Fᵀ` is still the column Nyström approximation on those pivots.
+Pass `diagonal=` to get the exact greedy pivots. `rp_cholesky`'s
+signature is unchanged.
+
 
 **Example.**
 
@@ -1629,10 +1651,11 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
     sampling_factor: float = eqx.field(static=True, default=4.0)  # d = ⌈γ n⌉
     nnz: int = eqx.field(static=True, default=8)
     damp: float = eqx.field(static=True, default=0.0)  # δ
-    atol: float = ...
-    btol: float = ...
-    maxiter: int = 100
+    atol: float | None = eqx.field(static=True, default=None)  # None: by dtype
+    btol: float | None = eqx.field(static=True, default=None)
+    max_steps: int = eqx.field(static=True, default=100)  # planned as maxiter
     seed: int = eqx.field(static=True, default=0)
+    throw: bool = eqx.field(static=True, default=True)
 
 
 def sketch_and_solve(
@@ -1640,17 +1663,35 @@ def sketch_and_solve(
 ) -> Float[Array, " n"]: ...
 ```
 
+**As built (gaussx#625; merged, unreleased after v0.6.4).** The fields
+are as above. `max_steps` replaces the planned `maxiter`: it has been the
+canonical option name since gaussx#598 (0.6.4), which deprecated
+`LSMRSolver(maxiter=)`. `atol` and `btol` default to `None`, which
+resolves by dtype (1e-6 in float64, 1e-3 in float32), as for
+`LSMRSolver`. The new `throw=True` raises when `damp == 0` and `A` is
+rank-deficient (`min|Rᵢᵢ| ≤ n·eps·max|Rᵢᵢ|`), where the triangular solve
+would otherwise return NaN; `sketch_and_solve` always raises in that case.
+`d = min(⌈γ n⌉, m)`, `sampling_factor < 1` raises, and a wide `A` is
+accepted only with `damp > 0`. `AutoSolver` never picks this strategy:
+it is opt-in.
+
 `solve(A, b)` works on the augmented system `Ã = [A; δI]`,
 `b̃ = [b; 0]`, which is the plain system when `δ = 0`:
 
 1. Sample `S` (`d × m`) and form `SA` (`d × n`) with `sketch_operator`.
+   As built (gaussx#625), a private batched sketch forms `SA` instead. It
+   maps `Aᵀ(Sᵀeᵢ)` over the rows of `S` in batches of 32 (`lax.map`), so
+   it never forms the `(m, d)` block `Sᵀ` that `sketch_operator` would
+   (4.8 GB in float32 at `m = 10⁶`, `d = 1200`).
 2. QR of `[SA; δI] = QR`, so the preconditioner is `M = R⁻¹`, applied by
    a triangular solve.
 3. Warm start: `x₀ = R⁻¹ Q_{1:d}ᵀ (S b)`. This is sketch-and-solve, for
    free.
 4. Solve `min ‖Ã M y − (b̃ − Ã x₀)‖` with **undamped** `LSMRSolver`
    (lineax's path, with its implicit differentiation) on the composed
-   operator `Ã ∘ M`. Then `x = x₀ + M y`.
+   operator `Ã ∘ M`. Then `x = x₀ + M y`. As built, this calls
+   `lineax.LSMR` directly, which is the same call `LSMRSolver`'s undamped
+   path makes, so that the iteration count is visible to the tests.
 
 - **Convergence.** A subspace embedding with distortion `ε` gives
   `κ(ÃM) ≤ (1+ε)/(1−ε)`, so iteration counts do not depend on `m`
@@ -1658,7 +1699,10 @@ def sketch_and_solve(
   operator composition, so no LSQR is needed.
 - **`logdet`** is not meaningful for a rectangular least-squares strategy.
   It delegates to `LSMRSolver`'s SLQ path for protocol completeness, and
-  the docstring says to use a square-system strategy instead.
+  the docstring says to use a square-system strategy instead. As built,
+  because of gaussx#597 (0.6.4), a non-square operator raises
+  `ValueError` and an operator not tagged symmetric draws a deprecation
+  warning.
 - **Scope.** The QR of the `d × n` sketch is dense, `O(d n²)`, so this
   targets `n ≲ 10⁴`. For larger `n`, solve the normal equations
   `(AᵀA + δ²I)x = Aᵀb` with `PreconditionedCGSolver` and G13's
@@ -1706,6 +1750,27 @@ It is Part A's marginal-variance fallback for precision matrices too large
 to factor (§3). It is also how `generalized_variance_scale` (G7) scales
 to such graphs.
 
+**As built (gaussx#628; merged, unreleased after v0.6.4).** The signature
+is `diag_inv(operator, *, method="auto", num_probes=30, key=None,
+solver=None, pinv=False)`, so the example below runs as written.
+
+- **Where the low-rank part comes from.** It is not G12's
+  `range_finder`. The method wraps matfree's
+  `stochtrace.leave_one_out_xdiag`, which is the published algorithm,
+  and the matfree floor rose to `>=0.6.2`.
+- **Solvers.** `A⁻¹` is applied through `lax.custom_linear_solve`, so every
+  solve strategy works. That includes non-lineax loops such as
+  `BBMMSolver`.
+- **Probes.** The probes are random signs. They are Gaussian on small
+  `N`, where `k` sign vectors could be linearly dependent. The estimate
+  costs `2k` solves for `num_probes=k`, and is exact once `2k ≥ N`.
+- **`method="auto"` is unchanged.** It is still Cholesky for `N ≤ 2048`
+  and Hutchinson above, so XDiag is opt-in.
+- **`generalized_variance_scale` gained no parameter.** The large-graph
+  route is documented in its docstring:
+  `Σᵢᵢ = diag_inv(R + VVᵀ, method="xdiag", solver=CG) − Σⱼ Vᵢⱼ²`, for
+  an orthonormal null space `V`.
+
 **Example.**
 
 ```python
@@ -1738,6 +1803,40 @@ near-identity operator, so its variance is small.
 | `trace(op, method="hutchpp" \| "xtrace")` | Low-rank deflation plus Hutchinson on the remainder: `O(1/ε)` matvecs against Hutchinson's `O(1/ε²)` | Meyer, Musco, Musco & Woodruff (2021); Epperly, Tropp & Webber (2024) |
 | `NystromLogdet` | `log|A + μI| = log|P| + log|P^{-½}(A+μI)P^{-½}|`: the first term exact from G13's factors, the second by SLQ on a near-identity operator, so SLQ's variance collapses. **Covariance form only** (P4's exact-GP recipe), not for GMRF precision matrices | Wenger et al. (2022) |
 | `column_id(op, rank, key)`, `cur(op, rank, key)` | Interpolative and CUR decompositions from a sketch plus pivoted QR, returning actual column and row indices | Voronin & Martinsson (2017) |
+
+**As built (gaussx#629, #631, #632; merged, unreleased after v0.6.4).**
+All three items landed, which closed gaussx#486 and the epic gaussx#511.
+
+- **Hutch++ / XTrace** (gaussx#629). These are spelled
+  `trace(op, stochastic=True, algorithm="hutchpp" | "xtrace")`, not
+  `method=`, because `trace` already chose its estimator with
+  `algorithm=`. For Hutch++, `num_probes` is the total matvec count
+  (at least 3). For XTrace it counts probes, at two matvecs each.
+  - XTrace was already wired to matfree's
+    `stochtrace.leave_one_out_xtrace`.
+  - Hutch++ is the private `hutchpp_trace` in `_randomized/_trace.py`.
+    It is reachable only through `trace`.
+- **`NystromLogdet`** (gaussx#631). Its signature is
+  `NystromLogdet(shift, rank=50, oversample=0, num_probes=10,
+  lanczos_order=30, seed=0, sampler="signs")`.
+  - `logdet` takes the full system `A + μI` and an explicit `shift = μ`,
+    following G13's explicit-shift convention.
+  - `shift` is a PyTree leaf, so a learned noise variance traces and
+    differentiates.
+  - It sketches `(A + μI) − μI + cI` matrix-free, with
+    `c = 10·n·eps·μ`, and then removes `c` from the Nyström eigenvalues.
+    Under `jit`, the subtraction leaves rounding noise of about `eps·μ`.
+    Without `c`, that noise would make the Nyström Cholesky fail when
+    `A` is small next to `μ`.
+  - One key is split between the sketch and the probes. `key=None`
+    means `PRNGKey(seed)`.
+- **`column_id` / `cur`** (gaussx#632). The signatures mirror `qb`:
+  `column_id(op, rank, *, oversample=10, n_power_iter=2, key=None)` returns
+  `ColumnID(columns, interpolation)`, and `cur(...)` returns
+  `CUR(columns, rows, C, U, R)`, with `U = X R⁺`. Both return types are
+  exported NamedTuples. The ID runs a column-pivoted QR on `B = QᵀA`
+  from `qb`, not on an orthonormal basis, which keeps the HMT §5.2 error
+  bound.
 
 ---
 
@@ -1817,6 +1916,15 @@ R-INLA posterior summaries are generated **offline** by an R script under
   error must beat Hutchinson's at equal solve counts.
 - **Each G17 item** lands only with its first user, with its reference
   paper's headline experiment as the test.
+- **As built** (gaussx#628, #629, #631, #632; merged, unreleased after
+  v0.6.4).
+  - G16 is tested as planned: against Takahashi on a 12 × 12 grid, and
+    with under half of Hutchinson's error at equal solve counts.
+  - The three G17 items landed together, without waiting for a first
+    user. Each is tested on its paper's headline experiment: Meyer et
+    al. (2021) for Hutch++; Wenger et al. (2022) for `NystromLogdet`,
+    with about 5000× lower spread than `SLQLogdet`; Voronin & Martinsson
+    (2017) and the HMT §5.2 bounds for ID and CUR.
 
 **Release cadence.** Release after G1 (kernellib K2 waits on it), after G2
 (K5, M1), after G11 (K7), after G12 (K10, X1), after G13 and G14 (K8, K9),
@@ -1848,6 +1956,6 @@ and after G6 and G7 (P7).
 | `pure_callback` with CHOLMOD breaks under some transformations | Only the numeric factorisation crosses the callback; everything differentiated (Takahashi, the VJPs) is JAX, so `grad` is unaffected. `vmap` is sequential and documented |
 | Implicit differentiation through a non-converged mode gives wrong gradients | `converged` is returned; the pyrox driver refuses θ-points whose inner Newton did not converge, and re-runs them with more iterations |
 | The Nyström preconditioner's `shift` requirement ripples through `PreconditionedCGSolver` and pyrox-gp | Land G13 together with the #345 wiring fix; pyrox-gp does not construct preconditioners today, so there are no downstream breaks yet |
-| Gradients through preconditioned CG (#312) | Out of scope. Preconditioners are built outside the solve and `stop_gradient`ed (they do not need derivatives), which keeps them compatible with whatever #312 settles on |
+| Gradients through preconditioned CG (#312) | Out of scope. Preconditioners are built outside the solve and `stop_gradient`ed (they do not need derivatives), which keeps them compatible with whatever #312 settles on. As built, #312 is fixed: CG solves differentiate through data-dependent preconditioners (gaussx#513, 0.6.1) |
 | One-column RPCholesky loops are slow on GPU | The blocked variant (`block_size > 1`) as a follow-up |
 | SRHT padding to a power of two wastes up to 2× memory | Documented; SparseSign stays the default |

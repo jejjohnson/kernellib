@@ -388,7 +388,9 @@ oa, aa, kappa = (
 
 ### M1: manifold alignment
 
-- Needs kernellib K2 and K5, and gaussx G2.
+- Needs kernellib K2 and K5, and gaussx G2. All three are released
+  (K5 in kernellib v0.0.16, G2 in gaussx v0.5.0), so pin kernellib
+  ≥ v0.0.16. Only M0 still blocks M1.
 - §4, plus a scikit-learn adapter. The adapter's `fit(X, y)` takes lists
   of per-domain arrays and exposes `transform(X, domain=)`.
 - Multi-domain input cannot satisfy `check_estimator`, so the adapter is

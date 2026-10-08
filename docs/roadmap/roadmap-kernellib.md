@@ -43,11 +43,14 @@ The baseline is kernellib 0.0.11.
 | K14 | `KernelPCA` extensions: `center_cross_kernel`, supervised / fair KPCA (`target_weight`), `inverse_transform` (learned pre-image) | fairkl, manifold | — |
 | K15 | Proximity graphs for low-dimensional points: `delaunay_graph`, `gabriel_graph`, `relative_neighborhood_graph` (from the city2graph review) | manifold, INLA | K2, K6 |
 
-:::{note} Built (as of 2026-10-05)
-K1–K10 and K12–K15 have shipped: K1 and K12–K14 in v0.0.12, K2 and
-K7–K10 in v0.0.14, K3, K4 and K6 in v0.0.15, and K5 and K15 in v0.0.16.
-K11 (docs) is in progress. Each section's **As implemented** notes record
-where the shipped API differs from the plan. The live status is the
+:::{note} Built (as of 2026-10-08)
+Every phase has shipped: K1 and K12–K14 in v0.0.12, K2 and K7–K10 in
+v0.0.14, K3, K4 and K6 in v0.0.15, K5 and K15 in v0.0.16, and K11 (docs)
+in v0.0.17. v0.0.17 also carries follow-ups that changed APIs: signed
+cotangent weights (`on_negative`), closed-form Kronecker eigenpairs,
+checked Lanczos and LOBPCG eigenmaps, KRR iteration statistics and
+centred pre-images. Each section's **As implemented** notes record where
+the shipped API differs from the plan. The live status is the
 [tracker](https://github.com/jejjohnson/kernellib/issues/125), and the
 [implementation plan](roadmap-implementation.md) lists the releases.
 :::
@@ -144,8 +147,8 @@ src/kernellib/
 │   │                          #      MOVED adjacency_matrix
 │   ├── _proximity.py          # NEW  delaunay_graph, gabriel_graph, relative_neighborhood_graph (K15)
 │   ├── _weights.py            # NEW  heat, connectivity, cosine, local scaling, any kernel  (K2)
-│   ├── _laplacian.py          # MOVED graph_laplacian; NEW laplacian_operator (K2),
-│   │                          #      graph_null_space, structure_matrix (K6)
+│   ├── _laplacian.py          # MOVED graph_laplacian (laplacian_operator is a method, _types.py)
+│   ├── _structure.py          # NEW  graph_null_space, structure_matrix                    (K6)
 │   ├── _eigpairs.py           # NEW  laplacian_eigpairs, n_components_graph; ARPACK moves here (K3)
 │   └── _kernels.py            # MOVED the five graph kernels; NEW matern_graph_kernel       (K4)
 ├── _spectral/
@@ -158,7 +161,7 @@ src/kernellib/
 └── _decomposition/
     ├── _kpca.py               # eigen_solver="randomized" (K10); target_weight, inverse_transform (K14)
     ├── _eigenmaps.py          # LE, SE, potentials; graph inputs; combine_potentials,
-    │                          # spatial_spectral_graph                                      (K5)
+    │                          # spatial_spectral_graph (K5); eigen_solver="lobpcg"      (#91)
     ├── _projections.py        # MOVED LocalityPreservingProjections (K1); NEW SchrodingerEigenmapProjections (K5)
     └── _kernel_projections.py # NEW  KernelLocalityPreservingProjections, KernelSchrodingerProjections (K5)
 ```
@@ -280,6 +283,24 @@ Notes:
   are shared, concrete methods. `GridGraph(shape, *, connectivity,
   periodic, axis_weights)` is directly constructible; `grid_graph(...,
   spacing=)` (PR 2) is the builder.
+- **As implemented (signed weights, v0.0.17, #157).** Weights are
+  non-negative except on a `mesh_graph(weighting="cotangent",
+  on_negative="allow")` (§5), whose signed weights make the unnormalised
+  Laplacian exactly the FEM stiffness $G$: PSD, but not $B^\top B$. Such a
+  graph supports `degree`, `to_bcoo` / `to_dense`, `dirichlet_energy`, the
+  unnormalised `laplacian_operator` and `structure_matrix`. These raise a
+  `ValueError` on it (an `equinox.error_if` under `jit`):
+  - `incidence_operator`, which needs $\sqrt{w_e}$;
+  - the `"symmetric"` and `"random_walk"` Laplacians, and what goes through
+    them: `laplacian_eigpairs(normalization="symmetric")` with any method
+    (ARPACK checks explicitly), `laplacian_eigenmap` under the degree
+    constraint with `"dense"`, `"lanczos"` or `"arpack"`, and
+    `laplacian_penalty(normalization="symmetric")`;
+  - the graph kernels with a normalised Laplacian (§4.4).
+
+  The eigenmaps' other degree-constraint paths (`schrodinger_eigenmap` with
+  any method, and `laplacian_eigenmap(method="lobpcg")`) do not check the
+  sign yet ([kernellib#180](https://github.com/jejjohnson/kernellib/issues/180)).
 - **Node order is row-major (C order)**, matching
   `rearrange("h w c -> (h w) c", image)`. The old MATLAB and Python code
   used column-major order. Say so in the docstring.
@@ -457,6 +478,10 @@ index `-1` and distance `inf`.
   `random_state`, like `knn_graph`.
 - `adjacency_matrix` keeps working under `jit`. With traced neighbour
   indices it builds the same matrix densely, as it did before.
+- `nearest_neighbors` returns distances in `X`'s floating dtype (the
+  default float dtype for an integer `X`) on every backend: pynndescent
+  computes in float32 and scikit-learn in float64, and both are cast back
+  (v0.0.17, #170), so an x64 graph stays float64.
 
 **Example.**
 
@@ -476,7 +501,10 @@ stations = kl.radius_graph(
 
 **The maths.** **Path Laplacians have closed-form eigenpairs: the DCT-II.**
 $\lambda_k = 2-2\cos(\pi k/n)$ and $u_k(j) = \cos\!\big(\pi k(j+\tfrac12)/n\big)$,
-for $k = 0,\dots,n-1$.
+for $k = 0,\dots,n-1$. A cycle (a periodic axis) has
+$\lambda_k = 2-2\cos(2\pi k/n)$, with real Fourier eigenvectors
+$\cos(2\pi kj/n)$ and $\sin(2\pi kj/n)$; every eigenvalue but $k = 0$ (and
+$k = n/2$) appears twice.
 
 **Kronecker sums add eigenvalues.** Since
 $(A\oplus B)(u\otimes v) = (\lambda+\mu)(u\otimes v)$, a grid's eigenpairs
@@ -503,8 +531,8 @@ def laplacian_eigpairs(
 | `method` | How | Traced / differentiable | When |
 |---|---|---|---|
 | `"dense"` | `jnp.linalg.eigh` of the dense Laplacian | yes | Small graphs; the default for `Graph` and arrays |
-| `"kronecker"` | `gaussx.eig` of each 1-D factor, then all `∏ n_k` eigenvalue sums, `argsort`, the `n` smallest; eigenvectors as outer products of factor columns (`einx.multiply("h, w -> (h w)")`) | yes | The default for a `GridGraph` with `connectivity="face"` and `"unnormalized"`; an error for anything else |
-| `"lanczos"` | `gaussx.eig(c·I − L, rank=n + oversample, key=key)`, with `c` a Gershgorin bound (`2·max(degree)`, or `2` for `"symmetric"`), then `λ = c − μ` | yes | Large sparse graphs in JAX |
+| `"kronecker"` | Closed-form eigenpairs of each 1-D factor (path: DCT-II; cycle: real Fourier modes), times its axis weight; all `∏ n_k` eigenvalue sums, `argsort`, the `n` smallest; eigenvectors as outer products of the selected factor columns (`einx.multiply("h, w -> (h w)")`) | yes | The default for a `GridGraph` with `connectivity="face"` and `"unnormalized"`; an error for anything else |
+| `"lanczos"` | `gaussx.eig(c·I − L, rank=n + oversample, key=key)`, with `c` a Gershgorin bound (`max_i(d_i + Σ_j \|W_ij\|)`, which is `2·max(degree)` for non-negative weights, or `2` for `"symmetric"`), then `λ = c − μ` | yes | Large sparse graphs in JAX |
 | `"arpack"` | The current `_smallest_sparse`, moved here unchanged | no (SciPy, CPU) | Large graphs where Lanczos converges badly |
 
 - The default is picked by **type**, not by size, in line with
@@ -548,6 +576,24 @@ lam, U = kl.laplacian_eigpairs(
   `O(N + E)`, instead of label propagation, which needs `O(\text{diameter}
   \cdot E)`: thousands of sweeps on a large grid. A lattice is always
   connected.
+- **Kronecker eigenpairs are closed-form (v0.0.17, #156).** `"kronecker"`
+  runs no eigensolver. Each axis contributes $4\sin^2(\pi k/2n)$ with
+  DCT-II vectors (path), or $4\sin^2(\pi m/n)$, $m = \min(k, n-k)$, with
+  cosine modes for $k \le n/2$ and sine modes above (cycle), times its axis
+  weight. The sine form has no cancellation at small $k$. Only the `n`
+  selected columns of each factor are built, and their phases are reduced
+  modulo the period in integer arithmetic, so float32 keeps full relative
+  precision at the bottom of the spectrum for any axis length, and the two
+  members of a cycle pair are bitwise equal. The cost is a sort of the $N$
+  sums plus $O(Nn)$ for the eigenvectors.
+- **`laplacian_eigpairs(method="lanczos")` is not residual-checked.** It is
+  one Krylov run of dimension `n + oversample`; the check and the growing
+  restarts are in the eigenmaps (§4.8, #159), which call it. A direct
+  caller, such as pyrox-gp's `LaplacianInducingFeatures`, should check
+  $\|Lu - \lambda u\|$ itself or use `"arpack"`
+  ([kernellib#181](https://github.com/jejjohnson/kernellib/issues/181)).
+  There is no `method="lobpcg"` here: LOBPCG is an eigenmap solver only
+  (§4.8).
 
 ### 4.4 Spectral graph kernels
 
@@ -628,6 +674,9 @@ f = einx.dot("n m, m -> n", U, jnp.sqrt(phi) * jax.random.normal(key, (200,)))
 - Both spectra are evaluated in log space and normalised with log-sum-exp.
   $(2\nu/\ell^2 + \lambda)^{-\nu}$ underflows to zero in float64 for
   $\nu \gtrsim 100$, which would make the normalised spectrum `nan`.
+- A signed `mesh_graph(..., on_negative="allow")` needs
+  `normalization="unnormalized"`; the default `"symmetric"` raises
+  (v0.0.17).
 
 ### 4.5 Eigenmaps (`_decomposition/_eigenmaps.py`)
 
@@ -659,10 +708,10 @@ makes $\alpha$ unit-free.
     `laplacian_eigpairs(normalization="symmetric")`, and every method in
     §4.3 becomes available to the eigenmaps.
   - For Schrödinger, the operator is `D^{-1/2}(L + αV)D^{-1/2}`, built as
-    a lineax composition. Only the `"dense"`, `"lanczos"` and `"arpack"`
-    methods apply.
-  - The estimators' `eigen_solver` field widens to the §4.3 methods.
-    `"dense"` and `"arpack"` keep their current meaning.
+    a lineax composition. Only the `"dense"`, `"lanczos"`, `"arpack"` and
+    (since v0.0.17) `"lobpcg"` methods apply.
+  - The estimators' `eigen_solver` field widens to the §4.3 methods, plus
+    `"lobpcg"` (§4.8). `"dense"` and `"arpack"` keep their current meaning.
 - **Several potentials.** Add
 
   ```python
@@ -799,12 +848,14 @@ Both pass `check_estimator` (integration tier).
   with `method=None` or `"dense"` keeps the old code path. The estimators
   keep `eigen_solver`. `"kronecker"` needs `constraint="identity"`
   (`L_sym` of a grid is not a Kronecker sum) and is refused by
-  Schrödinger.
+  Schrödinger. Both functions also take `max_iter=` (LOBPCG's cap), and
+  the estimators a static `max_iter` field and a fitted `n_iter`
+  (v0.0.17).
 - **How estimators take a graph.** `fit(X, ..., graph=g)` on
   `LaplacianEigenmaps`, `SchrodingerEigenmaps`, LPP, SEP and both kernel
   projections. `g` is an `AbstractGraph` or an adjacency matrix and
-  replaces the k-NN graph of `X`. Without `graph=`, `"lanczos"` turns the
-  k-NN graph into a `Graph` (`graph_from_neighbors`, weighted like
+  replaces the k-NN graph of `X`. Without `graph=`, `"lanczos"`,
+  `"kronecker"` and `"lobpcg"` turn the k-NN graph into a `Graph` (`graph_from_neighbors`, weighted like
   `adjacency_matrix`).
 - **Potentials can be lineax operators**, e.g.
   `spatial_spectral_graph(...).laplacian_operator()`. The trace comes from
@@ -813,8 +864,9 @@ Both pass `check_estimator` (integration tier).
   matrix if every term is an array, and an operator otherwise.
 - **Schrödinger `"lanczos"` uses no spectral shift.** Krylov spaces are
   shift-invariant, so the smallest Ritz pairs of
-  $D^{-1/2}(L+\alpha V)D^{-1/2}$ come straight from `gaussx.eig`, with
-  the same 200 oversampling. A Gershgorin bound on $\alpha V$ is not
+  $D^{-1/2}(L+\alpha V)D^{-1/2}$ come straight from `gaussx.eig`,
+  starting from the same 200 oversampling and grown until the pairs pass
+  the residual check (below). A Gershgorin bound on $\alpha V$ is not
   available for a general operator.
 - **`spatial_spectral_graph(bandwidth=None)`** uses the median spectral
   distance over the edges, as `spatial_spectral_potential` does.
@@ -845,6 +897,44 @@ Both pass `check_estimator` (integration tier).
   equals the old inline solve to rounding (a regression test). SEP adds
   $\alpha\bar X^\top V\bar X$ as a separate term, so `alpha=0` gives LPP
   bit for bit.
+
+**As implemented (after K5: checked Lanczos and LOBPCG, v0.0.17).**
+
+- **Lanczos is checked (#159).** Both eigenmap `"lanczos"` paths test every
+  returned pair: $\|Au_i - \lambda_i u_i\| \le \sqrt\varepsilon\,\max(c, 1)$,
+  with $c$ the Gershgorin bound (2, or $2\max_i d_i$ under the identity
+  constraint) for Laplacian eigenmaps and the largest Ritz value for
+  Schrödinger eigenmaps. A failing run is repeated with the oversample
+  doubled (200 → 400 → 800 → 1600, or the full space), then a
+  `RuntimeError` names the solver as the caller chose it
+  (`laplacian_eigenmap(method='lanczos')` or
+  `SchrodingerEigenmaps(eigen_solver='lanczos')`) and suggests `"arpack"` or
+  `"dense"`. Under `jit` there is one run, checked by `equinox.error_if`.
+  The Laplacian bound does not yet allow for signed weights
+  ([kernellib#180](https://github.com/jejjohnson/kernellib/issues/180)).
+- **`eigen_solver="lobpcg"` (kernellib#91).** A fifth solver on both
+  functions (`method=`) and both estimators (`eigen_solver=`). The graph
+  stays a BCOO, and `jax.experimental.sparse.linalg.lobpcg_standard` runs
+  on $cI - S$, $S = s(L + \alpha V)s$, with $c = 2$ ($2\max_i d_i$ under
+  the identity constraint) plus $|\alpha|$ times the Gershgorin bound of
+  $sVs$: on the device, under `jit`, with no SciPy and no gradients.
+  - It needs x64 (float32 LOBPCG returns a wrong embedding, not an
+    imprecise one), a `key` (the estimators derive it from
+    `random_state`) and $5(n + \text{drop\_first}) < N$; otherwise a
+    `ValueError`.
+  - `max_iter=1000`. The iterations grow with $N$ and $c$: about 420 at
+    $N = 5000$ and 840 at $N = 20\,000$ on a 10-NN Swiss roll, several
+    thousand with a strong barrier potential, where `"arpack"` is better.
+    The pairs pass the Lanczos residual check or raise a `RuntimeError`
+    (raise `max_iter`).
+  - A potential must be an array, or a lineax sum / scaling of diagonal,
+    matrix and `gaussx.SparseOperator` terms. Any other operator (e.g. a
+    `GridGraph`'s `KroneckerSum` Laplacian) raises and suggests
+    `V.as_matrix()` or `"arpack"`.
+  - The scikit-learn adapters take `eigen_solver="dense" | "arpack" |
+    "lobpcg"` and `max_iter`; `"lobpcg"` falls back to `"dense"` when
+    `n_samples <= 5 (n_components + 1)`, as `SpectralEmbedding` does.
+  - LPP, SEP and the kernel projections are unchanged.
 
 ---
 
@@ -938,8 +1028,10 @@ prior = kl.structure_matrix(stations)  # an ICAR on irregular monitoring sites (
   $G$ is a graph Laplacian with cotangent weights, which is what
   `mesh_graph(weighting="cotangent")` builds. **But the weights can be
   negative.** $\cot\alpha+\cot\beta < 0$ exactly when
-  $\alpha+\beta > \pi$, which happens on non-Delaunay meshes (obtuse
-  triangles on both sides of an edge). $G$ is still PSD, but a negative
+  $\alpha+\beta > \pi$, which happens on non-Delaunay meshes. On a
+  boundary edge, with one opposite angle, it happens when that angle is
+  obtuse, which is common on the convex hull of a Delaunay mesh. $G$ is
+  still PSD, but a negative
   weight breaks `Graph`'s invariant $L = B^\top B$ with incidence entries
   $\sqrt{w_e}$.
 
@@ -961,6 +1053,7 @@ def mesh_graph(
     triangles,
     *,
     weighting: Literal["connectivity", "cotangent"] = "connectivity",
+    on_negative: Literal["raise", "clip", "allow"] = "raise",
 ) -> Graph: ...
 ```
 
@@ -972,11 +1065,19 @@ def mesh_graph(
   gaussx function (allowed: kernellib depends on gaussx).
 - **`mesh_graph`.** The edge graph of a triangulation. With
   `"cotangent"` weights its Laplacian equals the P1 FEM stiffness matrix
-  `G`. It raises if any edge weight is negative (the mesh is not
-  Delaunay), with a message pointing to `gaussx.fem_matrices`, which
-  represents the signed stiffness matrix directly as a `SparseOperator`
-  and never goes through `Graph`. It does not clamp, which would silently
-  change the operator. This gives:
+  `G` when no weight is negative. `on_negative` chooses what happens
+  otherwise (ignored for `"connectivity"`):
+  - `"raise"` (default): a `ValueError` that names the two cases
+    separately, interior edges (not Delaunay; it points to
+    `gaussx.fem_matrices`, which represents the signed stiffness matrix
+    directly as a `SparseOperator`) and boundary edges (an obtuse hull
+    angle). It never clamps silently, which would change the operator.
+  - `"clip"`: negative weights become 0. A valid graph, but no longer `G`.
+  - `"allow"`: keep the signed weights, so the Laplacian is exactly `G`;
+    only the unnormalised Laplacian and what is built on it accept them
+    (§4.1).
+
+  This gives:
   - a test tying `gaussx.fem_matrices` to kernellib's graph code;
   - Besag models on mesh nodes;
   - Laplacian / Schrödinger eigenmaps on surfaces (K5).
@@ -989,8 +1090,8 @@ counties = kl.graph_from_adjacency(queen_contiguity)  # e.g. from a shapefile
 R = kl.structure_matrix(counties, scaled=True)  # s·L, ready for BYM2
 N0 = kl.graph_null_space(counties)  # one column per island group
 mesh = kl.mesh_graph(
-    vertices, triangles, weighting="cotangent"
-)  # Laplacian == gx.fem_matrices(...)[1]
+    vertices, triangles, weighting="cotangent", on_negative="allow"
+)  # Laplacian == gx.fem_matrices(...)[1], even where weights are negative
 ```
 
 **As implemented (K6).**
@@ -1009,9 +1110,12 @@ mesh = kl.mesh_graph(
   not route through `gaussx.besag_structure`, which would wrap a
   `KroneckerSum` and lose its structure.
 - `mesh_graph`'s cotangent weights are differentiable in the vertices.
-  Weights within $10^{-10}$ of the largest magnitude are set to exactly 0
-  (right angles on both sides). That is rounding, not clamping; a real
-  negative weight still raises.
+  Weights within $10^3$ machine epsilons (of their dtype) of the largest
+  magnitude are set to exactly 0 (right angles on both sides), so float32
+  cancellation is not taken for a negative weight. That is rounding, not
+  clamping. Since v0.0.17 a real negative weight is handled by
+  `on_negative` (above): it raises by default, also under `jit`
+  (`equinox.error_if`).
 - The graph-Matérn ↔ SPDE test agrees to `rtol = 1e-8` on 32 × 32 with
   $\alpha = 2$, $\kappa = 0.5$.
 
@@ -1021,7 +1125,7 @@ mesh = kl.mesh_graph(
 |---|---|---|
 | K2 | `Graph.laplacian_operator()` | The Besag / ICAR structure matrix `R`, passed to `gaussx.besag_structure` and `gaussx.generalized_variance_scale` |
 | K2 | `GridGraph.laplacian_operator()` (a `KroneckerSum`) | The same operator gaussx's `spde_precision_grid` builds internally; a test oracle for it |
-| K2 | `Graph.incidence_operator()` | The precision factor `F` for the perturbation–optimisation sampler (a `precision_factors` entry) |
+| K2 | `Graph.incidence_operator()` | The precision factor `F` for the perturbation–optimisation sampler (a `precision_factors` entry); non-negative weights only, so a signed `mesh_graph` has no incidence factor |
 | K2 | `knn_graph`, `radius_graph`, `graph_from_adjacency` | Adjacency for areal models built from point data or shapefile contiguity |
 | K3 | `n_components_graph` | Rank deficiency of an ICAR |
 
@@ -1148,13 +1252,33 @@ falkon = kl.Falkon(kernel, n_inducing=2000, centers="rpcholesky").fit(X, y, key=
   exhausted (repeated points, say). `select_landmarks` always returns
   `n_landmarks` distinct indices, filling those slots with unused points:
   uniformly at random for `"rpcholesky"`, lowest index first for
-  `"greedy"`, which keeps greedy deterministic. It stays jittable.
+  `"greedy"`, which keeps greedy deterministic. It stays jittable, and its
+  core is itself compiled (`eqx.filter_jit`; `method`, `n_landmarks` and
+  the float options are static), so repeat calls with the same shapes
+  reuse one compilation (v0.0.17, #160).
 - `regularization=None` means `1e-3`, `NystromFeatures`' default.
 - `eigenpro_preconditioner` gains `subsample_indices=`, which `EigenPro`
   fills from `select_landmarks`. For `"uniform"` these are the same indices
   as before.
 - `"greedy"` does worse than `"uniform"` on clustered data (it chases
   isolated points), so only `"rpcholesky"` is recommended.
+- **Falkon with non-uniform centres.** Its preconditioner assumes uniform
+  centres ($K_{nm}^\top K_{nm} \approx \tfrac nm K_{mm}^2$) and is not
+  reweighted for `"leverage"`, `"rpcholesky"` or `"greedy"` (the selectors
+  do not expose their sampling probabilities). It stays SPD, so CG reaches
+  the same Nyström solution, possibly in more iterations: raise
+  `max_iter` and check `converged`.
+- **Falkon numerics (v0.0.17, #162).** `tol=None` (the new default)
+  resolves at `fit` to $\max(10^{-6}, \sqrt\varepsilon)$ for the solve's
+  dtype: `1e-6` in float64, about `3.5e-4` in float32, where the
+  preconditioned residual stagnates near $10^{-5}$–$10^{-4}$. The fitted
+  model stores the resolved value. A concrete `regularization <= 0`
+  raises, and `fit` warns when $\lambda < \varepsilon \max_i (K_{mm})_{ii}$.
+  The scikit-learn `FalkonRegressor` takes `tol=None` too.
+- **EigenPro visits every point (v0.0.17).** An epoch is `ceil(N / b)`
+  batches; the last, partial batch is padded to `b` rows with masked
+  residuals (fixed shapes for the `scan`), instead of dropping up to
+  `b - 1` points.
 
 ### 6.3 K9: preconditioned KRR
 
@@ -1173,6 +1297,11 @@ class KRR(AbstractEstimator):
     )
     preconditioner_rank: int = eqx.field(default=200, static=True)
     solver: gx.AbstractSolverStrategy | None = None  # None: choose automatically
+    # as built (v0.0.17): rtol = atol of the preconditioned CG, its budget, raising
+    tol: float = eqx.field(default=1e-6, static=True)
+    max_steps: int = eqx.field(default=1000, static=True)
+    throw: bool = eqx.field(default=True, static=True)
+    # fitted: n_iter, converged (per target column; None for a direct solve)
 ```
 
 - **Routing.** When `preconditioner != "none"`, `KRR` solves
@@ -1230,8 +1359,10 @@ krr = krr.fit(X, y, key=key)  # n = 10⁵, never materialises K
 
 - With a preconditioner, `fit` requires `key`, on every path, even one
   that would not use it.
-- The CG solve uses `rtol = atol = 1e-6` and at most 1000 steps,
-  matching the GMRES path's defaults.
+- The preconditioned CG stops at `rtol = atol = tol` (default `1e-6`) or
+  after `max_steps` (default 1000) iterations; both became fields in
+  v0.0.17 (#160). An explicit `solver` keeps its own tolerances, and the
+  matrix-free GMRES path uses `solver`'s, else `1e-6` and `10 n` steps.
 - The preconditioner applies to the plain path and to the Woodbury path
   (a low-rank penalty without a mask), whose solves are plain KRR solves.
   The masked or full-penalty GMRES path is non-symmetric and ignores the
@@ -1243,6 +1374,24 @@ krr = krr.fit(X, y, key=key)  # n = 10⁵, never materialises K
   several seconds each. Iteration counts depend on the spectrum, so the
   same regime ($\lambda = 10^{-6}$, Matérn-3/2, rank 200) is tested:
   75 vs 1013 steps (7.4 %).
+- **Iteration statistics (v0.0.17, #160).** Every iterative solve records
+  `n_iter` and `converged` per target column: preconditioned CG, an
+  explicit `gx.CGSolver` or `gx.PreconditionedCGSolver` (which `fit` now
+  runs through lineax CG), or the penalised GMRES. On the Woodbury path
+  `converged` also covers the `r` penalty-factor solves. With `throw=True`
+  (default) a solve that misses its tolerance raises; with `throw=False` it
+  returns the last iterate, sets `converged=False`, and `fit` warns.
+- **Float32 and small $\lambda$ (v0.0.17, #162).** Each CG solve also
+  checks its true residual,
+  $\|(K+\lambda nI)\alpha - y\| \le \max\big(10(\text{atol}\sqrt n +
+  \text{rtol}\|y\|),\ \sqrt\varepsilon\|y\|\big)$, at the cost of one
+  matvec, because the recursive CG residual drifts in float32. A failure
+  raises with `throw=True` (also under `jit`) and gives `converged=False`
+  otherwise. `fit` warns when $\lambda < \varepsilon\max_i K_{ii}$: the
+  ridge is then below the rounding of $\|K\|$, and no solver is reliable.
+- `kernellib.sklearn.KernelRidge` does not expose `tol`, `max_steps` or
+  `throw` yet
+  ([kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)).
 
 ### 6.4 K10: randomized kernel PCA
 
@@ -1317,7 +1466,8 @@ kpca = kpca.fit(X, key=key)  # n = 5·10⁴
 
 - **Graph eigenmaps** need the *smallest* Laplacian eigenpairs.
   Randomized range finders target the top, so eigenmaps stay on dense,
-  Lanczos, ARPACK and LOBPCG (kernellib#91).
+  Lanczos, ARPACK and LOBPCG (kernellib#91; LOBPCG shipped in v0.0.17 as
+  `eigen_solver="lobpcg"`, §4.8).
 - **Falkon's own preconditioner.** Its Cholesky pair on the centres is the
   published algorithm. Only the centre selection changes (K8).
 - **`nystrom_operator`.** It stays a column Nyström given landmarks, fed
@@ -1569,6 +1719,13 @@ def laplacian_penalty(
   have no closed form. They are the K12 recipe: `jax.grad` of the loss,
   not an estimator.
 
+**As implemented (K13, v0.0.17).** The matrix-free GMRES path records
+`n_iter` / `converged` and honours `throw`, like CG (§6.3). Its tolerances
+come from `solver` (`rtol`, `atol`, `max_steps`), else `1e-6` and `10 n`
+steps, not from `KRR.tol` / `max_steps`
+([kernellib#182](https://github.com/jejjohnson/kernellib/issues/182)). The
+true-residual check covers CG solves only.
+
 **Example.**
 
 ```python
@@ -1635,7 +1792,10 @@ a future matrix-free path.
 **Pre-images** (Bakir, Weston & Schölkopf, 2004). Learn the map back from
 embedding to input space by kernel ridge regression on the training
 pairs $(Z_i, x_i)$:
-$\hat x(z) = k_{\text{inv}}(z, Z)(K_{\text{inv}}+n\lambda I)^{-1}X$. This
+$\hat x(z) = \bar x + k_{\text{inv}}(z, Z)(K_{\text{inv}}+n\lambda I)^{-1}(X - \mathbf 1\bar x^\top)$,
+with $\bar x$ the training mean. The centring acts as an intercept: a
+`Linear` inverse kernel restores the mean, and far from the training
+embedding a stationary kernel falls back to $\bar x$, not 0 (v0.0.17). This
 is kernellib's own multi-output `KRR`, so any solver (and K9) applies.
 
 ```python
@@ -1646,15 +1806,16 @@ class KernelPCA(eqx.Module):
     fit_inverse_transform: bool = eqx.field(default=False, static=True)
     inverse_kernel: AbstractKernel | None = None  # default: RBF, median heuristic on Z
     inverse_regularization: float = 1e-3
-    inverse_model: KRR | None = None
+    inverse_model: KRR | None = None  # fitted on the centred inputs
+    inverse_mean: Float[Array, " D"] | None = None  # x̄, added back by inverse_transform
 
     def fit(self, X, *, target: Float[Array, "N P"] | None = None) -> "KernelPCA": ...
     def inverse_transform(self, Z: Float[Array, "M n"]) -> Float[Array, "M D"]: ...
 ```
 
 - `target_weight != 0` with `eigen_solver="randomized"` (K10) is out of
-  scope. For $\gamma < 0$ the operator can be indefinite, and randomized
-  Nyström needs PSD.
+  scope. For $\gamma < 0$ the operator can be indefinite, and a randomized
+  range finder captures the largest-magnitude eigenpairs, not the largest.
 - `_decomposition` importing `KRR` from `_regression` is a layer-2 to
   layer-2 import, which the layering rule allows.
 
@@ -1684,7 +1845,8 @@ Tests:
 - **Pre-image.** Reconstruction error on the training set at full rank
   and small regularisation is below $10^{-3}$. It also matches
   scikit-learn's `KernelPCA(fit_inverse_transform=True)` on the same
-  kernels (integration tier).
+  kernels, on centred inputs, since scikit-learn's pre-image KRR has no
+  intercept (integration tier).
 - `center_cross_kernel` with $X_t = X$ equals `center_kernel`.
 - The scikit-learn adapter gains `fit_inverse_transform` and `target_*`
   (integration tier, `check_estimator`).
@@ -1734,6 +1896,9 @@ kernellib by git tag, so any phase they consume needs a release.
 - Tests:
   - the Kronecker method agrees with the dense method on 2-D and 3-D grids,
     including degenerate eigenvalues (compare subspaces, not vectors);
+  - the closed-form Kronecker pairs agree with dense `eigh` for path, cycle
+    and mixed axes with anisotropic weights, and stay accurate in float32
+    on long axes and a 1000 × 1000 grid (v0.0.17);
   - Lanczos agrees with dense to a loose tolerance on a random geometric
     graph (slow tier);
   - sign convention;
@@ -1754,6 +1919,8 @@ kernellib by git tag, so any phase they consume needs a release.
 ### K5: eigenmap extensions (needs K3 and gaussx G2 released)
 
 Built: v0.0.16 (kernellib#146); see "As implemented (K5)" in §4.8.
+Follow-ups in v0.0.17: checked Lanczos (#171) and `eigen_solver="lobpcg"`
+(#174); see §4.8.
 
 - The §4.5–4.8 changes.
 - Tests:
@@ -1772,8 +1939,11 @@ Built: v0.0.16 (kernellib#146); see "As implemented (K5)" in §4.8.
 
 - `graph_null_space` is orthonormal and spans the Laplacian's kernel on
   graphs with 1, 2 and isolated-node components.
-- `mesh_graph(weighting="cotangent")` raises on a mesh with an edge
-  opposite two obtuse angles (negative cotangent weight).
+- `mesh_graph(weighting="cotangent")` raises on an interior non-Delaunay
+  edge and, with its own message, on an obtuse hull edge;
+  `on_negative="clip"` and `"allow"` accept them, and `"allow"` equals
+  `gaussx.fem_matrices`' `G`; a signed graph rejects `incidence_operator`
+  and the normalised Laplacians (v0.0.17).
 - `mesh_graph(weighting="cotangent")`'s Laplacian equals
   `gaussx.fem_matrices`' `G` on a reference mesh (integration tier).
 - The graph-Matérn ↔ SPDE test of §5.2 (integration tier, once G7 has
@@ -1784,6 +1954,17 @@ Built: v0.0.16 (kernellib#146); see "As implemented (K5)" in §4.8.
 The tests are given with each API section (§6.1–6.4).
 
 ### K11: documentation
+
+Built: v0.0.17 (kernellib#119; #150, #152, #155, #163). Where it differs
+from the plan below:
+
+- the spatial-spectral Schrödinger example is its own notebook,
+  `spatial_spectral_eigenmaps.ipynb`, and `graphs_and_spatial.ipynb` also
+  covers proximity graphs, ICAR / BYM2 and cotangent meshes;
+- the KRR vs Falkon vs EigenPro notebook is `regression_at_scale.ipynb`,
+  with preconditioned KRR;
+- the landmark comparison is a section of `kernel_approximations.ipynb`;
+- kernellib#89 is `representation_similarity.ipynb`.
 
 - `docs/api/graph.md`: a new mkdocstrings page for the graph names.
   `docs/api/spectral.md` gains `select_landmarks`. `docs/api/regression.md`
@@ -1840,11 +2021,14 @@ Built: v0.0.16 (kernellib#145). The tests are given with the API (§4b).
 
 - Nothing here imports NumPyro or scikit-learn from the core.
   `test_imports.py` keeps passing unchanged.
-- `jax.experimental.sparse` is used only through `gaussx.SparseOperator`
-  and `Graph.to_bcoo()`, so a change in that experimental API touches two
-  places.
-- SciPy stays confined to the `"arpack"` method and K15's
-  `scipy.spatial.Delaunay` (lazy imports), as today.
+- `jax.experimental.sparse` is used through `gaussx.SparseOperator`,
+  `Graph.to_bcoo()` and the LOBPCG eigenmap path
+  (`jax.experimental.sparse.linalg.lobpcg_standard` on a BCOO), so a change
+  in that experimental API touches three places.
+- SciPy is used for the `"arpack"` paths and for connected components
+  (`n_components_graph`, `graph_null_space`, scaled `structure_matrix`,
+  `ensure_connected`), through eagerly imported `scipy.sparse`; only K15's
+  `scipy.spatial.Delaunay` is imported lazily.
 - city2graph, libpysal, NetworkX and GeoPandas are never imported.
   `graph_from_edges` takes their output as integer arrays (roadmap
   decision 7).
@@ -1858,7 +2042,8 @@ Built: v0.0.16 (kernellib#145). The tests are given with the API (§4b).
 
 | Risk | Mitigation |
 |---|---|
-| Lanczos converges slowly at the small end of a clustered Laplacian spectrum | Oversample, use a loose tolerance in tests, document it, and keep `"arpack"` as the robust fallback |
+| Lanczos converges slowly at the small end of a clustered Laplacian spectrum | Eigenmaps check every Lanczos pair's residual and double the Krylov space up to 1600 before raising (v0.0.17); `"arpack"` is the robust fallback, and `"lobpcg"` (x64) a JAX one. `laplacian_eigpairs` itself is unchecked (§4.3, [kernellib#181](https://github.com/jejjohnson/kernellib/issues/181)) |
+| Signed cotangent weights break $L = B^\top B$ | `mesh_graph(on_negative=)` makes the choice explicit, and operations that need $w \ge 0$ raise (§4.1) |
 | BCOO matvec is slow on some backends | Benchmark against a `segment_sum` matvec in K2 and pick per backend inside `SparseOperator` (gaussx), not here |
 | Degenerate eigenvalues make eigenvector tests flaky | Compare subspaces (principal angles), never individual vectors |
 | $\gamma < 0$ in supervised / fair KPCA makes the reduced matrix indefinite | Keep the top-$k$ eigenvectors anyway, which is the variance–dependence trade-off the user asked for, and say in the docstring that the scores can be negative |
