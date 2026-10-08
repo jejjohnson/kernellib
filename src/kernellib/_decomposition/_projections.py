@@ -32,6 +32,7 @@ from kernellib._decomposition._eigenmaps import (
     _check_common,
     _check_graph,
     _check_potential,
+    _check_signed,
     _GraphEmbedding,
     _laplacian_and_degree,
     _potential_operator,
@@ -155,6 +156,8 @@ class _LinearProjection(_GraphEmbedding):
             )
         else:
             _check_graph(graph, X.shape[0])
+            # The constraint X^T D X is the degree constraint: no signed graph.
+            graph = _check_signed(graph, type(self).__name__)
         L, degree = _laplacian_and_degree(graph)
         Xc, mu = _degree_centre(X, degree)
         return Xc, mu, L, degree
@@ -227,7 +230,8 @@ class LocalityPreservingProjections(_LinearProjection):
 
         Raises:
             ValueError: If ``n_components`` exceeds the input dimension, or
-                ``graph`` does not match ``X``.
+                ``graph`` does not match ``X`` or has negative edge weights
+                (the constraint ``X^T D X`` needs ``w >= 0``).
         """
         Xc, mu, L, degree = self._prepare(X, graph)
         lam, P = _smallest_constrained(
@@ -304,8 +308,10 @@ class SchrodingerEigenmapProjections(_LinearProjection):
                 ``X``.
 
         Raises:
-            ValueError: If ``n_components`` exceeds the input dimension, or
-                the potential or ``graph`` does not match ``X``.
+            ValueError: If ``n_components`` exceeds the input dimension,
+                the potential or ``graph`` does not match ``X``, or ``graph``
+                has negative edge weights (the constraint
+                ``X^T D X`` needs ``w >= 0``).
         """
         if not isinstance(potential, lx.AbstractLinearOperator):
             potential = jnp.asarray(potential)

@@ -31,6 +31,12 @@ $D^{-1/2}(L + \alpha V) D^{-1/2} u = \lambda u$, a lineax composition, by
 ``"dense"``, ``"lanczos"`` or ``"arpack"``. `combine_potentials` weights
 several potentials into one.
 
+**Signed weights.** A `mesh_graph` with ``on_negative="allow"`` has negative
+edge weights. The degree constraint rejects it with every solver, as the
+symmetric Laplacian does (`_check_degree_constraint`): $D$ need not be
+positive, and $\lambda_{\max}(D^{-1/2} L D^{-1/2})$ is no longer at most 2.
+The identity constraint, $(L + \alpha V) y = \lambda y$, accepts it.
+
 **Lanczos is checked.** Both ``"lanczos"`` paths verify the returned pairs:
 the residual $r_i = \|A u_i - \lambda_i u_i\|$ of each must be at most
 $\sqrt{\varepsilon}\, c$, with $\varepsilon$ the machine epsilon of the
@@ -78,6 +84,7 @@ from kernellib._graph._eigpairs import (
     _check_eigpairs,
     # Re-exported: the residual check lives with laplacian_eigpairs (#181).
     _eigpair_residuals as _eigpair_residuals,
+    _gershgorin_bound,
     _lanczos_until_converged,
     _laplacian_eigpairs,
     _smallest_sparse,
@@ -86,7 +93,7 @@ from kernellib._graph._eigpairs import (
 )
 from kernellib._graph._laplacian import graph_laplacian
 from kernellib._graph._neighbors import Backend, KNNGraph, nearest_neighbors
-from kernellib._graph._types import AbstractGraph, Graph
+from kernellib._graph._types import AbstractGraph, Graph, _check_nonnegative
 from kernellib._kernels import RBF
 
 
@@ -190,7 +197,9 @@ def laplacian_eigenmap(
         ValueError: For an invalid ``constraint`` or ``method``, or
             ``"kronecker"`` with the degree constraint; for ``"lobpcg"``
             without x64, without a ``key`` or on a graph with
-            ``N <= 5 (n_components + drop_first)``.
+            ``N <= 5 (n_components + drop_first)``; for negative edge
+            weights (a signed `mesh_graph`) under the degree constraint,
+            with any ``method`` (under ``jit``, an `equinox.error_if`).
         RuntimeError: If ``"lanczos"`` has not converged at the largest
             Krylov space it tries, or ``"lobpcg"`` within ``max_iter``.
 
@@ -215,6 +224,8 @@ def laplacian_eigenmap(
         True
     """
     _check_constraint(constraint)
+    if constraint == "degree":
+        W = _check_degree_constraint(W, "laplacian_eigenmap")
     if not isinstance(W, AbstractGraph) and method in (None, "dense"):
         L = graph_laplacian(W)
         degree = reduce(W, "i j -> i", "sum") if constraint == "degree" else None
@@ -331,8 +342,10 @@ def schrodinger_eigenmap(
     Raises:
         ValueError: For an invalid ``constraint`` or ``method`` (including
             ``"kronecker"``), ``"lanczos"`` or ``"lobpcg"`` without a
-            ``key``, or ``"lobpcg"`` without x64 or with
-            ``N <= 5 (n_components + drop_first)``.
+            ``key``, ``"lobpcg"`` without x64 or with
+            ``N <= 5 (n_components + drop_first)``, or negative edge
+            weights (a signed `mesh_graph`) under the degree constraint,
+            with any ``method`` (under ``jit``, an `equinox.error_if`).
         RuntimeError: If ``"lanczos"`` has not converged at the largest
             Krylov space it tries, or ``"lobpcg"`` within ``max_iter``.
 
@@ -350,6 +363,8 @@ def schrodinger_eigenmap(
         True
     """
     _check_constraint(constraint)
+    if constraint == "degree":
+        W = _check_degree_constraint(W, "schrodinger_eigenmap")
     if not isinstance(W, AbstractGraph) and method in (None, "dense"):
         L = graph_laplacian(W)
         V = _potential_matrix(potential)
@@ -685,6 +700,37 @@ def _degree_scale(degree: Float[Array, " N"]) -> Float[Array, " N"]:
     return 1.0 / jnp.sqrt(jnp.where(degree > 0, degree, 1.0))
 
 
+def _check_signed(W: GraphLike, operation: str, hint: str = "") -> GraphLike:
+    """Reject negative edge weights (`_check_nonnegative`, same message): a
+    ``ValueError`` eagerly, an `equinox.error_if` under ``jit``.
+
+    Returns:
+        ``W`` carrying the checked weights (a graph as a `Graph`), to be used
+        in its place so the run-time check is not traced away.
+    """
+    if isinstance(W, AbstractGraph):
+        return W.reweight(_check_nonnegative(W.weights, operation, hint))
+    return _check_nonnegative(jnp.asarray(W), operation, hint)
+
+
+def _check_degree_constraint(W: GraphLike, function: str) -> GraphLike:
+    r"""`_check_signed` for the degree constraint, which needs $w \ge 0$.
+
+    $L y = \lambda D y$ is $D^{-1/2} L D^{-1/2} u = \lambda u$, the
+    symmetric Laplacian, which rejects signed weights (a `mesh_graph` with
+    ``on_negative="allow"``): $D$ need not be positive, and the spectrum is
+    no longer in $[0, 2]$, which the ``"lobpcg"`` shift assumes. The message
+    names ``function`` (inside an estimator's ``fit``, the estimator) and
+    suggests the identity constraint, which accepts signed weights.
+    """
+    name, _ = _solver_param(function)
+    return _check_signed(
+        W,
+        f"{name}(constraint='degree')",
+        "Use constraint='identity', which accepts signed weights.",
+    )
+
+
 def _laplacian_and_degree(
     W: GraphLike,
 ) -> tuple[lx.AbstractLinearOperator, Float[Array, " N"]]:
@@ -929,10 +975,11 @@ def _lobpcg_eigenmap(
     `jax.experimental.sparse.linalg.lobpcg_standard` finds the top of a
     standard problem only, so it runs on the shift-and-flip $cI - S$:
     $\lambda_i = c - \theta_i$, $y_i = s\,u_i$. $c$ bounds $\lambda_{\max}(S)$
-    (Weyl): $2$ for $s L s = L_{\mathrm{sym}}$ (``2 max(d)``, Gershgorin, for
-    the identity constraint), plus $|\alpha|$ times the Gershgorin bound of
-    $s V s$. The graph is a BCOO (`AbstractGraph.to_bcoo`), so memory is
-    $O(N k + |E|)$, and the whole solve traces under ``jit``.
+    (Weyl): $2$ for $s L s = L_{\mathrm{sym}}$ (the Gershgorin bound
+    $\max_i (d_i + \sum_j |W_{ij}|)$ of $L$ for the identity constraint,
+    which holds for signed weights), plus $|\alpha|$ times the Gershgorin
+    bound of $s V s$. The graph is a BCOO (`AbstractGraph.to_bcoo`), so
+    memory is $O(N k + |E|)$, and the whole solve traces under ``jit``.
 
     The wanted eigenvalues sit near 0 of a spectrum of width $c$, so the
     relative gap is small: float32 cannot separate them from the bulk and
@@ -949,14 +996,14 @@ def _lobpcg_eigenmap(
 
     Raises:
         ValueError: Without ``jax_enable_x64``; without a ``key``; unless
-            ``0 < 5 (n_components + drop_first) < N``; or for a potential
-            operator it cannot unpack.
+            ``0 < 5 (n_components + drop_first) < N``; for a potential
+            operator it cannot unpack; or for negative edge weights under
+            the degree constraint (`_check_degree_constraint`).
         RuntimeError: If the returned pairs have not converged (raise
             ``max_iter``).
     """
-    name, param = _solver_param(
-        "laplacian_eigenmap" if potential is None else "schrodinger_eigenmap"
-    )
+    function = "laplacian_eigenmap" if potential is None else "schrodinger_eigenmap"
+    name, param = _solver_param(function)
     if jax.dtypes.canonicalize_dtype(jnp.float64) != jnp.float64:
         raise ValueError(
             f"{param}='lobpcg' needs float64: the smallest graph eigenvalues "
@@ -974,6 +1021,8 @@ def _lobpcg_eigenmap(
             "(a limit of jax.experimental.sparse.linalg.lobpcg_standard); "
             f"use {param}='dense' for a graph this small."
         )
+    if constraint == "degree":
+        W = _check_degree_constraint(W, function)
     f64 = jnp.float64
     A: Float[Array, "N N"] | jsparse.BCOO
     if isinstance(W, AbstractGraph):
@@ -995,7 +1044,8 @@ def _lobpcg_eigenmap(
     if constraint == "degree":
         s, c = _degree_scale(degree), jnp.asarray(2.0, f64)
     else:
-        s, c = jnp.ones_like(degree), 2.0 * jnp.max(degree)
+        s = jnp.ones_like(degree)
+        c = jnp.asarray(_gershgorin_bound(W, "unnormalized"), f64)
     for term in terms:
         c = c + jnp.abs(alpha) * jnp.max(s * _term_mv(term, s, absolute=True))
     X0 = jax.random.normal(key, (n_nodes, k), f64)
@@ -1105,7 +1155,8 @@ class LaplacianEigenmaps(_GraphEmbedding):
         """Embed ``X``, on its k-NN graph or on ``graph``.
 
         Raises:
-            ValueError: If ``graph`` does not have one node per row of ``X``.
+            ValueError: If ``graph`` does not have one node per row of ``X``,
+                or has negative edge weights and ``constraint="degree"``.
         """
         if self.eigen_solver == "lobpcg":
             fitted: KNNGraph | GraphLike
@@ -1253,7 +1304,9 @@ class SchrodingerEigenmaps(_GraphEmbedding):
                 adjacency matrix) to embed instead of the k-NN graph of ``X``.
 
         Raises:
-            ValueError: If the potential or ``graph`` does not match ``X``.
+            ValueError: If the potential or ``graph`` does not match ``X``,
+                or ``graph`` has negative edge weights and
+                ``constraint="degree"``.
         """
         n = X.shape[0]
         if not isinstance(potential, lx.AbstractLinearOperator):

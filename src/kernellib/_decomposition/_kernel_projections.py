@@ -39,6 +39,7 @@ from kernellib._decomposition._eigenmaps import (
     _check_common,
     _check_graph,
     _check_potential,
+    _check_signed,
     _GraphEmbedding,
     _laplacian_and_degree,
 )
@@ -79,6 +80,8 @@ class _KernelProjection(_GraphEmbedding):
             )
         else:
             _check_graph(graph, n)
+            # The constraint F^T D F is the degree constraint: no signed graph.
+            graph = _check_signed(graph, type(self).__name__)
         L, degree = _laplacian_and_degree(graph)
         approx: AbstractFeatureMap | None = self.approx  # ty: ignore[unresolved-attribute]
         kernel: AbstractKernel = self.kernel  # ty: ignore[unresolved-attribute]
@@ -262,7 +265,8 @@ class KernelLocalityPreservingProjections(_KernelProjection):
         Raises:
             ValueError: If ``n_components`` exceeds the rank of the centred
                 Gram matrix (or the number of features), or ``graph`` does
-                not match ``X``.
+                not match ``X`` or has negative edge weights (the degree
+                constraint needs ``w >= 0``).
         """
         return self._fit(X, graph, None)  # ty: ignore[invalid-return-type]
 
@@ -337,8 +341,9 @@ class KernelSchrodingerProjections(_KernelProjection):
 
         Raises:
             ValueError: If ``n_components`` exceeds the rank of the centred
-                Gram matrix (or the number of features), or the potential or
-                ``graph`` does not match ``X``.
+                Gram matrix (or the number of features), the potential or
+                ``graph`` does not match ``X``, or ``graph`` has negative
+                edge weights (the degree constraint needs ``w >= 0``).
         """
         if not isinstance(potential, lx.AbstractLinearOperator):
             potential = jnp.asarray(potential)

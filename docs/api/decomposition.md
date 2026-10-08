@@ -89,6 +89,15 @@ together (semi-supervised), and `spatial_spectral_potential` pulls spatially
 adjacent, spectrally similar pixels together (hyperspectral images). A
 potential is a diagonal, a dense matrix or a sparse lineax operator.
 
+**Signed weights.** A cotangent `mesh_graph(..., on_negative="allow")` has
+negative edge weights. Every embedding above whose right-hand side holds
+$D$ rejects it with a `ValueError` (an `equinox.error_if` under `jit`),
+whatever the solver: the eigenmaps under the default `constraint="degree"`,
+and the projections always. With signed weights $D$ need not be positive,
+and $D^{-1/2} L D^{-1/2}$ loses the $[0, 2]$ spectrum the solvers rely on.
+`constraint="identity"` solves $(L + \alpha V) y = \lambda y$ and accepts
+them; the cotangent Laplacian is the FEM stiffness, which is PSD.
+
 ```python
 le = kl.LaplacianEigenmaps(n_components=2, n_neighbors=10).fit(X)
 le.embedding

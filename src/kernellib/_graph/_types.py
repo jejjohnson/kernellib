@@ -221,11 +221,12 @@ _SIGNED = (
 )
 
 
-def _check_nonnegative(w: Array, operation: str) -> Array:
+def _check_nonnegative(w: Array, operation: str, hint: str = "") -> Array:
     """Reject negative edge weights: a ``ValueError`` on concrete weights, an
     `equinox.error_if` under a JAX transform. Returns ``w``, to be used in
-    place of the input so the run-time check is not traced away."""
-    message = _SIGNED.format(operation=operation)
+    place of the input so the run-time check is not traced away. ``hint``,
+    if given, ends the message."""
+    message = _SIGNED.format(operation=operation) + (f" {hint}" if hint else "")
     try:
         host = np.asarray(w)
     except jax.errors.TracerArrayConversionError:
