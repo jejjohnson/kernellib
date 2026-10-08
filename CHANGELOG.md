@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.18](https://github.com/jejjohnson/kernellib/compare/v0.0.17...v0.0.18) (2026-10-08)
+
+
+### Features
+
+* **graph:** residual-check and restart laplacian_eigpairs(method="lanczos") ([#185](https://github.com/jejjohnson/kernellib/issues/185)) ([b8af74c](https://github.com/jejjohnson/kernellib/commit/b8af74c73d5c02e6f7b32f816020ce4e7f03cfe2)), closes [#181](https://github.com/jejjohnson/kernellib/issues/181)
+
+
+### Bug Fixes
+
+* **decomposition:** reject signed-weight graphs under the eigenmap degree constraint ([#186](https://github.com/jejjohnson/kernellib/issues/186)) ([a3b06c2](https://github.com/jejjohnson/kernellib/commit/a3b06c21652fe1b1a60631d83a84216af5544626)), closes [#180](https://github.com/jejjohnson/kernellib/issues/180)
+* **regression:** KRR GMRES honours tol/max_steps; KernelRidge exposes tol/max_steps/throw ([#187](https://github.com/jejjohnson/kernellib/issues/187)) ([ec5a857](https://github.com/jejjohnson/kernellib/commit/ec5a8571264dfb7653584f81bf314d029d4bce18)), closes [#182](https://github.com/jejjohnson/kernellib/issues/182)
+
 ## [0.0.17](https://github.com/jejjohnson/kernellib/compare/v0.0.16...v0.0.17) (2026-10-07)
 
 
