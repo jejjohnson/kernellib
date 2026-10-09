@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="356" viewBox="0 0 960 356" role="img" aria-label="One kernel object evaluates a Gram matrix, becomes a gaussx operator, approximates itself with feature maps, and feeds the regression and dependence methods.">
+<title>One kernel, five uses</title>
+<defs><marker id="hero-light-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#9CA3AF"/></marker></defs>
+<rect x="20" y="98" width="330" height="160" rx="12" fill="#F0FDFA" stroke="#0D9488" stroke-width="2"/>
+<defs><linearGradient id="hero-light-icon" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#14B8A6"/><stop offset="1" stop-color="#0284C7"/></linearGradient></defs><g transform="translate(38 114) scale(0.28125)"><rect x="4" y="4" width="120" height="120" rx="26" fill="url(#hero-light-icon)"/><defs><clipPath id="hero-light-icon-clip"><rect x="24" y="24" width="80" height="80" rx="8"/></clipPath></defs><g clip-path="url(#hero-light-icon-clip)"><rect x="24" y="24" width="80" height="80" fill="#FFFFFF" fill-opacity="0.1"/><path d="M24 24 L50 24 L104 78 L104 104 L78 104 L24 50 Z" fill="#FFFFFF" fill-opacity="0.22"/><path d="M24 24 L40 24 L104 88 L104 104 L88 104 L24 40 Z" fill="#FFFFFF" fill-opacity="0.45"/><path d="M24 24 L32 24 L104 96 L104 104 L96 104 L24 32 Z" fill="#FFFFFF" fill-opacity="0.95"/></g><rect x="24" y="24" width="80" height="80" rx="8" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="2.5"/></g>
+<text x="84" y="138" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14.5" font-weight="700" fill="#1F2937" xml:space="preserve">k: kl.AbstractKernel</text>
+<text x="38" y="176" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" font-weight="400" fill="#1F2937" xml:space="preserve">k = kl.Matern(lengthscale=20.0, nu=1.5)</text>
+<text x="38" y="196" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" font-weight="400" fill="#1F2937" xml:space="preserve">k = k + kl.Periodic() * kl.Linear()</text>
+<text x="38" y="216" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" font-weight="400" fill="#1F2937" xml:space="preserve">dk = kl.Derivative(k, dx=0)</text>
+<text x="38" y="240" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="12" font-weight="600" fill="#0F766E" xml:space="preserve">composes · differentiates · a PyTree</text>
+<path d="M350 178.0 L400 178.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M400 46.0 L400 310.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round"/>
+<path d="M400 46.0 L457 46.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#hero-light-head)"/>
+<path d="M400 112.0 L457 112.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#hero-light-head)"/>
+<path d="M400 178.0 L457 178.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#hero-light-head)"/>
+<path d="M400 244.0 L457 244.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#hero-light-head)"/>
+<path d="M400 310.0 L457 310.0" fill="none" stroke="#9CA3AF" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#hero-light-head)"/>
+<rect x="460" y="20.0" width="480" height="52" rx="12" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1"/>
+<text x="478" y="51.0" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" font-weight="700" fill="#1F2937" xml:space="preserve">k(X1, X2)</text>
+<text x="922" y="51.0" text-anchor="end" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6B7280" xml:space="preserve">dense Gram, under jit · vmap · grad</text>
+<rect x="460" y="86.0" width="480" height="52" rx="12" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1"/>
+<text x="478" y="117.0" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" font-weight="700" fill="#1F2937" xml:space="preserve">kl.to_operator(k, X)</text>
+<text x="922" y="117.0" text-anchor="end" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6B7280" xml:space="preserve">a gaussx operator, dense or implicit</text>
+<rect x="460" y="152.0" width="480" height="52" rx="12" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1"/>
+<text x="478" y="183.0" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" font-weight="700" fill="#1F2937" xml:space="preserve">RandomFourierFeatures · NystromFeatures</text>
+<text x="922" y="183.0" text-anchor="end" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6B7280" xml:space="preserve">feature maps</text>
+<rect x="460" y="218.0" width="480" height="52" rx="12" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1"/>
+<text x="478" y="249.0" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" font-weight="700" fill="#1F2937" xml:space="preserve">KRR · Falkon · EigenPro</text>
+<text x="922" y="249.0" text-anchor="end" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6B7280" xml:space="preserve">regression at scale</text>
+<rect x="460" y="284.0" width="480" height="52" rx="12" fill="#F9FAFB" stroke="#D1D5DB" stroke-width="1"/>
+<text x="478" y="315.0" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13.5" font-weight="700" fill="#1F2937" xml:space="preserve">hsic · cka · mmd_squared · KernelPCA</text>
+<text x="922" y="315.0" text-anchor="end" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#6B7280" xml:space="preserve">dependence</text>
+</svg>

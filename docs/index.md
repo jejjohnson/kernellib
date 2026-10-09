@@ -12,13 +12,6 @@ Scale is inherited rather than reimplemented. Every kernel can be turned into
 a [gaussx](https://github.com/jejjohnson/gaussx) linear operator, and every
 algorithm here solves through gaussx's solver strategies.
 
-:::{warning} Status: scaffold
-This repository was reset from a 2018 numpy / scikit-learn package to a fresh
-JAX package. The public API lands in phases described in the
-[architecture guide](guide/architecture.md); nothing beyond `__version__` is
-exported yet.
-:::
-
 ## Installation
 
 kernellib is not on PyPI yet. Until it is, install from the repository:

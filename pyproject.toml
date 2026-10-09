@@ -121,6 +121,9 @@ lines-after-imports = 2
 "tests/**" = ["B011"]
 
 [tool.ruff.format]
+# README code blocks keep a hand-aligned column of shape comments; the
+# formatter would collapse it, so the README is left out of formatting only.
+exclude = ["README.md"]
 # Format the code inside ``Examples:`` doctest blocks like real source.
 docstring-code-format = true
 docstring-code-line-length = 72
