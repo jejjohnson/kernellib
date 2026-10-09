@@ -30,7 +30,7 @@ Two namespaces inside kernellib:
 |---|---|---|
 | Kernels | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator` | `RBF`, `Matern`, `Periodic`, ..., `Sum`, `Product`, `to_operator` |
 | Approximation | `nystrom_operator`, `rff_operator`, `fastfood_operator` | `NystromFeatures`, `RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures` |
-| Dependence | `functional.hsic`, `functional.cka`, `functional.mmd_squared`, `functional.center_kernel` | `hsic`, `cka`, `mmd`, `permutation_test`, randomized variants |
+| Dependence | `functional.hsic`, `functional.cka`, `functional.mmd_squared`, `functional.center_kernel` | `hsic`, `cka`, `mmd_squared`, `permutation_test`, randomized variants |
 | Regression | Falkon and EigenPro primitives | `KRR`, `Falkon`, `EigenPro` estimators |
 | Derivatives | `jax.grad` of `pairwise` | `Derivative`, `DerivativeIndexed`, `derivative_inputs` |
 | Graphs | `adjacency_matrix`, `graph_laplacian`, `functional.graph_matern_spectrum` | `knn_graph`, `GridGraph`, `laplacian_eigpairs`, `matern_graph_kernel`, `structure_matrix` |
