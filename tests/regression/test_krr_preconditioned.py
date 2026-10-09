@@ -404,3 +404,51 @@ class TestLowPrecision:
                 kl.RBF(lengthscale=0.3), regularization=1e-3, solver=solver
             ).fit(X, y)
         assert bool(fitted.converged)
+
+
+class TestGaussxDefaultTolerances:
+    """gaussx >= 0.6.4 leaves CG ``rtol`` / ``atol`` as ``None`` (gaussx gh-327,
+    gh-639); KRR must resolve them as gaussx does, not hand ``None`` to lineax.
+    """
+
+    def test_default_cg_solver_matches_the_dense_solve(self):
+        X, y = _data(60)
+        dense = kl.KRR(kl.RBF(lengthscale=0.3), regularization=1e-3).fit(X, y)
+        cg = kl.KRR(
+            kl.RBF(lengthscale=0.3), regularization=1e-3, solver=gx.CGSolver()
+        ).fit(X, y)
+        assert bool(cg.converged)
+        # The float64 defaults are rtol = atol = 1e-5, so the two agree to
+        # about that relative accuracy.
+        np.testing.assert_allclose(cg.alpha, dense.alpha, rtol=1e-3, atol=1e-3)
+
+    def test_float32_default_cg_solver_converges_on_a_tiny_target(self):
+        # A target of order 1e-4: a fixed atol of 1e-5 would accept a poor
+        # iterate, so gaussx solves the rescaled system b / max|b| instead.
+        X, y = _float32_data(60)
+        model = kl.KRR(
+            kl.RBF(lengthscale=0.2), regularization=1e-2, solver=gx.CGSolver()
+        ).fit(X, 1e-4 * y)
+        assert model.alpha.dtype == jnp.float32
+        assert bool(model.converged)
+        assert _relative_residual(model, X, 1e-4 * y) < 1e-2
+
+    def test_gmres_path_falls_back_to_tol_for_a_default_solver(self, monkeypatch):
+        seen = {}
+        real_gmres = lx.GMRES
+
+        def spy(*args, **kwargs):
+            seen.update(rtol=kwargs["rtol"], atol=kwargs["atol"])
+            return real_gmres(*args, **kwargs)
+
+        monkeypatch.setattr(lx, "GMRES", spy)
+        X, y = _data(40)
+        mask = jnp.arange(40) % 2 == 0
+        kl.KRR(
+            kl.RBF(lengthscale=0.3),
+            regularization=1e-3,
+            implicit=True,
+            solver=gx.CGSolver(),
+            tol=1e-7,
+        ).fit(X, y, mask=mask)
+        assert seen == {"rtol": 1e-7, "atol": 1e-7}
