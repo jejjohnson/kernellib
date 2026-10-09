@@ -31,6 +31,7 @@ project:
     - title: Guide
       children:
         - file: guide/architecture.md
+        - file: agents.md
     - title: Tutorials
       children:
         - file: notebooks/kernels_and_jax.ipynb
