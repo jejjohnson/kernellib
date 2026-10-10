@@ -328,3 +328,80 @@ corrections (Kaufman, Schervish & Nychka 2008) are not included.
 ::: kernellib.Tapered
 
 ::: kernellib.tapered_operator
+
+## Spectral kernels on the sphere
+
+The intrinsic kernels on $S^2$ are functions of the Laplace–Beltrami
+operator, whose eigenvalues are $\lambda_l = l(l+1)/R^2$ with multiplicity
+$2l+1$. By the addition theorem such a kernel is a Legendre series in
+$t = u \cdot v$,
+
+$$
+k(u, v) = \sum_{l=0}^{L} a_l\,P_l(u \cdot v), \qquad
+a_l = \sigma^2\,\frac{(2l+1)\,\Phi(\lambda_l)}{\sum_{m=0}^{L}(2m+1)\,\Phi(\lambda_m)},
+$$
+
+so $k(u, u) = \sigma^2$. Non-negative $a_l$ make it positive definite for
+every truncation $L$ (Schoenberg 1942): the truncated kernel is exactly
+valid. `degree_spectrum()` returns the $a_l$ (the spherical-harmonic prior
+variances, used by spherical-harmonic features), and the series is evaluated
+by the Legendre recurrence (`kernellib.functional.legendre_series`) in
+$O(N_1 N_2 L)$ time and $O(N_1 N_2)$ memory. Inputs are ``(N, 2)``
+``(lon, lat)``, or ``(N, 3)`` points in $\mathbb{R}^3$ (normalised to unit
+length), so `funk_hecke_coefficients` recovers the $a_l$ (in its
+``"legendre"`` convention) from these kernels too.
+
+| Kernel | $\Phi(\lambda)$ |
+|---|---|
+| `SphereMatern` | $(2\nu/\ell^2 + \lambda)^{-(\nu + 1)}$ |
+| `SphereHeat` | $\exp(-\ell^2 \lambda / 2)$ |
+| `SphereSeries` | any user ``spectrum_fn`` |
+
+!!! note "Two Matérn conventions"
+    The sphere Matérn (Borovitskiy et al. 2020) uses the manifold exponent
+    $-(\nu + d/2) = -(\nu + 1)$ on $S^2$, so $\nu$ is the usual smoothness and,
+    for $\ell \ll R$, the kernel matches the Euclidean `Matern` with the same
+    $\nu$ and $\ell$. The graph Matérn
+    (`kernellib.functional.graph_matern_spectrum`, `matern_graph_kernel`) uses
+    $(2\nu/\ell^2 + \lambda)^{-\nu}$, with no dimension: there $\nu$ plays the
+    SPDE's $\alpha$. Unlike a Matérn of the great-circle distance (valid only
+    for $\nu \le \tfrac12$), the sphere Matérn is valid for every $\nu > 0$.
+
+```python
+import kernellib as kl
+
+k = kl.SphereMatern(
+    lengthscale=1000.0, nu=1.5, radius=kl.EARTH_RADIUS_KM, max_degree=128
+)
+K = k(X_lonlat, X_lonlat)
+k.truncation_tail()  # estimated fraction of the series beyond max_degree
+a = k.degree_spectrum()  # (max_degree + 1,) coefficients a_l, summing to σ²
+```
+
+### Choosing `max_degree`
+
+For the Matérn, $(2l+1)\Phi(\lambda_l) \sim l^{-2\nu - 1}$, so the relative
+tail beyond $L$ is about $(1 + L(L+1)\,\ell^2 / 2\nu R^2)^{-\nu}$; for the
+heat kernel it is about $\exp(-\ell^2 L(L+1)/2R^2)$. `truncation_tail`
+computes the integral bound. The smallest $L$ with a tail below 1 %:
+
+| $\ell / R$ | Matérn $\nu = \tfrac12$ | Matérn $\nu = \tfrac32$ | Matérn $\nu = \tfrac52$ | Heat |
+|---|---|---|---|---|
+| 0.5 | 191 | 15 | 10 | 6 |
+| 0.2 | 497 | 39 | 26 | 15 |
+| 0.1 | 998 | 78 | 52 | 30 |
+| 0.05 | 1999 | 157 | 103 | 61 |
+| 0.02 | 4999 | 393 | 258 | 152 |
+
+Rough kernels at short lengthscales need many degrees: the cost is linear in
+$L$, so a large $L$ is affordable for moderate $N$.
+
+::: kernellib.AbstractSphereSeriesKernel
+
+::: kernellib.SphereMatern
+
+::: kernellib.SphereHeat
+
+::: kernellib.SphereSeries
+
+::: kernellib.functional.legendre_series

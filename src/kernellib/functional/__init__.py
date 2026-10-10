@@ -20,6 +20,7 @@ from kernellib.functional._geo import (
     EARTH_RADIUS_KM,
     chordal_distance,
     great_circle_distance,
+    legendre_series,
     lonlat_to_unit,
 )
 from kernellib.functional._geo_models import (
@@ -76,6 +77,7 @@ __all__ = [
     "hsic",
     "kernel_add",
     "kernel_mul",
+    "legendre_series",
     "linear_kernel",
     "lonlat_to_unit",
     "matern_kernel",
