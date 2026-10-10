@@ -12,7 +12,7 @@ applyTo: "src/**/*.py,tests/**/*.py,scripts/**/*.py"
 - Built-in generics: `list[int]`, `dict[str, Any]` not `List[int]`, `Dict[str, Any]`
 - `pathlib.Path` over `os.path`
 - f-strings for string formatting
-- `dataclasses` or `attrs` for data containers
+- `equinox.Module` for kernels, feature maps, operators and estimators (immutable pytrees; a dataclass is not one); NamedTuples for small results
 - `Enum` for fixed sets of constants
 - Context managers (`with` statements) for resource handling
 - Specific exception types (never bare `except:`)
@@ -21,19 +21,18 @@ applyTo: "src/**/*.py,tests/**/*.py,scripts/**/*.py"
 
 ## Package Preferences
 
+No new runtime dependency without discussion; build on what kernellib
+already depends on (see "Boundaries" in `AGENTS.md`).
+
 | Purpose | Preferred Package |
 |---------|-------------------|
-| Logging | `loguru` |
-| CLI | `cyclopts` |
-| Data containers | `dataclasses` (stdlib) or `attrs` |
-| Configuration | `hydra-core` / `omegaconf` |
+| Modules / pytrees | `equinox` |
+| Linear operators, solvers, preconditioners | `lineax`, `gaussx` |
+| Random-feature arithmetic, bases | `geonnax` |
+| Axis-naming array ops | `einx`, through `kernellib._einx` |
+| Shape annotations | `jaxtyping` |
 | Path handling | `pathlib` (stdlib) |
-| HTTP | `httpx` |
 | Testing | `pytest` |
-
-> The bundled demo package uses stdlib `argparse` for its CLI rather than
-> `cyclopts`, because the template advertises zero runtime dependencies.
-> Prefer `cyclopts` in a real project where a CLI dependency is acceptable.
 
 ## Documentation
 
@@ -41,4 +40,4 @@ applyTo: "src/**/*.py,tests/**/*.py,scripts/**/*.py"
 - Function/method docstrings for all public APIs (Google style)
 - Inline comments explaining *why*, not *what*
 - Scientific algorithms should include Unicode equations in docstrings (e.g. `# σ² = Σ(xᵢ − μ)² / N`)
-- Public classes and functions should include 2–3 example use cases in docstrings
+- Public classes and functions include an executable `Examples:` block (run by `--doctest-modules`; verify the expected output against what the code prints)
