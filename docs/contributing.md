@@ -101,7 +101,7 @@ After the issue is created, apply native parent / blocked-by links via the Makef
 
 ### From Claude Code
 
-The `create-gh-issue` skill (at `.claude/commands/create-gh-issue.md`) guides Claude through:
+The `create-gh-issue` skill (at `.claude/skills/create-gh-issue/SKILL.md`) guides Claude through:
 
 - **Picking the right template** (decision tree covering feature / design / bug / research / epic-wave / epic-theme)
 - **Drafting the body** with required sections + rename guidance for optional sections (`Design Snapshot` → `Demo To Implement`, etc.)
@@ -200,7 +200,7 @@ The script resolves issue numbers to GraphQL node IDs automatically, and treats 
 
 #### From Claude Code
 
-The `link-gh-issues` skill (at `.claude/commands/link-gh-issues.md`) guides Claude through the same operations — useful for bulk-applying relationships from a drafted wave backlog, parsing the `Issues` checklist out of a theme epic body, or verifying that the native links match the prose.
+The `link-gh-issues` skill (at `.claude/skills/link-gh-issues/SKILL.md`) guides Claude through the same operations — useful for bulk-applying relationships from a drafted wave backlog, parsing the `Issues` checklist out of a theme epic body, or verifying that the native links match the prose.
 
 Example prompts:
 

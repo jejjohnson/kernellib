@@ -151,7 +151,8 @@ class KRR(AbstractEstimator):
         max_steps: Iteration budget of those solves (restart cycles, for
             GMRES).
         throw: Raise when an iterative solve does not converge within its
-            budget; ``False`` returns the last iterate instead.
+            budget, or a direct solve returns non-finite weights; ``False``
+            returns the result unchecked instead.
         penalty_weight: Weight $\mu \ge 0$ of the penalty passed to `fit`.
         implicit: Build the kernel matrix matrix-free
             (`ImplicitKernelOperator`); needs a pointwise kernel and a concrete
@@ -307,7 +308,18 @@ class KRR(AbstractEstimator):
                 preconditioner=precond,
             )
         if not isinstance(solver, gx.CGSolver):
-            return solver.solve(A, b), None, None
+            x = solver.solve(A, b)
+            if self.throw:
+                # Since gaussx 0.6.3 (#537) a singular dense solve returns
+                # non-finite values instead of raising, so check them here.
+                x = eqx.error_if(
+                    x,
+                    ~jnp.all(jnp.isfinite(x)),
+                    "KRR: the solve returned non-finite weights: the system "
+                    "(K + lambda n I) is numerically singular for this dtype. "
+                    "Use float64 or a larger regularization.",
+                )
+            return x, None, None
         options: dict[str, lx.AbstractLinearOperator] = {}
         if solver.preconditioner is not None:
             P = solver.preconditioner.as_operator(A)
@@ -318,19 +330,20 @@ class KRR(AbstractEstimator):
                 options["preconditioner"] = eqx.combine(
                     jax.lax.stop_gradient(dynamic), static
                 )
+        rtol, atol, scale = _cg_tolerances(solver.rtol, solver.atol, A, b)
         solution = lx.linear_solve(
             A,
-            b,
-            lx.CG(rtol=solver.rtol, atol=solver.atol, max_steps=solver.max_steps),
+            b if scale is None else b / scale,
+            lx.CG(rtol=rtol, atol=atol, max_steps=solver.max_steps),
             options=options,
             throw=self.throw,
         )
-        x = solution.value
+        x = solution.value if scale is None else solution.value * scale
         converged = solution.result == lx.RESULTS.successful
         # CG stops on its recursively updated residual, which in low
         # precision can drift from the true one: in float32 at a tiny ridge
         # it reports convergence on garbage. Check the true residual.
-        ok = _residual_ok(A, x, b, solver.rtol, solver.atol)
+        ok = _residual_ok(A, x, b, rtol, atol if scale is None else atol * scale)
         if self.throw:
             x = eqx.error_if(
                 x,
@@ -435,9 +448,11 @@ class KRR(AbstractEstimator):
         # restart cycle of up to ``restart`` Krylov iterations. Its stopping
         # test is on the true residual b - B y, recomputed each cycle, so it
         # needs no `_residual_ok` check.
+        rtol = getattr(self.solver, "rtol", None)
+        atol = getattr(self.solver, "atol", None)
         gmres = lx.GMRES(
-            rtol=getattr(self.solver, "rtol", self.tol),
-            atol=getattr(self.solver, "atol", self.tol),
+            rtol=self.tol if rtol is None else rtol,
+            atol=self.tol if atol is None else atol,
             max_steps=getattr(self.solver, "max_steps", None) or self.max_steps,
             restart=min(n, 50),
         )
@@ -506,12 +521,51 @@ class KRR(AbstractEstimator):
         return jax.vmap(K_xs.mv, in_axes=1, out_axes=1)(self.alpha)
 
 
+def _cg_tolerances(
+    rtol: float | None,
+    atol: float | None,
+    A: lx.AbstractLinearOperator,
+    b: Float[Array, " N"],
+) -> tuple[float, float, Float[Array, ""] | None]:
+    r"""A gaussx CG strategy's tolerances, resolved as gaussx resolves them.
+
+    Since gaussx 0.6.4 the CG strategies default ``rtol`` and ``atol`` to
+    ``None`` and resolve them from the dtype at solve time (gaussx gh-327,
+    gh-639). In float64 both are ``1e-5``. Below float64, ``rtol`` is
+    ``1e-3`` (``1e-2`` for 16-bit floats), and a default ``atol`` becomes
+    $\sqrt\epsilon$ on the rescaled system $A y = b / s$ with
+    $s = \max_i |b_i|$, so the absolute tolerance is relative to $b$ and the
+    zero iterate is never accepted. lineax needs numbers, so `KRR` resolves
+    them the same way before calling it.
+
+    Returns:
+        ``(rtol, atol, scale)``. With ``scale`` set, solve $A y = b / s$ and
+        return $s y$; ``None`` means solve $A x = b$ as it is.
+    """
+    leaves = [A.in_structure(), A.out_structure(), b]
+    dtype = min(
+        (jnp.dtype(leaf.dtype) for leaf in leaves),
+        key=lambda d: jnp.finfo(d).bits,
+    )
+    bits = jnp.finfo(dtype).bits
+    if rtol is None:
+        rtol = 1e-5 if bits >= 64 else (1e-3 if bits == 32 else 1e-2)
+    if atol is not None:
+        return rtol, atol, None
+    if bits >= 64 or b.size == 0:
+        return rtol, 1e-5, None
+    # The scale only changes the iteration count, so it carries no gradient.
+    scale = jax.lax.stop_gradient(jnp.max(jnp.abs(b)))
+    scale = jnp.where(jnp.isfinite(scale) & (scale > 0), scale, jnp.ones_like(scale))
+    return rtol, float(jnp.sqrt(jnp.finfo(dtype).eps)), scale
+
+
 def _residual_ok(
     A: lx.AbstractLinearOperator,
     x: Float[Array, " N"],
     b: Float[Array, " N"],
     rtol: float,
-    atol: float,
+    atol: float | Float[Array, ""],
 ) -> Bool[Array, ""]:
     r"""Whether ``x`` solves ``A x = b`` to CG's tolerance, up to rounding.
 

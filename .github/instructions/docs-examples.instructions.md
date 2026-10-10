@@ -134,12 +134,12 @@ import numpy as np
 
 ## First Markdown Cell — Title + Colab Badge
 
-Every notebook opens with a `#`-level title and a Colab badge pointing at its `main`-branch URL. Replace `OWNER/REPO` below with the actual GitHub owner and repository name (e.g. from `repo_url` in `mkdocs.yml`):
+Every notebook opens with a `#`-level title and a Colab badge pointing at its `main`-branch URL. For kernellib that is `jejjohnson/kernellib`:
 
 ```markdown
 # Demo — Feature Overview
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/OWNER/REPO/blob/main/docs/notebooks/demo_foo.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jejjohnson/kernellib/blob/main/docs/notebooks/demo_foo.ipynb)
 
 <one-paragraph summary>
 
@@ -152,7 +152,7 @@ Every notebook opens with a `#`-level title and a Colab badge pointing at its `m
 
 ## First Code Cell — Colab Detection + Install
 
-Detect Colab, install the package only when needed (substitute `OWNER/REPO` with the actual GitHub owner and repository name):
+Detect Colab, install the package only when needed:
 
 ```python
 import subprocess
@@ -173,7 +173,7 @@ if IN_COLAB:
             "pip",
             "install",
             "-q",
-            "kernellib @ git+https://github.com/OWNER/REPO@main",
+            "kernellib @ git+https://github.com/jejjohnson/kernellib@main",
         ],
         check=True,
     )
@@ -244,7 +244,7 @@ The `[docs]` dependency group pulls in `watermark`, so under the documented auth
 
 ## Markdown Paragraph Wrapping
 
-**Each paragraph in a `# %% [markdown]` block must be a single long line.** Do not soft-wrap paragraph text across multiple `#` lines. jupytext preserves source newlines as soft breaks, which mkdocs-jupyter renders as awkward visual breaks.
+**Each paragraph in a `# %% [markdown]` block must be a single long line.** Do not soft-wrap paragraph text across multiple `#` lines. jupytext preserves source newlines as soft breaks, which the docs render as awkward visual breaks.
 
 Right:
 
@@ -280,7 +280,7 @@ Display:
 $$f(x) = \sum_{i=1}^{N} w_i \phi_i(x)$$
 ```
 
-MathJax is configured in `mkdocs.yml` — both inline and display math render in the docs.
+mystmd renders both inline and display math in the prose half (notebooks included); no extra configuration is needed.
 
 ## Checklist for New Notebooks
 

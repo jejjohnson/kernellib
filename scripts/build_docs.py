@@ -44,6 +44,9 @@ MYST_DIR = REPO / "docs"
 MYST_OUT = MYST_DIR / "_build" / "html"
 PUBLIC = REPO / "public"
 API_SUBDIR = "reference"
+# Plain files served at the site root, next to the prose pages. mystmd publishes
+# only pages it renders, so these are copied in by `assemble`.
+ROOT_FILES = ("llms.txt",)
 
 # Must match `references.api` in docs/myst.yml. mystmd only loads intersphinx
 # inventories over http(s), so the freshly built MkDocs output is served here
@@ -358,6 +361,8 @@ def assemble(base_url: str) -> list[str]:
         shutil.rmtree(PUBLIC)
     shutil.copytree(MYST_OUT, PUBLIC)
     shutil.copytree(MKDOCS_OUT, PUBLIC / API_SUBDIR)
+    for name in ROOT_FILES:
+        shutil.copy2(MYST_DIR / name, PUBLIC / name)
 
     inventory = parse_inventory((MKDOCS_OUT / "objects.inv").read_bytes())
     mapping = anchor_case_map(inventory)

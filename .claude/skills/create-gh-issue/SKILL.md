@@ -1,3 +1,8 @@
+---
+name: create-gh-issue
+description: Open GitHub issues on this repo from the templates in .github/ISSUE_TEMPLATE/, with labels, milestone and relationships. Use when asked to file / open an issue (feature, design, bug, research, epic) or to publish drafted backlog issues.
+---
+
 Open GitHub issues using this project's issue templates, with correct labels, milestone, and relationships applied.
 
 Use this skill when the user asks to file an issue, open an issue, create a feature / design / bug / research / epic, or when publishing draft issues from a wave-backlog file into real GitHub issues. It pairs with `link-gh-issues` for applying native sub-issue and blocked-by links after creation.
@@ -5,7 +10,7 @@ Use this skill when the user asks to file an issue, open an issue, create a feat
 ## When to invoke
 
 - "Open an issue for X" / "file an issue about Y"
-- "Create a feature issue for the new `blr_full_rank` wrapper"
+- "Create a feature issue for a Gibbs kernel"
 - "Open an epic for Wave 2"
 - "Publish the drafts in `.plans/wave-1-backlog.md` as real issues"
 - "Convert this research note into a research issue"
@@ -44,7 +49,7 @@ Before opening any issue, confirm these five inputs with the user (or infer from
 
 1. **Template** — which of the six (see table above)
 2. **Title** — follow the template's title convention:
-   - Feature / chore: `<scope>: <short description>` — e.g. `feat(primitives): diagonal BLR update step`
+   - Feature / chore: `<scope>: <short description>` — e.g. `feat(kernels): Gibbs kernel`
    - Design: `[Design] <question>` — e.g. `[Design] per-parameter prior: pytree vs scalar`
    - Research: `research: <topic>` — e.g. `research: parallel-in-time filters vs this project`
    - Bug: `bug: <short description>`
@@ -90,24 +95,25 @@ Fill in sections according to the template's intent. **Minimum required sections
   ````
 
 - **Code-first, prose-last** — Design Snapshot and Proposed API should LEAD with the exact snippet the implementer will reproduce; prose goes after.
-- **Concrete implementation steps** — each step should name the file path + function, not a generic `...`. Example: `Add \`blr_diag_update_step\` in \`src/optax_bayes/_src/primitives.py\``
+- **Concrete implementation steps** — each step should name the file path + function, not a generic `...`. Example: `Add \`Gibbs\` in \`src/kernellib/_kernels/_nonstationary.py\``
 
 ### Step 4 — Pick labels
 
-Every issue carries exactly one `type:*`, one or more `area:*`, at most one `layer:*`, one `wave:*`, and one `priority:*`. Common combinations:
+Every issue carries exactly one `type:*`, one or more `area:*`, at most one `layer:*`, one `wave:*`, and one `priority:*`. Common combinations (add the `priority:*` and `wave:*` that fit):
 
 | Work type | Labels |
 |---|---|
-| L0 primitive implementation | `type:feature`, `area:algorithmic`, `layer:0-primitives`, `wave:N-…`, `priority:p1` |
-| L1 component implementation | `type:feature`, `area:algorithmic`, `layer:1-components`, `wave:N-…` |
-| L2 wrapper / public API | `type:feature`, `area:algorithmic`, `layer:2-models`, `wave:N-…` |
-| Test coverage | `type:feature`, `area:testing`, `wave:N-…` |
-| Notebook / docs page | `type:docs`, `area:docs`, `wave:N-…` |
-| Design / ADR | `type:design`, `area:algorithmic` (or `area:engineering`), `wave:N-…` |
-| Research / survey | `type:research`, `area:algorithmic` (or relevant area) |
-| Engineering / CI / packaging | `type:chore`, `area:engineering`, `wave:0-bootstrap` |
+| L0 primitive (a kernel, a `functional` function, a distance) | `type:feature`, `area:code`, `layer:0-primitives`, `wave:N`, `priority:p1` |
+| L1 component (an operator, a feature map, a graph builder, a heuristic) | `type:feature`, `area:code`, `layer:1-components`, `wave:N` |
+| L2 model / public API (an estimator, a dependence measure, an embedding, a scikit-learn adapter) | `type:feature`, `area:code`, `layer:2-models`, `wave:N` |
+| A new algorithm or estimator variant (derivation, convergence, bias) | add `area:algorithmic` |
+| Test coverage | `type:feature`, `area:testing`, `wave:N` |
+| Notebook / docs page | `type:docs`, `area:docs`, `wave:N` |
+| Design / ADR | `type:design`, `area:code` (or `area:engineering`), `wave:N` |
+| Research / survey | `type:research`, `area:algorithmic` (or the relevant area) |
+| Engineering / CI / packaging | `type:chore`, `area:engineering`, `wave:0` |
 
-Wave labels and milestones are project-specific — check `docs/contributing.md` or `boundaries.md` for the current roadmap before picking.
+The labels come from `.github/scripts/create-labels.sh` (`make gh-labels`): `type:*`, `area:{engineering,testing,docs,code,algorithmic}`, `dependencies`, `layer:{0-primitives,1-components,2-models}`, `wave:0`…`wave:4`, `priority:{p0,p1,p2}`. Check `docs/contributing.md` for the current waves and milestones before picking; `gh label list` shows what exists.
 
 ### Step 5 — Create the issue
 
@@ -117,10 +123,10 @@ Write the drafted body to a temporary file, then:
 
 ```bash
 gh issue create \
-  --title "feat(primitives): diagonal BLR update step" \
+  --title "feat(kernels): Gibbs kernel" \
   --body-file /tmp/issue-body.md \
-  --label "type:feature,area:algorithmic,layer:0-primitives,wave:1-diagonal,priority:p1" \
-  --milestone "v0.1-diagonal"
+  --label "type:feature,area:code,layer:0-primitives,wave:1,priority:p1" \
+  --milestone "v0.2-<slug>"
 ```
 
 Returns the new issue's URL; extract the number (e.g. `#42`) for the next step.
@@ -157,8 +163,8 @@ Confirm the filed issue by URL + a one-line summary. If opening multiple issues 
 
 ```
 Draft ID  → GH issue
-OBX-05    → #42   feat(primitives): ...
-OBX-06    → #43   feat(primitives): ...
+KL-05     → #42   feat(kernels): ...
+KL-06     → #43   feat(spectral): ...
 ```
 
 ## Bulk workflow — publishing a wave-backlog
@@ -171,19 +177,19 @@ When the user has a `.plans/<wave>-backlog.md` file drafted from `docs/templates
 4. **Open theme epics next** (so their numbers exist before feature / design issues reference them).
 5. **Open leaf issues** (feature / design / bug / research).
 6. **Record** the mapping `<PREFIX>-NN → #issue-number` as you go.
-7. **Replace draft-ID cross-references** in each issue's body with real GH numbers BEFORE creating (so `Parent: OBX-03` becomes `Parent: #41`, etc.). This requires two passes: parse all draft IDs first, create issues, then substitute. OR: create issues with draft IDs as placeholders, then `gh issue edit` each one to rewrite references after all are opened. Either works — the two-pass version keeps each created issue's body already clean.
+7. **Replace draft-ID cross-references** in each issue's body with real GH numbers BEFORE creating (so `Parent: KL-03` becomes `Parent: #41`, etc.). This requires two passes: parse all draft IDs first, create issues, then substitute. OR: create issues with draft IDs as placeholders, then `gh issue edit` each one to rewrite references after all are opened. Either works — the two-pass version keeps each created issue's body already clean.
 8. **Apply native links** using `link-gh-issues` for the whole wave once all issues exist.
 9. **Update the backlog file** — replace draft IDs with GH issue numbers throughout, or archive the file to `.plans/archive/`.
 
 ## Common pitfalls
 
-- **Missing label** — `gh issue create --label` fails silently if the label doesn't exist. Run `make gh-labels` first on a fresh repo.
+- **Missing label** — `gh issue create --label` fails ("could not add label") and creates nothing if the label doesn't exist. Run `make gh-labels` first on a fresh repo.
 - **Missing milestone** — same. `gh api repos/:owner/:repo/milestones --method POST -f title="vX.Y-<slug>"` to create.
 - **Template frontmatter in the body** — `gh issue create --body-file` renders the frontmatter block as literal text. Strip the `---` block before writing the temp file.
 - **Shell-escaped backticks** — do NOT escape backticks when passing a body via `--body`. Use `--body-file` with a temp file for any body containing code fences or backticks. Heredocs with single-quoted delimiters (`<<'EOF'`) also preserve backticks correctly.
-- **Wrong milestone number** — milestones are referenced by title (`--milestone "v0.1-diagonal"`), not number. `gh milestone list` (via `gh api`) to confirm titles exist.
+- **Wrong milestone number** — milestones are referenced by title (`--milestone "v0.2-<slug>"`), not number. `gh milestone list` (via `gh api`) to confirm titles exist.
 
 ## Related skills
 
-- [`link-gh-issues`](./link-gh-issues.md) — Apply native sub-issue and blocked-by links after issues are created. Invoke after this skill finishes creating issues.
-- [`squash-commit`](./squash-commit.md) — Generate a squash commit message when merging an issue's PR.
+- [`link-gh-issues`](../link-gh-issues/SKILL.md) — Apply native sub-issue and blocked-by links after issues are created. Invoke after this skill finishes creating issues.
+- [`squash-commit`](../squash-commit/SKILL.md) — Generate a squash commit message when merging an issue's PR.
