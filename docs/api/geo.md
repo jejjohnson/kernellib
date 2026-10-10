@@ -256,3 +256,22 @@ v_km = kl.empirical_variogram(
 ::: kernellib.empirical_variogram
 
 ::: kernellib.fit_variogram
+
+## Spherical-harmonic spectra
+
+An isotropic kernel on $\mathbb{R}^3$ restricted to a sphere of radius $R$ is
+zonal, $\kappa(t) = k(Ru, Rv)$ with $t = u \cdot v$, so the Funk–Hecke theorem
+gives it one spectral coefficient per spherical-harmonic degree. Two
+conventions are available:
+
+- ``convention="funk_hecke"`` (default, as in pyrox-gp):
+  $a_l = 2\pi \int_{-1}^{1} \kappa(t) P_l(t)\, dt$, the eigenvalue on each
+  degree-$l$ harmonic, with $\kappa(t) = \sum_l \frac{2l + 1}{4\pi} a_l P_l(t)$;
+- ``convention="legendre"``: $c_l = \frac{2l + 1}{4\pi} a_l$, the Legendre
+  series coefficients, $\kappa(t) = \sum_l c_l P_l(t)$.
+
+```python
+a = kl.funk_hecke_coefficients(kl.Matern(nu=1.5, lengthscale=0.3), l_max=40)
+```
+
+::: kernellib.funk_hecke_coefficients
