@@ -30,6 +30,7 @@ from geonnax.basis import gauss_legendre, legendre_polynomials
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange
+from kernellib._geo._chordal import Chordal
 from kernellib._kernels import AbstractKernel
 
 
@@ -101,9 +102,12 @@ def funk_hecke_coefficients(
 
     Args:
         kernel: Isotropic kernel on 3-D inputs. Any component with a
-            per-dimension (ARD) lengthscale is rejected.
+            per-dimension (ARD) lengthscale is rejected. A
+            [`Chordal`][kernellib.Chordal] wrapper is unwrapped: its inner
+            kernel is used on a sphere of the wrapper's ``radius``.
         l_max: Maximum degree, inclusive, ``>= 0``.
-        radius: Sphere radius $R$, in the kernel's input units.
+        radius: Sphere radius $R$, in the kernel's input units. Ignored for a
+            ``Chordal`` kernel, which carries its own radius.
         num_quadrature: Number of Gauss-Legendre nodes.
         convention: ``"funk_hecke"`` for $a_l$, ``"legendre"`` for $c_l$.
 
@@ -140,6 +144,8 @@ def funk_hecke_coefficients(
         raise ValueError(
             f"convention must be 'funk_hecke' or 'legendre', got {convention!r}."
         )
+    if isinstance(kernel, Chordal):
+        kernel, radius = kernel.kernel, kernel.radius
     _reject_anisotropic(kernel)
 
     nodes, weights = gauss_legendre(num_quadrature)  # host-side constants

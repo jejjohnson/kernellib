@@ -167,3 +167,12 @@ def test_gradient_wrt_lengthscale_is_finite():
     g = jax.grad(total)(jnp.log(0.6))
     assert bool(jnp.isfinite(g))
     assert float(g) != 0.0
+
+
+def test_chordal_kernel_is_unwrapped():
+    inner = kl.Matern(nu=1.5, lengthscale=500.0, variance=1.5)
+    k = kl.Chordal(inner, radius=kl.EARTH_RADIUS_KM)
+    np.testing.assert_allclose(
+        kl.funk_hecke_coefficients(k, 20),
+        kl.funk_hecke_coefficients(inner, 20, radius=kl.EARTH_RADIUS_KM),
+    )
