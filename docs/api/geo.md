@@ -196,3 +196,34 @@ is `Matern(nu=0.5)`, and `GeneralizedCauchy(alpha=2, beta=b)` is
 ::: kernellib.functional.generalized_cauchy_kernel
 
 ::: kernellib.functional.wendland_kernel
+
+## Anisotropy
+
+`LinearTransform` evaluates a stationary kernel on a linearly mapped lag,
+$k(x, x') = k_0(A(x - x'))$. `GeometricAnisotropy` builds $A$ from rotation
+angles and minor/major axis ratios, $A = \operatorname{diag}(1, 1/a_1, \ldots)\,R^\top$:
+the correlation contours become an ellipse (2-D) or ellipsoid (3-D) whose
+major axis, at angle $\alpha$ counter-clockwise from the x-axis, carries the
+base kernel's lengthscale $\ell$, and whose minor axes carry $a_i \ell$.
+Unlike an ARD lengthscale, the axes need not be the coordinate axes. In 3-D
+$R = R_z(\alpha) R_y(\beta) R_x(\gamma)$ (yaw, pitch, roll).
+
+Both keep the spectral side in closed form,
+$S_A(\omega) = |\det A|^{-1} S_0(A^{-\top}\omega)$, with frequencies
+$\omega = A^\top \omega_0$, so `RandomFourierFeatures` and the RFF prior
+paths accept them. `OrthogonalRandomFeatures` and `FastFoodFeatures` need an
+isotropic density and refuse them.
+
+```python
+import jax.numpy as jnp
+import kernellib as kl
+
+# range 10 along a valley at 30°, 2.5 across it
+k = kl.GeometricAnisotropy.from_angles(
+    kl.Matern(nu=1.5, lengthscale=10.0), 30.0, 0.25, degrees=True
+)
+```
+
+::: kernellib.LinearTransform
+
+::: kernellib.GeometricAnisotropy

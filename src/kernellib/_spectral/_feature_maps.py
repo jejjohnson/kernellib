@@ -77,6 +77,17 @@ def _fitted_components(kernel: AbstractKernel | None) -> SpectralComponents:
     return components
 
 
+def _require_radial(components: SpectralComponents, name: str) -> None:
+    """Raise unless every part's unit spectral density is isotropic."""
+    for _, k in components:
+        if not k._radial_unit_spectrum:
+            raise NotImplementedError(
+                f"{name} draws only frequency lengths and needs an isotropic "
+                f"unit spectral density; {type(k).__name__} is anisotropic. "
+                "Use RandomFourierFeatures."
+            )
+
+
 def _cos_sin_features(
     kernel: AbstractKernel | None,
     omega: Float[Array, "F D"],
@@ -224,6 +235,7 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
             ValueError: If an ARD lengthscale does not match ``X``.
         """
         components = _require_spectral(kernel, type(self).__name__)
+        _require_radial(components, type(self).__name__)
         d = X.shape[-1]
         sizes = _split_features(self.n_features, len(components))
         keys = _part_keys(self.key, len(components))
@@ -294,6 +306,7 @@ class FastFoodFeatures(AbstractFeatureMap):
             ValueError: If an ARD lengthscale does not match ``X``.
         """
         components = _require_spectral(kernel, type(self).__name__)
+        _require_radial(components, type(self).__name__)
         d = X.shape[-1]
         sizes = _split_features(self.n_features, len(components))
         keys = _part_keys(self.key, len(components))

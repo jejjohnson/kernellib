@@ -7,6 +7,7 @@ degrees by default. See ``docs/api/geo.md`` and the distances in
 
 from __future__ import annotations
 
+from kernellib._geo._anisotropy import GeometricAnisotropy, LinearTransform
 from kernellib._geo._chordal import Chordal
 from kernellib._geo._great_circle import (
     AbstractGreatCircleKernel,
@@ -33,6 +34,7 @@ __all__ = [
     "Chordal",
     "Cubic",
     "GeneralizedCauchy",
+    "GeometricAnisotropy",
     "GreatCircleAskey",
     "GreatCircleCauchy",
     "GreatCircleExponential",
@@ -40,6 +42,7 @@ __all__ = [
     "GreatCircleSpherical",
     "GreatCircleWendland",
     "HoleEffect",
+    "LinearTransform",
     "Pentaspherical",
     "Spherical",
     "Stable",
