@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Callable, Sequence
-from typing import NamedTuple
+from typing import ClassVar, NamedTuple
 
 import equinox as eqx
 import jax
@@ -291,6 +291,10 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
         return self.variance * jnp.ones(X.shape[0], dtype=X.dtype)
 
     # -- spectral side ------------------------------------------------------
+
+    # Whether the unit density is a function of |ω| alone. Orthogonal and
+    # FastFood features draw only frequency lengths and need it.
+    _radial_unit_spectrum: ClassVar[bool] = True
 
     def unit_spectral_density(
         self, omega_sq: Float[Array, ...], d: int
