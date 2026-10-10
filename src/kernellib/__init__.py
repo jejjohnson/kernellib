@@ -162,11 +162,13 @@ from kernellib._spectral import (
     evaluate_rff_cosine_paths,
     select_landmarks,
 )
+from kernellib.functional._geo import EARTH_RADIUS_KM
 
 
 __version__ = "0.0.18"
 
 __all__ = [
+    "EARTH_RADIUS_KM",
     "KRR",
     "RBF",
     "AbstractEstimator",

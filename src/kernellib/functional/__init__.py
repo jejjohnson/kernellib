@@ -16,6 +16,12 @@ Examples:
 from __future__ import annotations
 
 from kernellib.functional._compose import kernel_add, kernel_mul
+from kernellib.functional._geo import (
+    EARTH_RADIUS_KM,
+    chordal_distance,
+    great_circle_distance,
+    lonlat_to_unit,
+)
 from kernellib.functional._graph import graph_heat_spectrum, graph_matern_spectrum
 from kernellib.functional._mixed_precision import stable_rbf_kernel
 from kernellib.functional._nonstationary import (
@@ -43,19 +49,23 @@ from kernellib.functional._statistics import (
 
 
 __all__ = [
+    "EARTH_RADIUS_KM",
     "center_cross_kernel",
     "center_kernel",
     "centering_operator",
+    "chordal_distance",
     "cka",
     "constant_kernel",
     "cosine_kernel",
     "distance_kernel",
     "graph_heat_spectrum",
     "graph_matern_spectrum",
+    "great_circle_distance",
     "hsic",
     "kernel_add",
     "kernel_mul",
     "linear_kernel",
+    "lonlat_to_unit",
     "matern_kernel",
     "mmd_squared",
     "periodic_kernel",
