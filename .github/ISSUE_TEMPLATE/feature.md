@@ -146,7 +146,7 @@ apply the native link so GitHub's UI (sub-issue panel, dependency graph,
   Related:     → No native feature; mention only.
 
 For bulk / scripted linking see `.github/scripts/link-issues.sh` or the
-`link-gh-issues` Claude Code skill (.claude/commands/link-gh-issues.md).
+`link-gh-issues` Claude Code skill (.claude/skills/link-gh-issues/SKILL.md).
 -->
 - Parent (theme epic): #
 - Blocked by: #

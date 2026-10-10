@@ -1,0 +1,43 @@
+# kernellib
+
+> Kernels and scalable kernel methods for JAX, built on gaussx. Kernels are Equinox modules whose hyperparameters are array leaves; every Gram matrix becomes a gaussx linear operator (dense, structured or matrix-free), so solves, log-determinants and preconditioners come from gaussx. On top sit spectral densities and feature maps (random Fourier, orthogonal, FastFood, Nyström, Hilbert-space), kernel ridge regression at scale (KRR, Falkon, EigenPro), dependence measures (HSIC, CKA, MMD, distance correlation, permutation tests), graphs, graph kernels and kernel eigenmaps, and optional scikit-learn adapters. Use these instead of hand-writing distance matrices, Cholesky solves of K + σ²I, random features or HSIC estimators.
+
+One package, `kernellib` (import `kernellib as kl`), installed from GitHub: `uv add "kernellib @ git+https://github.com/jejjohnson/kernellib.git"`; extras `[sklearn]` (the `kernellib.sklearn` adapters) and `[neighbors]` (approximate nearest neighbours). Priors and GP models live in pyrox-gp, which wraps these kernels. Before writing a helper, search the capability index — every public name with a one-line summary, plus gaussx and geonnax. Code you add should keep three rules:
+
+- **Hyperparameters are leaves:** build kernels with array hyperparameters (`kl.RBF(lengthscale=ell)`) and rebuild rather than mutate them, so `jax.grad` reaches them through fits.
+- **Solves through gaussx:** `gaussx.solve(kl.to_operator(kernel, X, noise=s2), y)`, never `cho_solve` on a Gram; `implicit=True` and an iterative strategy (or `kl.KRR(preconditioner=...)`) for large N.
+- **Fits return new objects, randomness takes keys:** `KRR(...).fit(X, y)` and `RandomFourierFeatures(R, key).fit(kernel, X)` return fitted copies; every random routine takes an explicit key.
+
+Claude Code users can install the `kernellib` plugin: `/plugin marketplace add jejjohnson/kernellib`, then `/plugin install kernellib@kernellib`.
+
+## Start here
+
+- [Home](https://jejjohnson.github.io/kernellib/): what kernellib owns, how it sits on gaussx and geonnax
+- [Architecture](https://jejjohnson.github.io/kernellib/architecture/): the layers, the kernel / operator / feature-map / estimator contracts
+- [Capability index](https://jejjohnson.github.io/kernellib/reference/capabilities/): every public name, grouped by module, with a summary; then gaussx and geonnax
+- [Building with agents](https://jejjohnson.github.io/kernellib/agents/): the Claude Code plugin, this file, and rules to paste into your project's AGENTS.md
+- [Kernels and JAX](https://jejjohnson.github.io/kernellib/kernels-and-jax/): derivatives, gradients and transforms through kernels
+
+## API reference
+
+- [Overview](https://jejjohnson.github.io/kernellib/reference/)
+- [Kernels](https://jejjohnson.github.io/kernellib/reference/kernels/): kernel classes, composition, derivative kernels, `to_operator`
+- [Functional](https://jejjohnson.github.io/kernellib/reference/functional/): kernels and statistics as pure functions on arrays
+- [Operators](https://jejjohnson.github.io/kernellib/reference/operators/): dense, implicit and low-rank kernel operators
+- [Spectral](https://jejjohnson.github.io/kernellib/reference/spectral/): spectral densities, random-feature and Nyström maps, landmarks
+- [Heuristics](https://jejjohnson.github.io/kernellib/reference/heuristics/): lengthscale estimates and grids
+- [Regression](https://jejjohnson.github.io/kernellib/reference/regression/): KRR, Falkon, EigenPro
+- [Dependence](https://jejjohnson.github.io/kernellib/reference/dependence/): HSIC, CKA, MMD, distance correlation, permutation tests
+- [Graphs](https://jejjohnson.github.io/kernellib/reference/graph/): graph builders, Laplacians, graph kernels
+- [Decomposition](https://jejjohnson.github.io/kernellib/reference/decomposition/): kernel PCA, eigenmaps, projections
+- [scikit-learn](https://jejjohnson.github.io/kernellib/reference/sklearn/): the optional adapters
+
+## Optional
+
+- [Kernel approximations](https://jejjohnson.github.io/kernellib/kernel-approximations/)
+- [Matrix-free GP regression](https://jejjohnson.github.io/kernellib/matrix-free-gp/)
+- [Regression at scale](https://jejjohnson.github.io/kernellib/regression-at-scale/)
+- [Similarity measures](https://jejjohnson.github.io/kernellib/similarity-measures/)
+- [Kernel PCA, graph kernels and eigenmaps](https://jejjohnson.github.io/kernellib/graph-embeddings/)
+- [scikit-learn workflows](https://jejjohnson.github.io/kernellib/sklearn-workflows/)
+- [Source code](https://github.com/jejjohnson/kernellib)
