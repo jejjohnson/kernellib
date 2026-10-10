@@ -481,3 +481,35 @@ Phi = sf.fit(k, X_lonlat)(X_lonlat)  # (N, 11)
 ```
 
 ::: kernellib.SlepianFeatures
+
+## Seasonal and diurnal cycles
+
+`Periodic` has no spectral density, so random Fourier features do not apply,
+but it has an exact Fourier series. With $z = 1/\ell^2$ and $\omega = 2\pi/p$,
+the Jacobi–Anger expansion gives (Solin & Särkkä, 2014)
+
+$$
+k(\tau) = \sigma^2 e^{-z} e^{z \cos\omega\tau}
+= q_0 + \sum_{k \ge 1} q_k \cos(k\omega\tau),
+\qquad q_0 = \sigma^2 \tilde I_0(z),\quad q_k = 2\sigma^2 \tilde I_k(z),
+$$
+
+with $\tilde I_k(z) = e^{-z} I_k(z)$ the exponentially scaled modified Bessel
+functions. `PeriodicFeatures(K)` truncates it at $K$ harmonics: $2K + 1$
+deterministic features $[\sqrt{q_0}, \sqrt{q_k}\cos k\omega x,
+\sqrt{q_k}\sin k\omega x]$, so the periodic part of a model on $N$ points costs
+$O(NK)$. `truncation_tail()` is the relative variance dropped,
+$1 - \sum_{k \le K} q_k / \sigma^2$; a short lengthscale needs
+$K \approx 7/\ell$ for a tail below $10^{-12}$ (table in the class
+docstring). Inputs are 1-D only; for multi-dimensional periodicity use
+`Periodised`.
+
+```python
+k = kl.Periodic(lengthscale=0.5, period=365.25)  # annual cycle, t in days
+T = einx.id("n -> n 1", t)
+pf = kl.PeriodicFeatures(n_harmonics=20).fit(k, T)
+pf.truncation_tail()  # ~2e-15
+Phi = pf(T)  # (N, 41)
+```
+
+::: kernellib.PeriodicFeatures
