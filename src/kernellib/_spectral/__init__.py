@@ -15,6 +15,7 @@ from kernellib._spectral._funk_hecke import funk_hecke_coefficients
 from kernellib._spectral._graph import GraphEigenFeatures
 from kernellib._spectral._landmarks import select_landmarks
 from kernellib._spectral._laplace import LaplaceEigenfunctionFeatures
+from kernellib._spectral._mesh import MeshLaplaceFeatures
 from kernellib._spectral._periodic import PeriodicFeatures
 from kernellib._spectral._rff import draw_rff_cosine_basis, evaluate_rff_cosine_paths
 from kernellib._spectral._slepian import SlepianFeatures
@@ -26,6 +27,7 @@ __all__ = [
     "FastFoodFeatures",
     "GraphEigenFeatures",
     "LaplaceEigenfunctionFeatures",
+    "MeshLaplaceFeatures",
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "PeriodicFeatures",

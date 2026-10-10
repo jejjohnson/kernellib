@@ -615,3 +615,61 @@ trajectories) is out of scope; it belongs with plumax's forward models.
 ::: kernellib.Advected
 
 ::: kernellib.RandomAdvectionRBF
+
+## Kernels on a triangle mesh
+
+For a field on a domain that is neither a box nor the sphere (an ocean basin
+bounded by a coastline, a lake, terrain), `MeshMatern` and `MeshHeat` build the
+intrinsic kernel from a triangle mesh of the domain (Borovitskiy et al. 2020,
+§4). With the P1 stiffness $G$ and lumped mass $C$ of `gaussx.fem_matrices`,
+the generalised eigenproblem $G\varphi = \lambda C\varphi$ is solved once, at
+construction, through $S = C^{-1/2} G C^{-1/2}$, giving
+$C$-orthonormal eigenvectors ($\varphi^\top C \varphi = I$). The kernel is
+
+$$
+k(v, w) = \frac{\sigma^2}{Z} \sum_{j \le M} \Phi(\lambda_j)\,
+\varphi_j(v)\,\varphi_j(w), \qquad Z = \frac{1}{A}\sum_{j \le M} \Phi(\lambda_j),
+$$
+
+with $A = \operatorname{tr} C$ the mesh area, so the area-weighted mean
+variance is $\sigma^2$, and the spectra are those of the sphere kernels:
+$(2\nu/\ell^2 + \lambda)^{-(\nu + 1)}$ (Matérn, $d = 2$) and
+$\exp(-\ell^2\lambda/2)$ (heat). Open boundaries get natural (Neumann)
+conditions from the FEM, so correlation flows around a peninsula, not across
+it. Inputs are ``(N, 1)`` vertex indices, or ``(N, D)`` points on the mesh,
+interpolated barycentrically with `gaussx.fem_projector` (host point location,
+so concrete points only).
+
+- `method="dense"` runs `eigh` on the $V \times V$ matrix (up to a few
+  thousand vertices); `method="lanczos"` runs residual-checked Lanczos,
+  matrix-free in the sparse stiffness, as `laplacian_eigpairs` does.
+- FEM eigenvalues converge as $O(h^2)$ in the mesh width: on a level-4
+  icosphere the $l \le 4$ eigenvalues are within 1 % of $l(l+1)$, and
+  `MeshMatern` is within 1 % (relative Frobenius) of `SphereMatern` at the
+  same truncation.
+- The eigenbasis is a constant of the kernel: gradients flow to
+  `lengthscale` and `variance`, and `eqx.tree_at` on them never re-solves.
+
+`MeshLaplaceFeatures` turns the expansion into $M$ deterministic features
+$\sqrt{s_j}\,\varphi_j(x)$ (`spectral_weights`), exact at the kernel's own
+`n_components`.
+
+```python
+import einx
+import jax.numpy as jnp
+import kernellib as kl
+
+k = kl.MeshMatern(vertices, triangles, lengthscale=50.0, nu=1.5, n_components=200)
+X = einx.id("n -> n 1", jnp.arange(vertices.shape[0]))  # vertex indices
+K = k(X, X)
+k_obs = k(obs_xy, obs_xy)  # points inside the mesh
+Phi = kl.MeshLaplaceFeatures(inputs="points").fit(k, obs_xy)(obs_xy)  # (N, 200)
+```
+
+::: kernellib.AbstractMeshKernel
+
+::: kernellib.MeshMatern
+
+::: kernellib.MeshHeat
+
+::: kernellib.MeshLaplaceFeatures

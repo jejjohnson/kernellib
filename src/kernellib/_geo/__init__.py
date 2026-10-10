@@ -19,6 +19,7 @@ from kernellib._geo._great_circle import (
     GreatCircleSpherical,
     GreatCircleWendland,
 )
+from kernellib._geo._mesh import AbstractMeshKernel, MeshHeat, MeshMatern
 from kernellib._geo._models import (
     Cubic,
     GeneralizedCauchy,
@@ -41,6 +42,7 @@ from kernellib._geo._variogram import Variogram, empirical_variogram, fit_variog
 
 __all__ = [
     "AbstractGreatCircleKernel",
+    "AbstractMeshKernel",
     "AbstractSphereSeriesKernel",
     "Advected",
     "Chordal",
@@ -56,6 +58,8 @@ __all__ = [
     "GreatCircleWendland",
     "HoleEffect",
     "LinearTransform",
+    "MeshHeat",
+    "MeshMatern",
     "Pentaspherical",
     "RandomAdvectionRBF",
     "SphereHeat",
