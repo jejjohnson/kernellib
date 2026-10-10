@@ -48,6 +48,7 @@ from kernellib._dependence import (
     permutation_test,
     taylor_statistics,
 )
+from kernellib._geo import Chordal
 from kernellib._graph import (
     AbstractGraph,
     Graph,
@@ -179,6 +180,7 @@ __all__ = [
     "AbstractStationaryKernel",
     "ActiveDims",
     "CKAAccumulator",
+    "Chordal",
     "Constant",
     "Cosine",
     "Derivative",
