@@ -445,6 +445,7 @@ sh = kl.SphericalHarmonicFeatures(max_degree=40).fit(chordal, X_lonlat)
     cheaper.
 
 ::: kernellib.SphericalHarmonicFeatures
+
 ## Slepian features
 
 For data on one region of the globe, `SlepianFeatures` approximates a zonal

@@ -172,3 +172,16 @@ def test_gradient_reaches_the_lengthscale():
 
     g = eqx.filter_grad(loss)(jnp.asarray(0.5))
     assert jnp.isfinite(g) and g != 0.0
+
+
+def test_sphere_series_spectrum_matches_funk_hecke():
+    # The closed-form degree spectrum must equal the quadrature one: the
+    # kernel is a degree-8 polynomial in t, integrated exactly by 256 nodes.
+    from kernellib._spectral._slepian import _degree_coefficients
+
+    k = kl.SphereMatern(lengthscale=0.5, nu=1.5, max_degree=8)
+    a = _degree_coefficients(k, 10, 256)
+    a_fh = kl.funk_hecke_coefficients(k, 10)
+    assert a.shape == (11,)
+    assert jnp.allclose(a, a_fh, rtol=1e-10, atol=1e-12)
+    assert jnp.all(a[9:] == 0.0)

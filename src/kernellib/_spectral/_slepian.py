@@ -39,6 +39,7 @@ from geonnax.basis import (
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange
+from kernellib._geo._sphere_series import AbstractSphereSeriesKernel
 from kernellib._kernels import AbstractKernel
 from kernellib._spectral._base import AbstractFeatureMap
 from kernellib._spectral._funk_hecke import funk_hecke_coefficients
@@ -57,10 +58,17 @@ def _degree_coefficients(
 ) -> Float[Array, " L"]:
     """Per-degree spectrum ``a_l`` (Funk-Hecke convention), ``l = 0..l_max``.
 
-    The single place a zonal kernel becomes its degree spectrum, so kernels
-    with a closed-form series can be special-cased here later. For now every
-    kernel goes through `funk_hecke_coefficients` (which unwraps `Chordal`).
+    The single place a zonal kernel becomes its degree spectrum. A sphere-series
+    kernel uses its closed-form `degree_spectrum` (Legendre convention
+    $c_l$, so $a_l = 4\pi c_l / (2l + 1)$), zero beyond its ``max_degree``;
+    every other kernel goes through `funk_hecke_coefficients` (which unwraps
+    `Chordal`).
     """
+    if isinstance(kernel, AbstractSphereSeriesKernel):
+        c = kernel.degree_spectrum()[: l_max + 1]
+        c = jnp.pad(c, (0, l_max + 1 - c.shape[0]))
+        ell = jnp.arange(l_max + 1, dtype=c.dtype)
+        return 4.0 * math.pi * c / (2.0 * ell + 1.0)
     return funk_hecke_coefficients(
         kernel, l_max, radius=radius, num_quadrature=num_quadrature
     )
