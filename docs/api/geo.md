@@ -513,3 +513,51 @@ Phi = pf(T)  # (N, 41)
 ```
 
 ::: kernellib.PeriodicFeatures
+
+## Space–time
+
+`Gneiting` is the non-separable space–time covariance of Gneiting (2002),
+eq. (14). Inputs are ``(N, space_dims + 1)``: the spatial coordinates, then
+the time. For a spatial lag $h \in \mathbb{R}^d$ and a time lag
+$u \in \mathbb{R}$,
+
+$$
+C(h, u) = \frac{\sigma^2}{\psi(u)^{\tau}}
+\exp\!\left(-\frac{c\,\lVert h\rVert^{2\gamma}}{\psi(u)^{\beta\gamma}}\right),
+\qquad \psi(u) = a|u|^{2\alpha} + 1,
+$$
+
+with $c = \ell_s^{-2\gamma}$, $a = \ell_t^{-2\alpha}$, and positive
+definiteness for $\alpha, \gamma \in (0, 1]$, $\beta \in [0, 1]$,
+$\tau \ge d/2$ (the default $\tau$).
+
+The separability $\beta$ is the space–time interaction: the effective spatial
+range at time lag $u$ is $\ell_s\,\psi(u)^{\beta/2}$, so the spatial
+correlation decays more slowly between distant times. $\beta = 0$ is the
+separable product of a spatial `Stable` and a temporal `GeneralizedCauchy`:
+
+```python
+sep = kl.Product(
+    kl.ActiveDims(kl.Stable(alpha=2 * gamma, lengthscale=ls), dims=(0, 1)),
+    kl.ActiveDims(
+        kl.GeneralizedCauchy(alpha=2 * alpha, beta=2 * alpha * tau, lengthscale=lt),
+        dims=(2,),
+    ),
+)  # == kl.Gneiting(space_dims=2, beta=0.0, ...)
+```
+
+`beta` is a trainable array (`alpha`, `gamma` and `tau` are static); keep it
+in $[0, 1]$ while optimising with a reparameterisation such as
+`beta = jax.nn.sigmoid(z)`. For global data, map ``(lon, lat)`` to 3-D
+points (`kl.functional.lonlat_to_unit`, times the radius) and use
+``space_dims=3``: a kernel valid on $\mathbb{R}^3 \times \mathbb{R}$ stays
+valid restricted to the sphere, with the chordal distance as $\lVert h\rVert$.
+The version on great-circle distance (Porcu, Bevilacqua & Genton 2016) has
+its own validity conditions and is not implemented.
+
+```python
+k = kl.Gneiting(space_dims=2, space_lengthscale=50.0, time_lengthscale=3.0, beta=0.7)
+K = k(X, X)  # X: (N, 3) of (x_km, y_km, t_days)
+```
+
+::: kernellib.Gneiting
