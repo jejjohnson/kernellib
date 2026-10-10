@@ -48,7 +48,16 @@ from kernellib._dependence import (
     permutation_test,
     taylor_statistics,
 )
-from kernellib._geo import Chordal
+from kernellib._geo import (
+    AbstractGreatCircleKernel,
+    Chordal,
+    GreatCircleAskey,
+    GreatCircleCauchy,
+    GreatCircleExponential,
+    GreatCirclePoweredExponential,
+    GreatCircleSpherical,
+    GreatCircleWendland,
+)
 from kernellib._graph import (
     AbstractGraph,
     Graph,
@@ -175,6 +184,7 @@ __all__ = [
     "AbstractEstimator",
     "AbstractFeatureMap",
     "AbstractGraph",
+    "AbstractGreatCircleKernel",
     "AbstractKernel",
     "AbstractPointwiseKernel",
     "AbstractStationaryKernel",
@@ -196,6 +206,12 @@ __all__ = [
     "FeatureKernel",
     "Graph",
     "GraphTopology",
+    "GreatCircleAskey",
+    "GreatCircleCauchy",
+    "GreatCircleExponential",
+    "GreatCirclePoweredExponential",
+    "GreatCircleSpherical",
+    "GreatCircleWendland",
     "GridGraph",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
