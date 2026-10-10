@@ -28,7 +28,7 @@ dependencies = [
     "lineax>=0.1.1",
     "gaussx>=0.6.1",
     # geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
-    "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.5",
+    "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.8",
 ]
 
 [project.optional-dependencies]

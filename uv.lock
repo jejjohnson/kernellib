@@ -809,8 +809,8 @@ dependencies = [
 
 [[package]]
 name = "geonnax"
-version = "0.0.5"
-source = { git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.5#4ba4e4b22a43106249636e103d00570eb4ceb7d2" }
+version = "0.0.8"
+source = { git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8#51555305c9b360fdd1a8f123d897c5d4dd8e95e5" }
 dependencies = [
     { name = "einops" },
     { name = "einx" },
@@ -1213,7 +1213,7 @@ requires-dist = [
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
     { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.1" },
-    { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.5" },
+    { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8" },
     { name = "jax", specifier = ">=0.10" },
     { name = "jaxlib", specifier = ">=0.10" },
     { name = "jaxtyping", specifier = ">=0.3" },
