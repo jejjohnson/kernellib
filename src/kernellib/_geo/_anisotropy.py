@@ -180,14 +180,17 @@ class _AbstractLinearTransform(AbstractStationaryKernel):
         """
         A = self._matrix()
         d = shape[-1]
-        if d != A.shape[0]:
+        if d != A.shape[1]:
             raise ValueError(
                 f"{type(self).__name__} has a {A.shape[0]}x{A.shape[1]} transform; "
                 f"got {d}-dimensional frequencies."
             )
+        # ω₀ lives in the transform's output space (A.shape[0]), which is
+        # the input space for a square A.
+        d0 = A.shape[0]
         omega0 = self.kernel.sample_unit_frequencies(
-            key, shape, dtype
-        ) / self.kernel._lengthscale_vector(d)
+            key, (*shape[:-1], d0), dtype
+        ) / self.kernel._lengthscale_vector(d0)
         omega = einsum(A, omega0, "i j, ... i -> ... j")
         return omega if dtype is None else omega.astype(dtype)
 

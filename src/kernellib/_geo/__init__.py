@@ -7,6 +7,7 @@ degrees by default. See ``docs/api/geo.md`` and the distances in
 
 from __future__ import annotations
 
+from kernellib._geo._advection import Advected, RandomAdvectionRBF
 from kernellib._geo._anisotropy import GeometricAnisotropy, LinearTransform
 from kernellib._geo._chordal import Chordal
 from kernellib._geo._great_circle import (
@@ -41,6 +42,7 @@ from kernellib._geo._variogram import Variogram, empirical_variogram, fit_variog
 __all__ = [
     "AbstractGreatCircleKernel",
     "AbstractSphereSeriesKernel",
+    "Advected",
     "Chordal",
     "Cubic",
     "GeneralizedCauchy",
@@ -55,6 +57,7 @@ __all__ = [
     "HoleEffect",
     "LinearTransform",
     "Pentaspherical",
+    "RandomAdvectionRBF",
     "SphereHeat",
     "SphereMatern",
     "SphereSeries",
