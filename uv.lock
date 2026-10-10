@@ -795,8 +795,8 @@ wheels = [
 
 [[package]]
 name = "gaussx"
-version = "0.6.1"
-source = { git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.1#56fa3521bc8ca2b25564ccfb5f5e068ef5133c10" }
+version = "0.6.5"
+source = { git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.5#12ff91a68da2886478e9b3a1d0d4c0745d74ca41" }
 dependencies = [
     { name = "einx" },
     { name = "equinox" },
@@ -805,6 +805,7 @@ dependencies = [
     { name = "jaxtyping" },
     { name = "lineax" },
     { name = "matfree" },
+    { name = "optimistix" },
 ]
 
 [[package]]
@@ -1212,7 +1213,7 @@ typecheck = [
 requires-dist = [
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
-    { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.1" },
+    { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.5" },
     { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8" },
     { name = "jax", specifier = ">=0.10" },
     { name = "jaxlib", specifier = ">=0.10" },
@@ -2069,6 +2070,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8c/f9/e3d11ae6f298ee941a0690e353a323d158ba5dedc436e75621c310845c5c/optax-0.2.8.tar.gz", hash = "sha256:5b225b35066fc3eebaa4d798f1b4173b4d57d1a480610908981f8343b50af0b0", size = 301193, upload-time = "2026-03-20T23:30:05.465Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8a/69/6a93d8600c339d7687a05857c7907bd4dd8cf88691a5ea106d7a50af90a1/optax-0.2.8-py3-none-any.whl", hash = "sha256:e3ca2d36c99daab1800ae9dbc0545034382d6bc780b24d969e1b0df65fa31cb4", size = 402960, upload-time = "2026-03-20T23:30:03.886Z" },
+]
+
+[[package]]
+name = "optimistix"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "equinox" },
+    { name = "jax" },
+    { name = "jaxtyping" },
+    { name = "lineax" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/0b/3bdc0e698cb0d264e5dca0b5bb171342a950a43fa6e046d8c57189298422/optimistix-0.1.0.tar.gz", hash = "sha256:f05c9104748e87e1dc10a0b4a2be94e427f98c3eab0b1d41ea24a593d76be03d", size = 70164, upload-time = "2026-02-16T13:35:43.991Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/53/6a81a6ebb1739f19c32002139719d4ee021a349d5bdbe066910feed327a1/optimistix-0.1.0-py3-none-any.whl", hash = "sha256:c8edda7bf7fe48839c93fcd72bce750c950ed9f7033158303150b7ab395add81", size = 101740, upload-time = "2026-02-16T13:35:42.971Z" },
 ]
 
 [[package]]
