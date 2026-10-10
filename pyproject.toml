@@ -26,7 +26,7 @@ dependencies = [
     "jaxtyping>=0.3",
     "einx>=0.4.3",
     "lineax>=0.1.1",
-    "gaussx>=0.6.1",
+    "gaussx>=0.6.5",
     # geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
     "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.5",
 ]
@@ -85,7 +85,7 @@ docs = [
 [tool.uv.sources]
 # gaussx is not yet on PyPI; resolve the release tag from GitHub. The
 # `>=` floor in `dependencies` is what a PyPI release will satisfy later.
-gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.6.1" }
+gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.6.5" }
 # pipekit is a docs-only dependency, pinned by release tag (roadmap decision 7).
 pipekit-train = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit-train" }
 pipekit = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit" }
