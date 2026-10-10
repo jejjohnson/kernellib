@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.19](https://github.com/jejjohnson/kernellib/compare/v0.0.18...v0.0.19) (2026-10-10)
+
+
+### Features
+
+* **geo:** add great_circle_distance, chordal_distance and EARTH_RADIUS_KM (GEO1) ([#231](https://github.com/jejjohnson/kernellib/issues/231)) ([eef64d2](https://github.com/jejjohnson/kernellib/commit/eef64d2dc337565ba6bdcad15b4359d9803e13e2))
+* **geo:** add great-circle kernels positive definite on the sphere (GEO3) ([#233](https://github.com/jejjohnson/kernellib/issues/233)) ([aeeda87](https://github.com/jejjohnson/kernellib/commit/aeeda8760940117ad2e131ccf74f9df3a17dcf43))
+* **geo:** add LinearTransform and GeometricAnisotropy kernel wrappers (GEO6) ([#236](https://github.com/jejjohnson/kernellib/issues/236)) ([3ad116e](https://github.com/jejjohnson/kernellib/commit/3ad116ed874c0656b112e6a1fd8f2cb334993945))
+* **geo:** add the Chordal kernel wrapper for lon/lat inputs (GEO2) ([#232](https://github.com/jejjohnson/kernellib/issues/232)) ([388e636](https://github.com/jejjohnson/kernellib/commit/388e636536616e35e7657b9056fb6a2cb9c0ad9f))
+* **geo:** classical geostatistics covariance models (GEO5) ([#235](https://github.com/jejjohnson/kernellib/issues/235)) ([20bb87b](https://github.com/jejjohnson/kernellib/commit/20bb87bd69dc35bc4f2b3d144faffbe9968773cc))
+* **geo:** empirical_variogram and fit_variogram (GEO7) ([#237](https://github.com/jejjohnson/kernellib/issues/237)) ([676ff01](https://github.com/jejjohnson/kernellib/commit/676ff015ed1a2f006040356417e98be7945bb0ca))
+* **geo:** great-circle metric for neighbour search and lengthscale heuristics (GEO4) ([#234](https://github.com/jejjohnson/kernellib/issues/234)) ([57827e6](https://github.com/jejjohnson/kernellib/commit/57827e63b0d21e72d2f38fa639460e79a1da1cea)), closes [#203](https://github.com/jejjohnson/kernellib/issues/203)
+* **spectral:** funk_hecke_coefficients for zonal kernels on the sphere (GEO18) ([#238](https://github.com/jejjohnson/kernellib/issues/238)) ([0e31c7f](https://github.com/jejjohnson/kernellib/commit/0e31c7fe36f2f321ca1099d324353da8626b31d1))
+
+
+### Bug Fixes
+
+* **regression:** adapt KRR to gaussx 0.6.4's solver defaults; pin gaussx v0.6.5 ([#229](https://github.com/jejjohnson/kernellib/issues/229)) ([4e329c6](https://github.com/jejjohnson/kernellib/commit/4e329c6b44b372cd8abe33f1624b329eac1c9bdf))
+
 ## [0.0.18](https://github.com/jejjohnson/kernellib/compare/v0.0.17...v0.0.18) (2026-10-08)
 
 
