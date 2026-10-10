@@ -313,3 +313,9 @@ def test_port_matches_the_myst_config() -> None:
         encoding="utf-8"
     )
     assert build_docs.API_ORIGIN in config
+
+
+@pytest.mark.parametrize("name", build_docs.ROOT_FILES)
+def test_root_files_exist(name: str) -> None:
+    """Every file `assemble` copies to the site root is in `docs/`."""
+    assert (build_docs.MYST_DIR / name).is_file()

@@ -1,6 +1,15 @@
 # Code Review Agent Instructions
 
-Standing instructions for **all** agents performing code reviews on this repository.
+Standing instructions for **all** agents performing code reviews on this
+repository. kernellib is a JAX kernel library: most defects worth finding are
+about **kernels and numerics** (a hyperparameter that silently stopped being
+differentiable, a Gram densified where a structured operator was available,
+a frequency sampler that is wrong in d > 1, a sampling test with a
+tolerance tuned on one draw) or **boundaries** (a core import of
+scikit-learn, a re-implemented gaussx primitive), not style. Read
+"Boundaries", "Reuse before you write" and "The contracts" in
+[`AGENTS.md`](AGENTS.md) first; this file is the checklist and the report
+format.
 
 ---
 
@@ -32,223 +41,159 @@ git --no-pager diff --no-prefix --unified=100000 --minimal "$BASE_BRANCH"...HEAD
 
 ## Review Checklist
 
-### 1. Code Style and Readability
+Skip anything ruff, ty or the tests already enforce (formatting, import
+order, `__all__` ordering, doctest output); review what they cannot see —
+including the einx convention, which no test enforces.
 
-- Clear, descriptive naming (variables, functions, classes, modules)
-- Appropriate function/method length (single responsibility)
-- Logical code organization and flow
-- Avoidance of deeply nested structures
-- Linting via **ruff** (`uv run --group lint ruff check .`) — lint the **entire repo**, not just the package
-- Type-hint checking via **ty** (`uv run --group typecheck ty check src/kernellib`)
+### 1. Reuse and boundaries
 
-> **Rule of thumb**: Sacrifice *cleverness* for *clarity*. Sacrifice *brevity* for *explicitness*.
-> Don't worry about formatting — our CI pipeline (ruff format, pre-commit) handles that automatically.
+- Every function, class or module the diff **adds** has been checked against
+  [`docs/api/capabilities.md`](docs/api/capabilities.md) (kernellib, gaussx,
+  geonnax). A re-implemented kernel, distance, feature map, landmark rule,
+  CG loop, preconditioner, centering, HSIC / MMD or graph builder is a
+  **High** finding, with the existing name to use.
+- No `numpyro` anywhere; no scikit-learn / pynndescent / optax import
+  reachable from `import kernellib` (only `kernellib.sklearn` and the
+  in-function neighbour backends); core code never imports `kernellib.sklearn`.
+- gaussx used through its public API only; geonnax for random-feature
+  arithmetic and bases; layers 0 → 1 → 2 without new upward imports.
+- Kernel defaults still match pyrox-gp; a breaking change carries a
+  deprecation.
 
-### 2. Modern Python Idioms (Python ≥ 3.12)
+### 2. Kernels
 
-- `from __future__ import annotations` at the top of every module
-- Type hints on **all** public functions, methods, and module-level variables
-- `pathlib.Path` over `os.path`
-- f-strings for string formatting
-- Walrus operator (`:=`) only when it genuinely improves readability
-- `match` statements for pattern matching where appropriate
-- Structural pattern matching for complex conditionals
-- Context managers (`with` statements) for resource handling
-- `dataclasses` or `attrs` for data containers
-- `Enum` for fixed sets of constants
-- Modern union syntax (`X | Y` instead of `Union[X, Y]`)
-- Modern optional syntax (`X | None` instead of `Optional[X]`)
-- Built-in generics (`list[int]`, `dict[str, Any]` instead of `List[int]`, `Dict[str, Any]`)
+- The right level (`AbstractKernel` / `AbstractPointwiseKernel` /
+  `AbstractStationaryKernel`); pointwise-ness read from `is_pointwise`, not
+  `isinstance`.
+- Hyperparameters are `eqx.field(default=..., converter=jnp.asarray)` array
+  leaves (no priors, transforms or constraints); code-path settings are
+  static; validation in `__check_init__`.
+- `diag` / `_gram_structure` overridden where a cheaper or structured form
+  exists.
+- Smooth-in-r² kernels use `_smooth_in_r2`; rough kernels are rejected by
+  `_check_differentiable`.
+- Spectral hooks (`unit_spectral_density`, `sample_unit_frequencies`) are
+  consistent with each other (the sampler reproduces the kernel) and draw
+  multivariate frequencies jointly.
+- `functional` signatures keep variance before lengthscale; the class
+  agrees with its `functional` twin; the kernel joins `ZOO`.
 
-### 3. Packaging and Project Structure
+### 3. Operators and feature maps
 
-- Proper `pyproject.toml` configuration (PEP 621)
-- Appropriate use of `__init__.py` exports
-- Clear module boundaries and dependencies
-- Correct use of relative vs absolute imports
-- Entry points defined properly for CLI tools
-- `src/` layout enforced
+- A new operator is in `_KERNEL_OPERATORS` and has an `lx.diagonal`
+  registration; its tags are true (symmetric / PSD only when they are).
+- Kernel → operator goes through `to_operator` / `to_cross_operator`; a
+  Gram-only kernel is not silently densified on an implicit path.
+- Feature maps: `fit(kernel, X)` returns a new map; static configuration;
+  unit-scale draws with hyperparameters read at call time; composites
+  accepted through `_require_spectral`; the PRNG field is `key`; the map
+  joins `RANDOM_MAPS` and gets a `kernellib.sklearn` adapter.
 
-### 4. Documentation
+### 4. Estimators
 
-- Module-level docstrings explaining purpose
-- Function/method docstrings for **all** public APIs (Google style — be consistent)
-- Inline comments explaining *why*, not *what* — except for complex logic or function calls where a brief *what* comment aids comprehension
-- Complex algorithms should have step-by-step explanations
-- All scientific algorithms should include Unicode equations in docstrings and inline where appropriate (e.g. `# σ² = Σ(xᵢ − μ)² / N`)
-- All docstrings for public classes and functions should include 2–3 example use cases
-- Type hints serve as documentation — ensure they are accurate and complete
+- Immutable `eqx.Module`; fitted fields default to `None`; `fit` returns a
+  new module; unfitted `predict` / `transform` raise `RuntimeError`.
+- Solves through gaussx strategies and preconditioners; convergence
+  reported (`n_iter`, `converged`), not assumed.
+- A `key` is required wherever the result depends on it.
+- The scikit-learn adapter (if any) stores parameters verbatim, returns
+  `self` from `fit`, ends fitted attributes in `_`, and is in the
+  `check_estimator` lists.
 
-### 5. Error Handling
+### 5. JAX numerics and einx
 
-- Specific exception types (never bare `except:`)
-- Custom exceptions for domain-specific errors
-- Helpful error messages with context
-- Proper exception chaining (`raise ... from ...`)
-- Early returns / guard clauses to reduce nesting
+- No Python control flow on traced values; eager-only builders say so.
+- Dtypes follow the input (`jnp.eye(n, dtype=X.dtype)`); a bare Python
+  scalar combined with an array is weakly typed and fine.
+- No `jnp.linalg.solve` / `inv` / `cholesky` on a kernel matrix where
+  `to_operator` + gaussx applies; no explicit inverse.
+- Gradients: `jnp.where` branches safe for NaN gradients (the double-where
+  in `_smooth_in_r2`); no hyperparameter turned static.
+- **einx**: contractions / transposes via `einsum`, reshapes via
+  `rearrange`, axis reductions via `reduce`, inserted-axis broadcasts via
+  `einx.<op>` — grep the diff for `axis=`, `[:, None]`, `[None, :]`, `.T`
+  and `reshape`.
 
-### 6. Testing Considerations
+### 6. Public API and documentation
 
-- Functions should be easily testable (pure functions where possible)
-- Dependencies should be injectable
-- Side effects should be isolated and explicit
-- Consider edge cases and boundary conditions
+- New names: in `__all__` (sorted, RUF022), on their `docs/api` page with a
+  `::: kernellib.<Name>` entry and a row in `docs/api/index.md`,
+  `docs/api/capabilities.md` regenerated; a new non-package module joins
+  `SUBMODULES`.
+- Docstrings: Google style, jaxtyping shapes, the formula, a reference for a
+  published method, an executable `Examples:` block whose expected output is
+  what the code prints (slow ones listed in `_SLOW_DOCTESTS`).
+- Prose pages use MyST directives and `xref:api#kernellib.<TopLevelName>`;
+  notebook basenames stay unique; new notebooks join the `docs/myst.yml` toc.
 
-### 7. Performance (when relevant)
+### 7. Tests
 
-- Appropriate data structures for the use case
-- Generator expressions for large sequences
-- Avoid premature optimization
-- Note O(n) implications for critical paths
+- Against a closed form, `functional`, a dense reference or a published
+  value; structured and dense paths agree.
+- Incidental randomness pinned; sampling behaviour bounded by its own
+  distribution, with the bound's source in a comment.
+- Tier markers right: unmarked under ~1 s, `slow` above, `integration` for
+  scikit-learn checks, optional backends and cross-library workflows.
 
-### 8. Security
+### 8. Modern Python and dependencies
 
-- No hardcoded secrets or credentials
-- Input validation and sanitization
-- Safe handling of file paths (no path traversal vulnerabilities)
-- Appropriate use of `subprocess` (avoid `shell=True`)
+- Type hints on every public function; `X | None`; specific exceptions with
+  `raise ... from ...`; guard clauses over deep nesting.
+- No new runtime dependency without discussion; optional ones behind an
+  extra and an in-function import that names it; `uv.lock` updated.
 
 ---
 
-## Package Preferences
+## kernellib-Specific Checks
 
-When reviewing dependency choices or suggesting alternatives, prefer these libraries:
-
-| Purpose | Preferred Package |
-|---------|-------------------|
-| Logging | `loguru` |
-| CLI | `cyclopts` |
-| Data containers | `dataclasses` (stdlib) or `attrs` |
-| Configuration | `hydra-core` / `omegaconf` |
-| Path handling | `pathlib` (stdlib) |
-| HTTP | `httpx` |
-| Testing | `pytest` |
-
-> The bundled demo package uses stdlib `argparse` for its CLI rather than
-> `cyclopts`, because the template advertises zero runtime dependencies.
-> Prefer `cyclopts` in a real project where a CLI dependency is acceptable.
-
----
-
-## Python-Specific Checks
-
-When reviewing, specifically verify the patterns below.
-
-### Type Hints
+### Hyperparameters are array leaves
 
 ```python
-# ❌ Missing type hints
-def process_data(items, threshold): ...
+# ❌ A Python float: static under eqx.partition, so to_operator(implicit=True)
+#    silently drops its gradient
+class MyKernel(AbstractStationaryKernel):
+    lengthscale: float = 1.0
+    variance: float = 1.0
 
 
-# ✅ Complete type hints
-def process_data(items: list[DataItem], threshold: float) -> ProcessedResult: ...
+# ✅ Array leaves, differentiable everywhere
+class MyKernel(AbstractStationaryKernel):
+    lengthscale: Float[Array, "*D"] = eqx.field(default=1.0, converter=jnp.asarray)
+    variance: Float[Array, ""] = eqx.field(default=1.0, converter=jnp.asarray)
 ```
 
-### Modern Syntax
+### Through the bridge, not dense LAPACK
 
 ```python
-# ❌ Old-style
-from typing import Optional, Union, List, Dict
+# ❌ Dense, untagged, no structure
+alpha = jnp.linalg.solve(kernel(X, X) + noise * jnp.eye(n), y)
 
-
-def fetch(id: Optional[int] = None) -> Union[Data, None]:
-    result: Dict[str, List[int]] = {}
-
-
-# ✅ Modern (Python 3.12+)
-from __future__ import annotations
-
-
-def fetch(id: int | None = None) -> Data | None:
-    result: dict[str, list[int]] = {}
+# ✅ PSD-tagged and structure-aware; swap in a CG strategy without touching the math
+alpha = gx.solve(kl.to_operator(kernel, X, noise=noise), y)
 ```
 
-### Dataclasses for Data Containers
+### Pointwise-ness is a property
 
 ```python
-# ❌ Plain class with boilerplate
-class Config:
-    def __init__(self, host: str, port: int, timeout: float = 30.0):
-        self.host = host
-        self.port = port
-        self.timeout = timeout
+# ❌ Composites (Sum, Scaled, ...) are AbstractKernels even when pointwise
+if isinstance(kernel, kl.AbstractPointwiseKernel):
+    ...
 
-
-# ✅ Dataclass
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-
-@dataclass
-class Config:
-    host: str
-    port: int
-    timeout: float = 30.0
+# ✅
+if kernel.is_pointwise:
+    ...
 ```
 
-### Path Handling
+### The einx convention
 
 ```python
-# ❌ os.path
-import os
+# ❌
+K_centered = K - K.mean(axis=0)[None, :]
+v = A.T @ x
 
-path = os.path.join(base_dir, "data", filename)
-if os.path.exists(path):
-    with open(path) as f:
-        ...
-
-# ✅ pathlib
-from pathlib import Path
-
-path = base_dir / "data" / filename
-if path.exists():
-    content = path.read_text()
-```
-
-### Exception Handling
-
-```python
-# ❌ Bare except, poor chaining
-try:
-    result = parse(data)
-except:
-    raise RuntimeError("Failed")
-
-# ✅ Specific exceptions, proper chaining
-try:
-    result = parse(data)
-except json.JSONDecodeError as e:
-    raise ParseError(f"Invalid JSON in {source}") from e
-```
-
-### Explanatory Comments for Complex Logic
-
-```python
-# ❌ No explanation for non-obvious algorithm
-def calculate_score(items):
-    return sum(i.weight * (1 - i.age / 365) for i in items if i.active)
-
-
-# ✅ Clear explanation of the logic
-def calculate_score(items: list[Item]) -> float:
-    """Calculate weighted score with time decay.
-
-    Score computation:
-        1. Filter to only active items
-        2. Apply time decay: items lose relevance linearly over one year
-        3. Weight each item's contribution by its assigned weight
-        4. Sum all weighted, decayed values
-    """
-    total = 0.0
-    for item in items:
-        if not item.active:
-            continue
-        # Time decay factor: 1.0 for new items → 0.0 after 365 days
-        decay_factor = 1 - (item.age / 365)
-        total += item.weight * decay_factor
-    return total
+# ✅
+K_centered = einx.subtract("i j, j -> i j", K, reduce(K, "i j -> j", "mean"))
+v = einsum(A, x, "j i, j -> i")
 ```
 
 ---
