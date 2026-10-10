@@ -275,3 +275,56 @@ a = kl.funk_hecke_coefficients(kl.Matern(nu=1.5, lengthscale=0.3), l_max=40)
 ```
 
 ::: kernellib.funk_hecke_coefficients
+
+## Tapering
+
+Covariance tapering (Furrer, Genton & Nychka 2006) multiplies a covariance
+elementwise by a compactly supported taper $T$,
+$K_{tap} = K \circ T$. By the Schur product theorem the result is positive
+semidefinite whenever $K$ and $T$ are; it keeps $K$'s short-range behaviour,
+which dominates kriging weights, and it is exactly zero beyond the taper's
+range. `tapered_operator` stores only the non-zeros, about $n \bar m$ of them
+for $\bar m$ neighbours per point, as a `gaussx.SparseOperator` that
+`gaussx.SparseCholeskySolver` factorises for exact solves and
+log-determinants.
+
+The sparsity pattern comes from `radius_neighbors` on the host (so `X` must be
+concrete); the values are traced and differentiable in the kernel's
+hyperparameters. Pass the `pattern` of an earlier result to skip the search,
+which also makes the call `jit`-compatible.
+
+```python
+import gaussx as gx
+import jax.numpy as jnp
+import kernellib as kl
+
+K = kl.tapered_operator(kl.Matern(lengthscale=0.2, nu=1.5), X, taper_range=0.3)
+K = K.add_diagonal(jnp.full(X.shape[0], noise))  # same symmetric pattern
+logdet = gx.SparseCholeskySolver().logdet(K)
+
+# (lon, lat) stations: a great-circle Wendland taper, range in kilometres
+K_geo = kl.tapered_operator(
+    kl.GreatCircleExponential(lengthscale=500.0, radius=kl.EARTH_RADIUS_KM),
+    X_lonlat,
+    taper_range=1000.0,
+    metric="great_circle",
+    radius=kl.EARTH_RADIUS_KM,
+)
+```
+
+!!! note "Choosing the taper"
+    The taper should be at least as smooth at the origin as the covariance
+    (Furrer et al. 2006, Thm 2.2 and §3). For a Matérn with smoothness $\nu$
+    in $d \le 3$, use `taper="wendland2"` (Wendland C²) for $\nu \le 1.5$ and
+    `taper="wendland4"` (C⁴) for $\nu \le 2.5$. The rule is documented, not
+    enforced. On the sphere the taper is `GreatCircleWendland`, which needs
+    `taper_range <= π · radius`.
+
+A point with more than `max_neighbors` neighbours within `taper_range`
+raises, naming the `max_neighbors` needed: silently dropping pairs would
+break positive definiteness. The one- and two-taper likelihood bias
+corrections (Kaufman, Schervish & Nychka 2008) are not included.
+
+::: kernellib.Tapered
+
+::: kernellib.tapered_operator
