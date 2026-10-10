@@ -170,6 +170,7 @@ from kernellib._spectral import (
     RandomFourierFeatures,
     draw_rff_cosine_basis,
     evaluate_rff_cosine_paths,
+    funk_hecke_coefficients,
     select_landmarks,
 )
 from kernellib.functional._geo import EARTH_RADIUS_KM
@@ -303,6 +304,7 @@ __all__ = [
     "fastfood_params",
     "fit_variogram",
     "functional",
+    "funk_hecke_coefficients",
     "gabriel_graph",
     "gamma_to_lengthscale",
     "graph_from_adjacency",
