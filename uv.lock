@@ -138,7 +138,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -810,8 +810,8 @@ dependencies = [
 
 [[package]]
 name = "geonnax"
-version = "0.0.5"
-source = { git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.5#4ba4e4b22a43106249636e103d00570eb4ceb7d2" }
+version = "0.0.8"
+source = { git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8#51555305c9b360fdd1a8f123d897c5d4dd8e95e5" }
 dependencies = [
     { name = "einops" },
     { name = "einx" },
@@ -1214,7 +1214,7 @@ requires-dist = [
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
     { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.5" },
-    { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.5" },
+    { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8" },
     { name = "jax", specifier = ">=0.10" },
     { name = "jaxlib", specifier = ">=0.10" },
     { name = "jaxtyping", specifier = ">=0.3" },
