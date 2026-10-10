@@ -17,15 +17,31 @@ from kernellib._geo._great_circle import (
     GreatCircleSpherical,
     GreatCircleWendland,
 )
+from kernellib._geo._models import (
+    Cubic,
+    GeneralizedCauchy,
+    HoleEffect,
+    Pentaspherical,
+    Spherical,
+    Stable,
+    Wendland,
+)
 
 
 __all__ = [
     "AbstractGreatCircleKernel",
     "Chordal",
+    "Cubic",
+    "GeneralizedCauchy",
     "GreatCircleAskey",
     "GreatCircleCauchy",
     "GreatCircleExponential",
     "GreatCirclePoweredExponential",
     "GreatCircleSpherical",
     "GreatCircleWendland",
+    "HoleEffect",
+    "Pentaspherical",
+    "Spherical",
+    "Stable",
+    "Wendland",
 ]
