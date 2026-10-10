@@ -82,6 +82,7 @@ nav:
   - Regression: regression.md
   - Graphs: graph.md
   - Decomposition: decomposition.md
+  - Geo: geo.md
   - scikit-learn: sklearn.md
 
 markdown_extensions:
