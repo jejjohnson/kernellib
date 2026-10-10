@@ -187,10 +187,12 @@ from kernellib._geo import (
     Pentaspherical,
     Spherical,
     Stable,
+    Tapered,
     Variogram,
     Wendland,
     empirical_variogram,
     fit_variogram,
+    tapered_operator,
 )
 
 
@@ -267,6 +269,7 @@ __all__ = [
     "Stable",
     "Stretch",
     "Sum",
+    "Tapered",
     "TaylorStatistics",
     "Variogram",
     "Warped",
@@ -344,6 +347,7 @@ __all__ = [
     "spatial_spectral_graph",
     "spatial_spectral_potential",
     "structure_matrix",
+    "tapered_operator",
     "taylor_statistics",
     "to_cross_operator",
     "to_operator",
