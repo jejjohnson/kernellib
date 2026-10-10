@@ -15,6 +15,7 @@ from kernellib._spectral._funk_hecke import funk_hecke_coefficients
 from kernellib._spectral._landmarks import select_landmarks
 from kernellib._spectral._laplace import LaplaceEigenfunctionFeatures
 from kernellib._spectral._rff import draw_rff_cosine_basis, evaluate_rff_cosine_paths
+from kernellib._spectral._slepian import SlepianFeatures
 from kernellib._spectral._spherical import SphericalHarmonicFeatures
 
 
@@ -25,6 +26,7 @@ __all__ = [
     "NystromFeatures",
     "OrthogonalRandomFeatures",
     "RandomFourierFeatures",
+    "SlepianFeatures",
     "SphericalHarmonicFeatures",
     "draw_rff_cosine_basis",
     "evaluate_rff_cosine_paths",

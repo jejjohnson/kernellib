@@ -72,6 +72,7 @@ Woodbury.
 | `NystromFeatures` | any | $M$ | $O(MD + M^2)$ |
 | `LaplaceEigenfunctionFeatures` | stationary with a density | $\prod_d m_d$ | $O(D \prod_d m_d)$, deterministic |
 | [`SphericalHarmonicFeatures`](geo.md#spherical-harmonic-features) | zonal on the sphere (sphere-series, `Chordal`, isotropic on $\mathbb{R}^3$) | $(L+1)^2$ | $O((L+1)^2)$, deterministic |
+| [`SlepianFeatures`](geo.md#slepian-features) | zonal on the sphere, regional data | Shannon number $\approx (L+1)^2 A / 4\pi$ | $O((L+1)^2 K)$, deterministic |
 
 The random maps store their draw at unit lengthscale and unit variance and read
 the kernel's hyperparameters when called, so a fitted map differentiates with

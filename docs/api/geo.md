@@ -445,3 +445,39 @@ sh = kl.SphericalHarmonicFeatures(max_degree=40).fit(chordal, X_lonlat)
     cheaper.
 
 ::: kernellib.SphericalHarmonicFeatures
+
+## Slepian features
+
+For data on one region of the globe, `SlepianFeatures` approximates a zonal
+kernel with the Slepian functions of a spherical cap (Simons, Dahlen &
+Wieczorek 2006): the band-limited combinations $g(u) = Y(Ru)\,C$ of real
+spherical harmonics of degree $\le L$ that are best concentrated in the cap.
+About the Shannon number $N \approx (L+1)^2 A / 4\pi$ of them are well
+concentrated, against $(L+1)^2$ global harmonics. With the kernel's
+Funk–Hecke spectrum $a$ (repeated over the orders $m$), the map is the
+inducing-feature projection onto their span,
+
+$$
+K_{uu} = C^\top \mathrm{diag}(a)\, C, \qquad
+\phi(x) = L^{-1} C^\top \mathrm{diag}(a)\, Y(Rx)^\top, \qquad
+L L^\top = K_{uu} + \epsilon I,
+$$
+
+exact when all $(L+1)^2$ modes are kept and accurate inside the cap with the
+default Shannon-number truncation. The basis is geonnax's `SlepianCapBasis`,
+built once by `fit`; the spectrum is recomputed at call time, so gradients
+reach the kernel's hyperparameters. Inputs are `(lon, lat)`; `cap_radius` is
+in radians, `cap_centre` follows `degrees`.
+
+```python
+import math
+import kernellib as kl
+
+k = kl.Chordal(kl.Matern(nu=2.5, lengthscale=0.5))
+sf = kl.SlepianFeatures(
+    l_max=12, cap_radius=math.radians(30.0), cap_centre=(20.0, -10.0)
+)
+Phi = sf.fit(k, X_lonlat)(X_lonlat)  # (N, 11)
+```
+
+::: kernellib.SlepianFeatures

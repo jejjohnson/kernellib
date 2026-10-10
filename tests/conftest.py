@@ -38,6 +38,7 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._graph._construct.adjacency_matrix",
         "kernellib._graph._construct.graph_from_neighbors",
         "kernellib._decomposition._kpca.KernelPCA",
+        "kernellib._spectral._slepian.SlepianFeatures",
         "kernellib._dependence._distance.distance_correlation_squared",
         "kernellib._dependence._distance.energy_distance",
         "kernellib._dependence._hsic.hsic",
