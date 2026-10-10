@@ -57,6 +57,7 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._spectral._feature_maps.OrthogonalRandomFeatures",
         "kernellib._spectral._rff.draw_rff_cosine_basis",
         "kernellib._spectral._rff.evaluate_rff_cosine_paths",
+        "kernellib._spectral._spherical.SphericalHarmonicFeatures",
         "kernellib.functional._special.log_bessel_kv",
     }
 )

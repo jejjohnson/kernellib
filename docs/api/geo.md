@@ -405,3 +405,43 @@ $L$, so a large $L$ is affordable for moderate $N$.
 ::: kernellib.SphereSeries
 
 ::: kernellib.functional.legendre_series
+
+## Spherical-harmonic features
+
+`SphericalHarmonicFeatures` is the sphere's analogue of
+`LaplaceEigenfunctionFeatures`: it turns a zonal kernel into $(L+1)^2$
+weighted real spherical harmonics, $\phi_{lm}(u) = w_l\,Y_{lm}(u)$, with
+$\Phi\Phi^\top$ equal to the kernel's Legendre series truncated at degree $L$.
+By the addition theorem,
+$\sum_m Y_{lm}(u) Y_{lm}(v) = \frac{2l+1}{4\pi} P_l(u \cdot v)$, so
+
+| Kernel | Weights $w_l$ | Error |
+|---|---|---|
+| `SphereMatern`, `SphereHeat`, `SphereSeries` | $\sqrt{4\pi a_l / (2l+1)}$, $a_l$ from `degree_spectrum` | none at the kernel's own `max_degree` |
+| `Chordal`, or an isotropic kernel on $\mathbb{R}^3$ (``radius=``) | $\sqrt{a_l}$, $a_l$ from `funk_hecke_coefficients` | the tail $\sum_{l > L} \frac{2l+1}{4\pi} a_l$ |
+
+Anisotropic and non-zonal kernels (ARD lengthscales, `GeometricAnisotropy`,
+great-circle kernels, `ActiveDims`, ...) are rejected. ``max_degree`` defaults
+to a sphere-series kernel's own; other kernels need it.
+
+```python
+k = kl.SphereMatern(lengthscale=0.2, nu=1.5, max_degree=64)
+sh = kl.SphericalHarmonicFeatures().fit(k, X_lonlat)
+Phi = sh(X_lonlat)  # (N, 4225)
+K_low = sh.operator(X_lonlat)  # Phi Phi^T as a gaussx LowRankUpdate
+
+chordal = kl.Chordal(kl.Matern(nu=2.5, lengthscale=0.3))
+sh = kl.SphericalHarmonicFeatures(max_degree=40).fit(chordal, X_lonlat)
+```
+
+!!! tip "Features or the dense kernel?"
+    Features cost $O(N (L+1)^2)$ and a GP on them is Bayesian linear
+    regression with $(L+1)^2$ weights: $O(N (L+1)^4)$ to fit instead of
+    $O(N^3)$. Use them when $N \gg (L+1)^2$, i.e. dense global data and a
+    field smooth enough for a moderate $L$ (see "Choosing `max_degree`"
+    above). A short lengthscale or a rough kernel needs a large $L$, and the
+    feature count grows as $L^2$ ($L = 64$ gives 4225, $L = 200$ about
+    40 000); then the dense kernel, or Nyström / sparse methods on it, is
+    cheaper.
+
+::: kernellib.SphericalHarmonicFeatures
