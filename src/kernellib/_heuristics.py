@@ -26,6 +26,7 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._einx import rearrange, reduce
 from kernellib.functional._distances import _pairwise_sq_dist
+from kernellib.functional._geo import chordal_distance, great_circle_distance
 
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
 ]
 
 Method = Literal["median", "mean", "silverman", "scott", "gaussian"]
+Metric = Literal["euclidean", "great_circle", "chordal"]
 
 
 def estimate_lengthscale(
@@ -47,6 +49,9 @@ def estimate_lengthscale(
     key: PRNGKeyArray | None = None,
     scale: float = 1.0,
     ard: bool = False,
+    metric: Metric = "euclidean",
+    radius: float = 1.0,
+    degrees: bool = True,
 ) -> Float[Array, ""] | Float[Array, " D"]:
     r"""A data-driven lengthscale for an RBF-type kernel.
 
@@ -68,8 +73,14 @@ def estimate_lengthscale(
     $\hat\sigma$ is the mean per-dimension standard deviation (or each
     dimension's own with ``ard``).
 
+    With ``metric="great_circle"`` or ``"chordal"``, ``X`` is ``(N, 2)``
+    ``(lon, lat)`` and ``"median"`` / ``"mean"`` run on that distance, so the
+    lengthscale is in units of ``radius`` (km with ``radius=EARTH_RADIUS_KM``).
+    The other methods, and ``ard``, assume Euclidean coordinates and are
+    rejected with a geo metric.
+
     Args:
-        X: Data, shape ``(N, D)``.
+        X: Data, shape ``(N, D)``; ``(N, 2)`` ``(lon, lat)`` for a geo metric.
         method: One of ``"median"``, ``"mean"``, ``"silverman"``, ``"scott"``,
             ``"gaussian"``.
         percent: For ``"median"`` / ``"mean"``, the neighbour fraction in
@@ -80,13 +91,20 @@ def estimate_lengthscale(
         scale: Multiplier on the result.
         ard: Return one lengthscale per dimension, each from that
             coordinate alone.
+        metric: ``"euclidean"``, ``"great_circle"`` or ``"chordal"``.
+        radius: Sphere radius for a geo metric; the result is in its units.
+            Ignored for ``"euclidean"``.
+        degrees: Whether ``(lon, lat)`` are in degrees (else radians).
+            Ignored for ``"euclidean"``.
 
     Returns:
         A scalar lengthscale, or ``(D,)`` with ``ard``.
 
     Raises:
-        ValueError: On an unknown method, a ``percent`` outside ``(0, 1]``,
-            fewer than two points, or ``subsample`` without ``key``.
+        ValueError: On an unknown method or metric, a ``percent`` outside
+            ``(0, 1]``, fewer than two points, ``subsample`` without ``key``,
+            or a geo metric with a method other than ``"median"`` /
+            ``"mean"``, with ``ard``, or on ``X`` that is not ``(N, 2)``.
 
     Examples:
         >>> import einx
@@ -101,6 +119,15 @@ def estimate_lengthscale(
         ...     ard=True,
         ... ).shape
         (3,)
+
+        On the sphere, in km (two points a quarter of the equator apart):
+
+        >>> lonlat = jnp.array([[0.0, 0.0], [90.0, 0.0]])
+        >>> d = kl.estimate_lengthscale(
+        ...     lonlat, metric="great_circle", radius=kl.EARTH_RADIUS_KM
+        ... )
+        >>> round(float(d))
+        10008
     """
     if method not in ("median", "mean", "silverman", "scott", "gaussian"):
         raise ValueError(
@@ -110,6 +137,21 @@ def estimate_lengthscale(
     if percent is not None and not 0.0 < percent <= 1.0:
         raise ValueError(f"percent must be in (0, 1], got {percent}.")
     X = jnp.asarray(X)
+    if metric not in ("euclidean", "great_circle", "chordal"):
+        raise ValueError(
+            f"metric must be 'euclidean', 'great_circle' or 'chordal', got {metric!r}."
+        )
+    if metric != "euclidean":
+        if method not in ("median", "mean") or ard:
+            raise ValueError(
+                f"metric={metric!r} supports method='median' or 'mean' without "
+                f"ard; got method={method!r}, ard={ard}."
+            )
+        if X.ndim != 2 or X.shape[1] != 2:
+            raise ValueError(
+                f"metric={metric!r} needs (N, 2) (lon, lat) points, got shape "
+                f"{X.shape}."
+            )
     if subsample is not None and subsample < X.shape[0]:
         if key is None:
             raise ValueError("subsample needs a PRNG key.")
@@ -124,6 +166,10 @@ def estimate_lengthscale(
             in_axes=1,
         )(X)
         return scale * per_dim
+    if metric != "euclidean":
+        geo = great_circle_distance if metric == "great_circle" else chordal_distance
+        dist = geo(X, X, radius=radius, degrees=degrees)
+        return scale * _aggregate_distances(dist, method, percent)
     return scale * _estimate(X, method, percent)
 
 
@@ -147,8 +193,16 @@ def _estimate(
             return sigma * (n * (d + 2.0) / 4.0) ** (-1.0 / (d + 4.0))
         return sigma * n ** (-1.0 / (d + 4.0))
 
-    aggregate = jnp.median if method == "median" else jnp.mean
     dist = jnp.sqrt(jnp.clip(_pairwise_sq_dist(X, X, 1.0), min=0.0))
+    return _aggregate_distances(dist, method, percent)
+
+
+def _aggregate_distances(
+    dist: Float[Array, "N N"], method: Method, percent: float | None
+) -> Float[Array, ""]:
+    """The ``"median"`` / ``"mean"`` statistic of a pairwise distance matrix."""
+    n = dist.shape[0]
+    aggregate = jnp.median if method == "median" else jnp.mean
     if percent is None:
         rows, cols = jnp.triu_indices(n, k=1)
         return aggregate(dist[rows, cols])

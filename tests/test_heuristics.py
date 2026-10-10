@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 
 import kernellib as kl
+from kernellib._testing import fibonacci_lonlat
+from kernellib.functional import chordal_distance, great_circle_distance
 
 
 def _data(n=40, d=3, key=0):
@@ -189,3 +191,61 @@ def test_gaussian_gradient_is_finite_with_a_constant_column(ard):
         X
     )
     assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+class TestGeoMetric:
+    """``metric="great_circle"`` / ``"chordal"`` on ``(lon, lat)`` (GEO4)."""
+
+    @staticmethod
+    def _lonlat():
+        return fibonacci_lonlat(50)
+
+    @pytest.mark.parametrize("metric", ["great_circle", "chordal"])
+    @pytest.mark.parametrize("method", ["median", "mean"])
+    def test_matches_brute_force(self, metric, method):
+        X, R = self._lonlat(), kl.EARTH_RADIUS_KM
+        geo = great_circle_distance if metric == "great_circle" else chordal_distance
+        D = np.asarray(geo(X, X, radius=R))
+        upper = D[np.triu_indices(len(X), k=1)]
+        expected = np.median(upper) if method == "median" else np.mean(upper)
+        got = kl.estimate_lengthscale(X, method, metric=metric, radius=R)
+        np.testing.assert_allclose(float(got), expected, rtol=1e-12)
+
+    def test_percent_uses_the_kth_great_circle_neighbour(self):
+        X = self._lonlat()
+        D = np.sort(np.asarray(great_circle_distance(X, X)))
+        k = int(0.1 * len(X))
+        got = kl.estimate_lengthscale(X, metric="great_circle", percent=0.1)
+        np.testing.assert_allclose(float(got), np.median(D[:, k]), rtol=1e-12)
+
+    def test_radians_and_subsample(self):
+        X = self._lonlat()
+        a = kl.estimate_lengthscale(X, metric="great_circle")
+        b = kl.estimate_lengthscale(
+            jnp.radians(X), metric="great_circle", degrees=False
+        )
+        np.testing.assert_allclose(float(a), float(b), rtol=1e-12)
+        sub = kl.estimate_lengthscale(
+            X, metric="great_circle", subsample=20, key=jax.random.key(0)
+        )
+        assert 0.0 < float(sub) < np.pi
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"method": "silverman"},
+            {"method": "gaussian"},
+            {"ard": True},
+        ],
+    )
+    def test_rejects_euclidean_only_options(self, kwargs):
+        with pytest.raises(ValueError, match="supports method"):
+            kl.estimate_lengthscale(self._lonlat(), metric="great_circle", **kwargs)
+
+    def test_needs_lonlat(self):
+        with pytest.raises(ValueError, match=r"\(N, 2\)"):
+            kl.estimate_lengthscale(_data(), metric="great_circle")
+
+    def test_unknown_metric(self):
+        with pytest.raises(ValueError, match="metric must be"):
+            kl.estimate_lengthscale(_data(), metric="haversine")  # ty: ignore[invalid-argument-type]

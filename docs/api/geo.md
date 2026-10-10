@@ -117,3 +117,30 @@ a Euclidean kernel of the chordal distance.
 ::: kernellib.GreatCircleAskey
 
 ::: kernellib.GreatCircleWendland
+
+## Neighbours and bandwidths on the sphere
+
+`nearest_neighbors`, `radius_neighbors`, `knn_graph`, `radius_graph` and
+`estimate_lengthscale` take `metric="great_circle"` or `"chordal"` for
+`(lon, lat)` inputs, with `radius` (the sphere's; `sphere_radius` in the two
+radius-search functions, whose `radius` is the search radius) and `degrees`.
+Distances, heat-kernel bandwidths and lengthscales then come back in units of
+the sphere radius, km with `EARTH_RADIUS_KM`.
+
+```python
+import kernellib as kl
+
+R = kl.EARTH_RADIUS_KM
+knn = kl.nearest_neighbors(X, 10, metric="great_circle", radius=R)  # km
+near = kl.radius_neighbors(
+    X, 250.0, max_neighbors=64, metric="great_circle", sphere_radius=R
+)
+graph = kl.knn_graph(X, 10, weighting="heat", metric="great_circle", radius=R)
+ell = kl.estimate_lengthscale(X, "median", metric="great_circle", radius=R)
+```
+
+The search needs no new code: the chordal distance $2R\sin(\theta/2)$ is
+monotone in the great-circle angle $\theta$, so a Euclidean search on the 3-D
+unit vectors (any backend) returns exactly the great-circle neighbours, with
+no dateline or pole artefacts. The distances of the neighbours found are then
+recomputed in the chosen metric.

@@ -8,7 +8,7 @@ JAX arrays, so everything downstream of a builder is differentiable in them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Literal
 
 import einx
@@ -24,6 +24,9 @@ from kernellib._einx import einsum, rearrange
 from kernellib._graph._neighbors import (
     Backend,
     KNNGraph,
+    Metric,
+    _geo_embed,
+    _sphere_distance,
     nearest_neighbors,
     radius_neighbors,
 )
@@ -199,6 +202,9 @@ def knn_graph(
     backend: Backend = "exact",
     random_state: int | None = None,
     ensure_connected: bool = False,
+    metric: Metric = "euclidean",
+    radius: float = 1.0,
+    degrees: bool = True,
 ) -> Graph:
     r"""The k-nearest-neighbour graph of ``X``.
 
@@ -215,8 +221,15 @@ def knn_graph(
     Euclidean minimum spanning tree, and it is weighted like every other
     edge (the median bandwidth is that of the k-NN distances alone).
 
+    With a geo ``metric`` (``X`` is ``(N, 2)`` ``(lon, lat)``), neighbours,
+    edge distances, the heat bandwidth and the bridge edges are all in that
+    metric, in units of ``radius``. A kernel ``weighting`` is evaluated on
+    the ``(lon, lat)`` points, and ``"cosine"`` on their unit vectors (the
+    cosine of the great-circle angle, clipped at 0).
+
     Args:
-        X: Points, shape ``(N, D)``.
+        X: Points, shape ``(N, D)``; ``(N, 2)`` ``(lon, lat)`` for a geo
+            metric.
         n_neighbors: Neighbours per point.
         weighting: ``"heat"``, ``"connectivity"``, ``"cosine"`` or a kernel.
         bandwidth: See `graph_from_neighbors`.
@@ -224,6 +237,11 @@ def knn_graph(
         backend: Neighbour search, see `nearest_neighbors`.
         random_state: Seed for ``backend="pynndescent"``.
         ensure_connected: Add bridge edges until the graph is connected.
+        metric: ``"euclidean"``, ``"great_circle"`` or ``"chordal"``; see
+            `nearest_neighbors`.
+        radius: Sphere radius for a geo metric. Ignored for ``"euclidean"``.
+        degrees: Whether ``(lon, lat)`` are in degrees. Ignored for
+            ``"euclidean"``.
 
     Returns:
         A `Graph` on ``N`` nodes.
@@ -237,14 +255,48 @@ def knn_graph(
         >>> g = kl.knn_graph(X, 1, ensure_connected=True)
         >>> g.topology.senders.tolist(), g.topology.receivers.tolist()
         ([0, 1, 2], [1, 2, 3])
+
+        On the sphere, 179° and -179° are neighbours, and the bridge between
+        the two pairs is the shortest great-circle arc:
+
+        >>> lonlat = jnp.array(
+        ...     [[179.0, 0.0], [-179.0, 0.0], [10.0, 0.0], [12.0, 0.0]]
+        ... )
+        >>> g = kl.knn_graph(
+        ...     lonlat,
+        ...     1,
+        ...     metric="great_circle",
+        ...     ensure_connected=True,
+        ...     weighting="connectivity",
+        ... )
+        >>> g.topology.senders.tolist(), g.topology.receivers.tolist()
+        ([0, 0, 2], [1, 3, 3])
     """
     X = jnp.asarray(X)
-    knn = nearest_neighbors(X, n_neighbors, backend=backend, random_state=random_state)
+    knn = nearest_neighbors(
+        X,
+        n_neighbors,
+        backend=backend,
+        random_state=random_state,
+        metric=metric,
+        radius=radius,
+        degrees=degrees,
+    )
+    U = None if metric == "euclidean" else _geo_embed(X, metric, degrees)
+    points = U if U is not None and _is_cosine(weighting) else X
     graph, weigh = _from_neighbors(
-        knn, X, weighting, bandwidth, symmetrize, return_weigher=True
+        knn, points, weighting, bandwidth, symmetrize, return_weigher=True
     )
     if ensure_connected:
-        graph = _connect(graph, X, weigh)
+        if U is None:
+            graph = _connect(graph, X, weigh)
+        else:
+            graph = _connect(
+                graph,
+                U,
+                weigh,
+                lambda a, b: _sphere_distance(U[a], U[b], metric, radius),
+            )
     return graph
 
 
@@ -257,6 +309,9 @@ def radius_graph(
     bandwidth: Bandwidth = None,
     backend: Backend = "exact",
     random_state: int | None = None,
+    metric: Metric = "euclidean",
+    sphere_radius: float = 1.0,
+    degrees: bool = True,
 ) -> Graph:
     """The graph joining points within ``radius`` of each other.
 
@@ -276,6 +331,13 @@ def radius_graph(
             edges.
         backend: Neighbour search, see `nearest_neighbors`.
         random_state: Seed for ``backend="pynndescent"``.
+        metric: ``"euclidean"``, ``"great_circle"`` or ``"chordal"``; see
+            `radius_neighbors`. ``"cosine"`` weighting then uses the unit
+            vectors, as in `knn_graph`.
+        sphere_radius: Sphere radius for a geo metric; ``radius`` is in its
+            units. Ignored for ``"euclidean"``.
+        degrees: Whether ``(lon, lat)`` are in degrees. Ignored for
+            ``"euclidean"``.
 
     Returns:
         A `Graph` on ``N`` nodes.
@@ -295,7 +357,12 @@ def radius_graph(
         max_neighbors=max_neighbors,
         backend=backend,
         random_state=random_state,
+        metric=metric,
+        sphere_radius=sphere_radius,
+        degrees=degrees,
     )
+    if metric != "euclidean" and _is_cosine(weighting):
+        X = _geo_embed(X, metric, degrees)
     return _from_neighbors(knn, X, weighting, bandwidth, "max")
 
 
@@ -826,8 +893,22 @@ def _symmetrize_directed(
     return Graph(GraphTopology(keys // n, keys % n, n), merged)
 
 
-def _connect(graph: Graph, X: Float[Array, "N D"], weigh: EdgeWeigher) -> Graph:
-    """Join the components of ``graph`` with Borůvka bridge edges."""
+def _is_cosine(weighting: Weighting) -> bool:
+    return isinstance(weighting, str) and weighting == "cosine"
+
+
+def _connect(
+    graph: Graph,
+    X: Float[Array, "N D"],
+    weigh: EdgeWeigher,
+    distance: Callable[[np.ndarray, np.ndarray], Array] | None = None,
+) -> Graph:
+    """Join the components of ``graph`` with Borůvka bridge edges.
+
+    The search is Euclidean in ``X``; ``distance(a, b)``, if given, replaces
+    the Euclidean length of a bridge (a geo search embeds the points so that
+    Euclidean order is the metric's order).
+    """
     top = graph.topology
     n = top.n_nodes
     s, r, w = top.senders, top.receivers, graph.weights
@@ -849,7 +930,8 @@ def _connect(graph: Graph, X: Float[Array, "N D"], weigh: EdgeWeigher) -> Graph:
         a, b, here = a[unique], b[unique], here[unique]
         s = np.concatenate([s, a])
         r = np.concatenate([r, b])
-        w = jnp.concatenate([w, weigh(a, b, dist[here])])
+        d = dist[here] if distance is None else distance(a, b)
+        w = jnp.concatenate([w, weigh(a, b, d)])
     order = np.lexsort((r, s))
     return Graph(GraphTopology(s[order], r[order], n), w[order])
 
