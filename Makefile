@@ -65,7 +65,7 @@ check-env-%:
 # ---------------------------------------------------------------------------
 .PHONY: help install lint format typecheck test test-slow test-integration test-all test-cov \
         precommit build clean version docs docs-check docs-api docs-serve \
-        gh-labels gh-sub gh-block gh-show
+        gh-labels gh-sub gh-block gh-show capabilities
 
 .DEFAULT_GOAL := help
 
@@ -194,6 +194,9 @@ docs-check: ## ✅ Validate docs sources without rendering the MyST theme
 
 docs-api: ## 📚 Build only the MkDocs API reference into site/
 	uv run --group docs mkdocs build --strict
+
+capabilities: ## 🗂️  Regenerate docs/api/capabilities.md (every public name, for reuse)
+	uv run python scripts/capabilities.py
 
 docs-serve: docs ## 🌐 Build, then serve the assembled site at :8000
 	@printf "$(GREEN)>>> http://127.0.0.1:8000$(RESET)\n"
