@@ -225,6 +225,7 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | `tests/sklearn/test_estimator_checks.py` (integration) | Every adapter passes scikit-learn's `check_estimator` |
 | `tests/test_capabilities.py` (integration) | `docs/api/capabilities.md` is current; no name bound to two objects |
 | `tests/test_build_docs.py` | The docs pipeline's link rewriting and checks; `API_PORT` matches `docs/myst.yml` |
+| `tests/test_plugin_skill.py` | The downstream plugin's names exist; its worked example runs (slow) |
 | `--doctest-modules` | Every docstring example runs |
 
 ## Recipes
@@ -247,6 +248,15 @@ agent can read and follow them):
 | Review a change | `kernellib-review` (+ the read-only `.claude/agents/reuse-reviewer.md` and `numerics-reviewer.md`) |
 | Write a squash commit message | `squash-commit` |
 | Open or link GitHub issues | `create-gh-issue`, `link-gh-issues` (templates in `.github/ISSUE_TEMPLATE/`) |
+
+Downstream users get kernellib's guidance through the Claude Code plugin in
+`plugins/kernellib/` (published by `.claude-plugin/marketplace.json`) and
+`docs/llms.txt` (copied to the site root by `scripts/build_docs.py`); see
+`docs/agents.md`. When the public API or the headline usage changes, update
+`plugins/kernellib/skills/kernel-methods-with-kernellib/` too:
+`tests/test_plugin_skill.py` runs its worked example (slow tier) and checks
+that every `kl.X` / `gaussx.X` it and the plugin reviewer name still
+exists.
 
 ## Working in the repo
 

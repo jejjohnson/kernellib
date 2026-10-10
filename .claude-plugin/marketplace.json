@@ -1,0 +1,14 @@
+{
+  "name": "kernellib",
+  "owner": {
+    "name": "jejjohnson"
+  },
+  "description": "Claude Code plugins for kernel methods in JAX on kernellib.",
+  "plugins": [
+    {
+      "name": "kernellib",
+      "source": "./plugins/kernellib",
+      "description": "Build kernel methods on kernellib (kernels, gaussx operators, feature maps, KRR / Falkon / EigenPro, dependence measures, graph kernels) instead of re-implementing them: a kernel-methods skill and a reuse reviewer."
+    }
+  ]
+}
