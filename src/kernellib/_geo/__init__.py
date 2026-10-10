@@ -7,5 +7,7 @@ degrees by default. See ``docs/api/geo.md`` and the distances in
 
 from __future__ import annotations
 
+from kernellib._geo._chordal import Chordal
 
-__all__: list[str] = []
+
+__all__ = ["Chordal"]
