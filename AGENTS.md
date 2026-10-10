@@ -227,6 +227,27 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | `tests/test_build_docs.py` | The docs pipeline's link rewriting and checks; `API_PORT` matches `docs/myst.yml` |
 | `--doctest-modules` | Every docstring example runs |
 
+## Recipes
+
+Step-by-step recipes for the common jobs live as plain Markdown in
+`.claude/skills/<name>/SKILL.md` (Claude Code loads them automatically; any
+agent can read and follow them):
+
+| Job | Recipe |
+|---|---|
+| Add a kernel (stationary, pointwise or Gram-level; spectral hooks) | `add-kernel` |
+| Add a feature map, kernel approximation or landmark rule | `add-feature-map` |
+| Add a kernel linear operator or extend `to_operator` | `add-kernel-operator` |
+| Add an estimator or decomposition, with its scikit-learn adapter | `add-estimator` |
+| Add a dependence or two-sample statistic | `add-dependence-measure` |
+| Add a graph builder, weigher, graph kernel or embedding | `add-graph-component` |
+| Add or update an example notebook | `add-notebook` |
+| Bump gaussx / geonnax | `bump-upstream-pins` |
+| Verify before a PR | `pre-pr-check` |
+| Review a change | `kernellib-review` (+ the read-only `.claude/agents/reuse-reviewer.md` and `numerics-reviewer.md`) |
+| Write a squash commit message | `squash-commit` |
+| Open or link GitHub issues | `create-gh-issue`, `link-gh-issues` (templates in `.github/ISSUE_TEMPLATE/`) |
+
 ## Working in the repo
 
 Always run Python tools through `uv run` (never the system Python); `git`,
