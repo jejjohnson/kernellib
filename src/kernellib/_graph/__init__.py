@@ -29,6 +29,7 @@ from kernellib._graph._construct import (
     radius_graph,
 )
 from kernellib._graph._eigpairs import laplacian_eigpairs, n_components_graph
+from kernellib._graph._kernel_classes import GraphHeat, GraphMatern
 from kernellib._graph._kernels import (
     commute_time_kernel,
     cosine_graph_kernel,
@@ -51,6 +52,8 @@ from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGra
 __all__ = [
     "AbstractGraph",
     "Graph",
+    "GraphHeat",
+    "GraphMatern",
     "GraphTopology",
     "GridGraph",
     "KNNGraph",

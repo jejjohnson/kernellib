@@ -61,6 +61,8 @@ from kernellib._geo import (
 from kernellib._graph import (
     AbstractGraph,
     Graph,
+    GraphHeat,
+    GraphMatern,
     GraphTopology,
     GridGraph,
     KNNGraph,
@@ -164,6 +166,7 @@ from kernellib._regression import (
 from kernellib._spectral import (
     AbstractFeatureMap,
     FastFoodFeatures,
+    GraphEigenFeatures,
     LaplaceEigenfunctionFeatures,
     NystromFeatures,
     OrthogonalRandomFeatures,
@@ -240,6 +243,9 @@ __all__ = [
     "GeometricAnisotropy",
     "Gneiting",
     "Graph",
+    "GraphEigenFeatures",
+    "GraphHeat",
+    "GraphMatern",
     "GraphTopology",
     "GreatCircleAskey",
     "GreatCircleCauchy",
