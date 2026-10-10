@@ -27,12 +27,19 @@ from kernellib._geo._models import (
     Stable,
     Wendland,
 )
+from kernellib._geo._sphere_series import (
+    AbstractSphereSeriesKernel,
+    SphereHeat,
+    SphereMatern,
+    SphereSeries,
+)
 from kernellib._geo._taper import Tapered, tapered_operator
 from kernellib._geo._variogram import Variogram, empirical_variogram, fit_variogram
 
 
 __all__ = [
     "AbstractGreatCircleKernel",
+    "AbstractSphereSeriesKernel",
     "Chordal",
     "Cubic",
     "GeneralizedCauchy",
@@ -46,6 +53,9 @@ __all__ = [
     "HoleEffect",
     "LinearTransform",
     "Pentaspherical",
+    "SphereHeat",
+    "SphereMatern",
+    "SphereSeries",
     "Spherical",
     "Stable",
     "Tapered",
