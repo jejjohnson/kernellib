@@ -27,6 +27,7 @@ from kernellib._geo._models import (
     Stable,
     Wendland,
 )
+from kernellib._geo._variogram import Variogram, empirical_variogram, fit_variogram
 
 
 __all__ = [
@@ -46,5 +47,8 @@ __all__ = [
     "Pentaspherical",
     "Spherical",
     "Stable",
+    "Variogram",
     "Wendland",
+    "empirical_variogram",
+    "fit_variogram",
 ]
