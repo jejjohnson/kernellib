@@ -71,6 +71,7 @@ Woodbury.
 | `FastFoodFeatures` | stationary with a sampler | $2F$ | $O(F \log D)$, $O(F)$ storage |
 | `NystromFeatures` | any | $M$ | $O(MD + M^2)$ |
 | `LaplaceEigenfunctionFeatures` | stationary with a density | $\prod_d m_d$ | $O(D \prod_d m_d)$, deterministic |
+| [`SphericalHarmonicFeatures`](geo.md#spherical-harmonic-features) | zonal on the sphere (sphere-series, `Chordal`, isotropic on $\mathbb{R}^3$) | $(L+1)^2$ | $O((L+1)^2)$, deterministic |
 
 The random maps store their draw at unit lengthscale and unit variance and read
 the kernel's hyperparameters when called, so a fitted map differentiates with
@@ -279,6 +280,12 @@ Phi = lap(X)  # (N, 2048)
 ```
 
 ::: kernellib.LaplaceEigenfunctionFeatures
+
+On the sphere, the analogue is `SphericalHarmonicFeatures`: weighted real
+spherical harmonics up to degree $L$ for the sphere-series kernels
+(`SphereMatern`, `SphereHeat`) and, through `funk_hecke_coefficients`, for
+`Chordal` kernels. It is documented on the
+[Geo page](geo.md#spherical-harmonic-features).
 
 ## Random Fourier feature prior draws
 
