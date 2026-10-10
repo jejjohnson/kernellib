@@ -177,6 +177,17 @@ from kernellib.functional._geo import EARTH_RADIUS_KM
 
 __version__ = "0.0.18"
 
+from kernellib._geo import (
+    Cubic,
+    GeneralizedCauchy,
+    HoleEffect,
+    Pentaspherical,
+    Spherical,
+    Stable,
+    Wendland,
+)
+
+
 __all__ = [
     "EARTH_RADIUS_KM",
     "KRR",
@@ -193,6 +204,7 @@ __all__ = [
     "Chordal",
     "Constant",
     "Cosine",
+    "Cubic",
     "Derivative",
     "DerivativeIndexed",
     "Distance",
@@ -204,6 +216,7 @@ __all__ = [
     "FastFoodFeatures",
     "FastFoodParams",
     "FeatureKernel",
+    "GeneralizedCauchy",
     "Graph",
     "GraphTopology",
     "GreatCircleAskey",
@@ -213,6 +226,7 @@ __all__ = [
     "GreatCircleSpherical",
     "GreatCircleWendland",
     "GridGraph",
+    "HoleEffect",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "KNNGraph",
@@ -228,6 +242,7 @@ __all__ = [
     "Modulated",
     "NystromFeatures",
     "OrthogonalRandomFeatures",
+    "Pentaspherical",
     "Periodic",
     "Periodised",
     "PermutationTestResult",
@@ -240,10 +255,13 @@ __all__ = [
     "SchrodingerEigenmapProjections",
     "SchrodingerEigenmaps",
     "Shift",
+    "Spherical",
+    "Stable",
     "Stretch",
     "Sum",
     "TaylorStatistics",
     "Warped",
+    "Wendland",
     "White",
     "__version__",
     "adjacency_matrix",

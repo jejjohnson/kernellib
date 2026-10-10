@@ -144,3 +144,55 @@ monotone in the great-circle angle $\theta$, so a Euclidean search on the 3-D
 unit vectors (any backend) returns exactly the great-circle neighbours, with
 no dateline or pole artefacts. The distances of the neighbours found are then
 recomputed in the chosen metric.
+
+## Geostatistics models
+
+The standard covariance models of gstools, scikit-gstat and R's gstat, as
+stationary kernels $k(x, x') = \sigma^2 \psi(r)$ with
+$r = \|(x - x')/\ell\|$. For the compact models $\ell$ is the **range**:
+$\psi = 0$ for $r \ge 1$, so their Gram matrices are sparse. The models valid
+only for $d \le 3$ raise on wider inputs. None registers a spectral density,
+so random Fourier features do not apply to them.
+
+| Model | $\psi(r)$ | Valid $d$ | Smoothness at 0 | Compact? |
+|---|---|---|---|---|
+| `Spherical` | $1 - \tfrac32 r + \tfrac12 r^3$ | $\le 3$ | $C^0$ | yes |
+| `Cubic` | $1 - 7r^2 + \tfrac{35}{4}r^3 - \tfrac72 r^5 + \tfrac34 r^7$ | $\le 3$ | $C^2$ | yes |
+| `Pentaspherical` | $1 - \tfrac{15}{8} r + \tfrac54 r^3 - \tfrac38 r^5$ | $\le 3$ | $C^0$ | yes |
+| `HoleEffect` | $\sin(r)/r$ | $\le 3$ | $C^\infty$ | no |
+| `Stable` | $\exp(-r^\alpha)$, $0 < \alpha \le 2$ | all | $C^0$ ($C^\infty$ at $\alpha = 2$) | no |
+| `GeneralizedCauchy` | $(1 + r^\alpha)^{-\beta/\alpha}$, $0 < \alpha \le 2$, $\beta > 0$ | all | $C^0$ ($C^\infty$ at $\alpha = 2$) | no |
+| `Wendland` (`order=2`) | $(1 - r)_+^4 (4r + 1)$ | $\le 3$ | $C^2$ | yes |
+| `Wendland` (`order=4`) | $(1 - r)_+^6 (35r^2 + 18r + 3)/3$ | $\le 3$ | $C^4$ | yes |
+
+`Stable(alpha=2)` is `RBF` with lengthscale $\ell/\sqrt2$, `Stable(alpha=1)`
+is `Matern(nu=0.5)`, and `GeneralizedCauchy(alpha=2, beta=b)` is
+`RationalQuadratic` with `alpha=b/2` and lengthscale $\ell/\sqrt b$.
+
+::: kernellib.Spherical
+
+::: kernellib.Cubic
+
+::: kernellib.Pentaspherical
+
+::: kernellib.HoleEffect
+
+::: kernellib.Stable
+
+::: kernellib.GeneralizedCauchy
+
+::: kernellib.Wendland
+
+::: kernellib.functional.spherical_kernel
+
+::: kernellib.functional.cubic_kernel
+
+::: kernellib.functional.pentaspherical_kernel
+
+::: kernellib.functional.hole_effect_kernel
+
+::: kernellib.functional.stable_kernel
+
+::: kernellib.functional.generalized_cauchy_kernel
+
+::: kernellib.functional.wendland_kernel

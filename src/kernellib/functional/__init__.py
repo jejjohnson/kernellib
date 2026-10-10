@@ -22,6 +22,15 @@ from kernellib.functional._geo import (
     great_circle_distance,
     lonlat_to_unit,
 )
+from kernellib.functional._geo_models import (
+    cubic_kernel,
+    generalized_cauchy_kernel,
+    hole_effect_kernel,
+    pentaspherical_kernel,
+    spherical_kernel,
+    stable_kernel,
+    wendland_kernel,
+)
 from kernellib.functional._graph import graph_heat_spectrum, graph_matern_spectrum
 from kernellib.functional._mixed_precision import stable_rbf_kernel
 from kernellib.functional._nonstationary import (
@@ -57,10 +66,13 @@ __all__ = [
     "cka",
     "constant_kernel",
     "cosine_kernel",
+    "cubic_kernel",
     "distance_kernel",
+    "generalized_cauchy_kernel",
     "graph_heat_spectrum",
     "graph_matern_spectrum",
     "great_circle_distance",
+    "hole_effect_kernel",
     "hsic",
     "kernel_add",
     "kernel_mul",
@@ -68,10 +80,14 @@ __all__ = [
     "lonlat_to_unit",
     "matern_kernel",
     "mmd_squared",
+    "pentaspherical_kernel",
     "periodic_kernel",
     "polynomial_kernel",
     "rational_quadratic_kernel",
     "rbf_kernel",
+    "spherical_kernel",
+    "stable_kernel",
     "stable_rbf_kernel",
+    "wendland_kernel",
     "white_kernel",
 ]
