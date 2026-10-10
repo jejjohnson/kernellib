@@ -186,7 +186,10 @@ from kernellib._geo import (
     Pentaspherical,
     Spherical,
     Stable,
+    Variogram,
     Wendland,
+    empirical_variogram,
+    fit_variogram,
 )
 
 
@@ -264,6 +267,7 @@ __all__ = [
     "Stretch",
     "Sum",
     "TaylorStatistics",
+    "Variogram",
     "Warped",
     "Wendland",
     "White",
@@ -286,6 +290,7 @@ __all__ = [
     "eigenpro_correction",
     "eigenpro_preconditioner",
     "eigenpro_step_size",
+    "empirical_variogram",
     "energy_distance",
     "estimate_lengthscale",
     "evaluate_rff_cosine_paths",
@@ -296,6 +301,7 @@ __all__ = [
     "fastfood_frequencies",
     "fastfood_operator",
     "fastfood_params",
+    "fit_variogram",
     "functional",
     "gabriel_graph",
     "gamma_to_lengthscale",

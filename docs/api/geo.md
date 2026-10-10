@@ -227,3 +227,32 @@ k = kl.GeometricAnisotropy.from_angles(
 ::: kernellib.LinearTransform
 
 ::: kernellib.GeometricAnisotropy
+
+## Variograms
+
+The empirical semivariogram $\hat\gamma(h)$ is the first step of a
+geostatistics workflow: it shows the nugget, sill and range of a field, and
+fitting a stationary kernel to it gives a cheap initialiser for GP
+hyperparameters. `empirical_variogram` bins the pairs by Euclidean or
+great-circle distance (Matheron's or the robust Cressie–Hawkins estimator),
+streaming row blocks so memory stays $O(\text{batch}\cdot N)$;
+`fit_variogram` fits $\gamma(h) = \tau^2 + \sigma^2 - k(h)$ by weighted least
+squares.
+
+```python
+import kernellib as kl
+
+v = kl.empirical_variogram(X, y, bins=20, estimator="cressie")
+kernel, nugget = kl.fit_variogram(v, kl.Matern(nu=1.5))
+
+# (lon, lat) data: bin by great-circle distance in kilometres
+v_km = kl.empirical_variogram(
+    X_lonlat, y, metric="great_circle", radius=kl.EARTH_RADIUS_KM
+)
+```
+
+::: kernellib.Variogram
+
+::: kernellib.empirical_variogram
+
+::: kernellib.fit_variogram
