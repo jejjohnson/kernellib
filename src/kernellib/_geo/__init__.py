@@ -8,6 +8,24 @@ degrees by default. See ``docs/api/geo.md`` and the distances in
 from __future__ import annotations
 
 from kernellib._geo._chordal import Chordal
+from kernellib._geo._great_circle import (
+    AbstractGreatCircleKernel,
+    GreatCircleAskey,
+    GreatCircleCauchy,
+    GreatCircleExponential,
+    GreatCirclePoweredExponential,
+    GreatCircleSpherical,
+    GreatCircleWendland,
+)
 
 
-__all__ = ["Chordal"]
+__all__ = [
+    "AbstractGreatCircleKernel",
+    "Chordal",
+    "GreatCircleAskey",
+    "GreatCircleCauchy",
+    "GreatCircleExponential",
+    "GreatCirclePoweredExponential",
+    "GreatCircleSpherical",
+    "GreatCircleWendland",
+]
