@@ -27,6 +27,7 @@ from kernellib._geo._models import (
     Stable,
     Wendland,
 )
+from kernellib._geo._spacetime import Gneiting
 from kernellib._geo._sphere_series import (
     AbstractSphereSeriesKernel,
     SphereHeat,
@@ -44,6 +45,7 @@ __all__ = [
     "Cubic",
     "GeneralizedCauchy",
     "GeometricAnisotropy",
+    "Gneiting",
     "GreatCircleAskey",
     "GreatCircleCauchy",
     "GreatCircleExponential",
