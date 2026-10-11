@@ -339,7 +339,8 @@ k = kl.Advected(kl.Matern(nu=1.5, lengthscale=4.0), wind) * kl.Matern(
 
 ## Spectral features and scale
 
-Dense GP algebra is $O(N^3)$. Deterministic feature maps make a GP a Bayesian
+Dense GP algebra costs $O(N^3)$ time to factorise the $N \times N$ Gram and
+$O(N^2)$ memory to store it. Deterministic feature maps make a GP a Bayesian
 linear regression on the features, and stay differentiable in the kernel's
 hyperparameters:
 
@@ -357,8 +358,12 @@ about 625 km), so pick $L$ from the shortest scale you need, and check
 explodes, taper instead (above).
 
 :::{dropdown} Features or the dense kernel?
-Features cost $O(N(L+1)^2)$ memory and $O(N(L+1)^4)$ time to fit, the dense
-kernel $O(N^2)$ and $O(N^3)$. With $L = 32$ (1089 features), $10^5$
+With $F = (L+1)^2$ features, a fit costs $O(NF)$ to evaluate the features
+($O(BF)$ memory when accumulated in batches of $B$ rows), $O(NF^2)$ to form
+$\Phi^\top\Phi$ and $O(F^3)$ to factorise the posterior precision; a
+prediction costs $O(F)$ per point for the mean and $O(F^2)$ for the variance.
+The dense kernel costs $O(N^2)$ memory for the Gram and $O(N^3)$ time to
+factorise it. With $L = 32$ (1089 features), $10^5$
 observations fit in about 5 s on a 4-core CPU (the notebook's run); the
 dense Gram would need 80 GB.
 For $N$ of a few thousand, the dense kernel with `to_operator` and a gaussx
