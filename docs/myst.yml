@@ -26,11 +26,13 @@ project:
     - bib/dependence.bib
     - bib/graphs.bib
     - bib/regression_at_scale.bib
+    - bib/geo.bib
   toc:
     - file: index.md
     - title: Guide
       children:
         - file: guide/architecture.md
+        - file: guide/geo.md
         - file: agents.md
     - title: Tutorials
       children:
@@ -45,6 +47,7 @@ project:
         - file: notebooks/graph_embeddings.ipynb
         - file: notebooks/graphs_and_spatial.ipynb
         - file: notebooks/spatial_spectral_eigenmaps.ipynb
+        - file: notebooks/geo_kernels.ipynb
         - file: notebooks/dependence_penalties.ipynb
         - file: notebooks/representation_similarity.ipynb
     - title: Roadmap
