@@ -75,8 +75,11 @@ about 0.1 % apart at 1000 km.
 | [`lonlat_to_unit`](xref:api#kernellib.functional.lonlat_to_unit) | the $(N, 3)$ unit vectors $u(x)$ |
 
 Neighbour searches and bandwidth rules take `metric="great_circle"` (or
-`"chordal"`) and run an exact Euclidean search on the unit vectors, with no
-dateline or pole artefacts:
+`"chordal"`) and run a Euclidean search on the unit vectors, with no dateline
+or pole artefacts. The reduction is exact: the chord is monotone in $\theta$,
+so the unit vectors order neighbours exactly as the great-circle distance
+does. The search itself is exact with the default `backend="exact"` (and
+`"sklearn"`); `backend="pynndescent"` is approximate. The geo metrics are available in
 [`nearest_neighbors`](xref:api#kernellib.nearest_neighbors),
 [`radius_neighbors`](xref:api#kernellib.radius_neighbors),
 [`knn_graph`](xref:api#kernellib.knn_graph),
@@ -325,6 +328,9 @@ and spreads as $\ell^2 I + u^2\Sigma_V$. Keep the units consistent: km and
 hours give velocities in km/h.
 
 ```python
+import jax.numpy as jnp
+import kernellib as kl
+
 wind = jnp.array([10.0, 0.0])  # km/h towards the east; inputs (x_km, y_km, t_h)
 k = kl.Advected(kl.Matern(nu=1.5, lengthscale=4.0), wind) * kl.Matern(
     nu=0.5, lengthscale=6.0
@@ -341,7 +347,7 @@ hyperparameters:
 |---|---|---|---|
 | [`SphericalHarmonicFeatures`](xref:api#kernellib.SphericalHarmonicFeatures) | sphere-series or `Chordal` | $(L+1)^2$ weighted real harmonics, $\phi_{lm} = \sqrt{4\pi a_l/(2l+1)}\,Y_{lm}$ | global, smooth fields, $N \gg (L+1)^2$ |
 | [`SlepianFeatures`](xref:api#kernellib.SlepianFeatures) | `Chordal` (zonal) | about the Shannon number $(L+1)^2(1 - \cos r)/2$ cap-concentrated modes {cite:p}`simons2006slepian` | one region (a cap of radius $r$) |
-| [`PeriodicFeatures`](xref:api#kernellib.PeriodicFeatures) | `Periodic` | $2K+1$ exact Bessel-series harmonics {cite:p}`solin2014periodic` | seasonal / diurnal cycles |
+| [`PeriodicFeatures`](xref:api#kernellib.PeriodicFeatures) | `Periodic` | $2K+1$ harmonics of the exact Bessel series, truncated at $K$ (`truncation_tail()`) {cite:p}`solin2014periodic` | seasonal / diurnal cycles |
 | [`MeshLaplaceFeatures`](xref:api#kernellib.MeshLaplaceFeatures) | `MeshMatern`, `MeshHeat` | $M$ FEM eigenfunctions | irregular domains |
 | [`GraphEigenFeatures`](xref:api#kernellib.GraphEigenFeatures) | `GraphMatern`, `GraphHeat` | $M$ Laplacian eigenvectors | large graphs |
 
@@ -353,7 +359,8 @@ explodes, taper instead (above).
 :::{dropdown} Features or the dense kernel?
 Features cost $O(N(L+1)^2)$ memory and $O(N(L+1)^4)$ time to fit, the dense
 kernel $O(N^2)$ and $O(N^3)$. With $L = 32$ (1089 features), $10^5$
-observations fit in seconds on a laptop CPU; the dense Gram would need 80 GB.
+observations fit in about 5 s on a 4-core CPU (the notebook's run); the
+dense Gram would need 80 GB.
 For $N$ of a few thousand, the dense kernel with `to_operator` and a gaussx
 solver is simpler and exact.
 :::
