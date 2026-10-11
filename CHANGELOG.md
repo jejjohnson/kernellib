@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.20](https://github.com/jejjohnson/kernellib/compare/v0.0.19...v0.0.20) (2026-10-11)
+
+
+### Features
+
+* **geo:** add advected and random-advection transport kernels (GEO13) ([#249](https://github.com/jejjohnson/kernellib/issues/249)) ([ef44ae2](https://github.com/jejjohnson/kernellib/commit/ef44ae22febb3860127e85eb338e75f6a6e02a96)), closes [#212](https://github.com/jejjohnson/kernellib/issues/212)
+* **geo:** add the Gneiting non-separable space-time kernel (GEO12) ([#248](https://github.com/jejjohnson/kernellib/issues/248)) ([a52c8b1](https://github.com/jejjohnson/kernellib/commit/a52c8b104221a502b41e0e7b88b0b7fe013e0950)), closes [#211](https://github.com/jejjohnson/kernellib/issues/211)
+* **geo:** covariance tapering into a sparse gaussx operator (GEO8) ([#241](https://github.com/jejjohnson/kernellib/issues/241)) ([a247023](https://github.com/jejjohnson/kernellib/commit/a247023c77f1712f37c10af7085ba55b9f8e719a)), closes [#207](https://github.com/jejjohnson/kernellib/issues/207)
+* **geo:** SphereMatern and SphereHeat kernels as Legendre series (GEO9) ([#242](https://github.com/jejjohnson/kernellib/issues/242)) ([b7ef4ca](https://github.com/jejjohnson/kernellib/commit/b7ef4cabf041c48b3a0eca12b2c4d22b2c4d6ead)), closes [#208](https://github.com/jejjohnson/kernellib/issues/208)
+* **graph:** add GraphEigenFeatures and GraphMatern / GraphHeat kernels (GEO20) ([#250](https://github.com/jejjohnson/kernellib/issues/250)) ([4a1362d](https://github.com/jejjohnson/kernellib/commit/4a1362df0cc9501f7122627a6995635f60a6f9a8)), closes [#220](https://github.com/jejjohnson/kernellib/issues/220)
+* **spectral:** add MeshLaplaceFeatures, Matérn on triangulated surfaces (GEO21) ([#251](https://github.com/jejjohnson/kernellib/issues/251)) ([ad499c9](https://github.com/jejjohnson/kernellib/commit/ad499c936f9783f87ed53d0b028397a397a90623)), closes [#221](https://github.com/jejjohnson/kernellib/issues/221)
+* **spectral:** add SlepianFeatures, cap-localised spherical-harmonic features (GEO19) ([#244](https://github.com/jejjohnson/kernellib/issues/244)) ([3fdf12a](https://github.com/jejjohnson/kernellib/commit/3fdf12a4b7de93b45c5a1d10f056a89276af6fca))
+* **spectral:** PeriodicFeatures, exact Bessel-series features of the Periodic kernel (GEO22) ([#245](https://github.com/jejjohnson/kernellib/issues/245)) ([eeb2a7e](https://github.com/jejjohnson/kernellib/commit/eeb2a7e90db4b0bdc7dc2ae48ac7136a529b856d)), closes [#222](https://github.com/jejjohnson/kernellib/issues/222)
+* **spectral:** SphericalHarmonicFeatures for sphere-series kernels (GEO10) ([#243](https://github.com/jejjohnson/kernellib/issues/243)) ([0e815c0](https://github.com/jejjohnson/kernellib/commit/0e815c0fa4a9208b707cfec8d7b327a4491b1c65)), closes [#209](https://github.com/jejjohnson/kernellib/issues/209)
+
 ## [0.0.19](https://github.com/jejjohnson/kernellib/compare/v0.0.18...v0.0.19) (2026-10-10)
 
 

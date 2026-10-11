@@ -183,7 +183,7 @@ from kernellib._spectral import (
 from kernellib.functional._geo import EARTH_RADIUS_KM
 
 
-__version__ = "0.0.19"
+__version__ = "0.0.20"
 
 from kernellib._geo import (
     AbstractMeshKernel,
