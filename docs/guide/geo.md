@@ -70,7 +70,7 @@ about 0.1 % apart at 1000 km.
 
 | Function | Returns |
 |---|---|
-| [`great_circle_distance`](xref:api#kernellib.functional.great_circle_distance) | $R\theta$, by the haversine formula (accurate for nearby points) |
+| [`great_circle_distance`](xref:api#kernellib.functional.great_circle_distance) | $R\theta$ with $\theta = 2\operatorname{atan2}(\lVert u - u'\rVert, \lVert u + u'\rVert)$, accurate near zero and near antipodes |
 | [`chordal_distance`](xref:api#kernellib.functional.chordal_distance) | $2R\sin(\theta/2)$ |
 | [`lonlat_to_unit`](xref:api#kernellib.functional.lonlat_to_unit) | the $(N, 3)$ unit vectors $u(x)$ |
 
@@ -197,11 +197,15 @@ at short $\ell$ need many degrees.
 | [`SphereSeries`](xref:api#kernellib.SphereSeries) | any `spectrum_fn` |
 
 All share [`AbstractSphereSeriesKernel`](xref:api#kernellib.AbstractSphereSeriesKernel).
-For any isotropic kernel of $\mathbb{R}^3$, the Funk–Hecke theorem gives the
-same coefficients,
-$a_l = 2\pi\int_{-1}^{1}\kappa(t)\,P_l(t)\,dt$ with $\kappa(u \cdot v) = k(Ru, Rv)$:
+Any isotropic kernel of $\mathbb{R}^3$ restricted to the sphere is zonal,
+$\kappa(u \cdot v) = k(Ru, Rv)$, and
 [`funk_hecke_coefficients`](xref:api#kernellib.funk_hecke_coefficients)
-(`convention="legendre"` for the series coefficients).
+computes its spectrum in one of two conventions. Keep them apart:
+
+| `convention=` | Returns | Formula | Meaning |
+|---|---|---|---|
+| `"funk_hecke"` (default) | the Funk–Hecke eigenvalue $\mu_l$ | $\mu_l = 2\pi\int_{-1}^{1}\kappa(t)\,P_l(t)\,dt$ | eigenvalue of the kernel's integral operator on every degree-$l$ harmonic |
+| `"legendre"` | the Legendre series coefficient $a_l$ | $a_l = \frac{2l+1}{4\pi}\,\mu_l = \frac{2l+1}{2}\int_{-1}^{1}\kappa(t)\,P_l(t)\,dt$ | the $a_l$ of $\kappa(t) = \sum_l a_l P_l(t)$ above, comparable with `degree_spectrum()` |
 :::
 ::::
 
@@ -216,8 +220,10 @@ $$
 
 reads off the **nugget** $\tau^2$ (the jump at $0^+$: measurement noise and
 sub-sampling-scale variability), the **sill** $\tau^2 + \sigma^2$ (the total
-variance) and the **range** (where $\gamma$ reaches 95 % of the sill: the
-decorrelation length, about $2.74\,\ell$ for a Matérn-3/2).
+variance) and the **practical range**: the lag at which $\gamma$ reaches
+$\tau^2 + 0.95\,\sigma^2$, i.e. 95 % of the rise from the nugget to the sill
+(where the correlation $\rho(h)$ falls to 0.05), not 95 % of the total sill.
+It is the decorrelation length, about $2.74\,\ell$ for a Matérn-3/2.
 [`empirical_variogram`](xref:api#kernellib.empirical_variogram) bins pairs by
 Euclidean or great-circle distance (Matheron or Cressie–Hawkins estimators
 {cite:p}`cressie1993statistics`) into a
@@ -292,8 +298,20 @@ $$
 
 with $c = \ell_s^{-2\gamma}$, $a = \ell_t^{-2\alpha}$ and separability
 $\beta \in [0, 1]$: the spatial range at time lag $u$ is
-$\ell_s\,\psi(u)^{\beta/2}$. For global data, use `space_dims=3` on
-`R * lonlat_to_unit(X)`.
+$\ell_s\,\psi(u)^{\beta/2}$. For global data, map `(lon, lat)` to 3-D points
+in km, append the time column and use `space_dims=3`: the inputs are
+$(N, 4)$, and the chordal distance is the spatial lag.
+
+```python
+import einx
+import jax.numpy as jnp
+
+R = kl.EARTH_RADIUS_KM
+xyz = R * kl.functional.lonlat_to_unit(lonlat)  # (N, 3) km
+X_st = jnp.concatenate([xyz, einx.id("n -> n 1", t_days)], axis=-1)  # (N, 4)
+k = kl.Gneiting(space_dims=3, space_lengthscale=500.0, time_lengthscale=3.0, beta=0.7)
+K = k(X_st, X_st)
+```
 
 **Transport.** A tracer in a steady wind $v$ is, by Taylor's frozen-turbulence
 hypothesis {cite:p}`taylor1938spectrum`, a pattern carried along:
