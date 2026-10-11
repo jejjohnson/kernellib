@@ -168,6 +168,7 @@ from kernellib._spectral import (
     FastFoodFeatures,
     GraphEigenFeatures,
     LaplaceEigenfunctionFeatures,
+    MeshLaplaceFeatures,
     NystromFeatures,
     OrthogonalRandomFeatures,
     PeriodicFeatures,
@@ -185,6 +186,7 @@ from kernellib.functional._geo import EARTH_RADIUS_KM
 __version__ = "0.0.19"
 
 from kernellib._geo import (
+    AbstractMeshKernel,
     AbstractSphereSeriesKernel,
     Advected,
     Cubic,
@@ -193,6 +195,8 @@ from kernellib._geo import (
     Gneiting,
     HoleEffect,
     LinearTransform,
+    MeshHeat,
+    MeshMatern,
     Pentaspherical,
     RandomAdvectionRBF,
     SphereHeat,
@@ -218,6 +222,7 @@ __all__ = [
     "AbstractGraph",
     "AbstractGreatCircleKernel",
     "AbstractKernel",
+    "AbstractMeshKernel",
     "AbstractPointwiseKernel",
     "AbstractSphereSeriesKernel",
     "AbstractStationaryKernel",
@@ -268,6 +273,9 @@ __all__ = [
     "LinearTransform",
     "LocalityPreservingProjections",
     "Matern",
+    "MeshHeat",
+    "MeshLaplaceFeatures",
+    "MeshMatern",
     "Modulated",
     "NystromFeatures",
     "OrthogonalRandomFeatures",
