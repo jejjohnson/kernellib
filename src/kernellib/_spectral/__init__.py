@@ -12,6 +12,7 @@ from kernellib._spectral._feature_maps import (
     RandomFourierFeatures,
 )
 from kernellib._spectral._funk_hecke import funk_hecke_coefficients
+from kernellib._spectral._graph import GraphEigenFeatures
 from kernellib._spectral._landmarks import select_landmarks
 from kernellib._spectral._laplace import LaplaceEigenfunctionFeatures
 from kernellib._spectral._periodic import PeriodicFeatures
@@ -23,6 +24,7 @@ from kernellib._spectral._spherical import SphericalHarmonicFeatures
 __all__ = [
     "AbstractFeatureMap",
     "FastFoodFeatures",
+    "GraphEigenFeatures",
     "LaplaceEigenfunctionFeatures",
     "NystromFeatures",
     "OrthogonalRandomFeatures",

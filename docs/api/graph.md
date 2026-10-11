@@ -223,3 +223,36 @@ variance 1. Use `normalization="unnormalized"` on the graph side.
 ::: kernellib.graph_null_space
 
 ::: kernellib.mesh_graph
+
+## Graph kernel classes and features
+
+`GraphMatern` and `GraphHeat` are the kernel objects of `matern_graph_kernel`
+and `diffusion_kernel` (with $\beta = \ell^2/2$): they hold the graph, take
+`(N, 1)` integer node indices as inputs and are normalised to average
+marginal variance $\sigma^2$, so they plug into `KRR`, `to_operator` and the
+feature-map contract. Their Gram path is dense (a `V x V` eigendecomposition);
+they are Gram-only kernels, with no pointwise form.
+
+`GraphEigenFeatures(M)` is the rank-`M` alternative for a large graph: at
+`fit` it takes the `M` smallest Laplacian eigenpairs (`laplacian_eigpairs`,
+any `method`), and the features are
+$\phi(i) = U_{i,:M}\,\operatorname{diag}(\sqrt{\Phi(\lambda_{1:M})})$. The
+spectrum $\Phi$ is normalised over the **retained** eigenvalues,
+$\sum_{k \le M} \Phi_k = V\sigma^2$, so the truncated prior has average
+marginal variance $\sigma^2$ at every `M` (pyrox-gp's
+`LaplacianInducingFeatures` makes the same choice). At `M = V` the features
+reproduce the dense kernel. Lengthscale and variance stay differentiable;
+the eigenpairs are fixed at `fit`.
+
+```python
+k = kl.GraphMatern(rivers, nu=1.5, lengthscale=5.0, normalization="unnormalized")
+nodes = einx.id("n -> n 1", jnp.arange(rivers.n_nodes))
+fm = kl.GraphEigenFeatures(256, method="lanczos").fit(k, nodes, key=key)
+Phi = fm(nodes)  # (V, 256), no V x V matrix
+```
+
+::: kernellib.GraphMatern
+
+::: kernellib.GraphHeat
+
+::: kernellib.GraphEigenFeatures
