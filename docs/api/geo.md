@@ -6,6 +6,11 @@ arrays of ``(lon, lat)``, longitude first, in degrees by default
 ``radius=1.0`` gives the great-circle angle in radians and
 ``radius=EARTH_RADIUS_KM`` kilometres.
 
+See also the [Kernels on the Earth guide](../../geo/), which says which
+distance and kernel to choose, and the
+[Kernels on the Earth notebook](../../geo-kernels/), which works through every
+section of this page with physical units and figures.
+
 !!! note "Positive-definiteness on the sphere"
     Feeding great-circle distance into an RBF kernel, or a Matérn with
     $\nu > \tfrac12$, does **not** give a positive-definite kernel on the sphere
