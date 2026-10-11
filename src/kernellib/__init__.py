@@ -183,6 +183,7 @@ __version__ = "0.0.19"
 
 from kernellib._geo import (
     AbstractSphereSeriesKernel,
+    Advected,
     Cubic,
     GeneralizedCauchy,
     GeometricAnisotropy,
@@ -190,6 +191,7 @@ from kernellib._geo import (
     HoleEffect,
     LinearTransform,
     Pentaspherical,
+    RandomAdvectionRBF,
     SphereHeat,
     SphereMatern,
     SphereSeries,
@@ -217,6 +219,7 @@ __all__ = [
     "AbstractSphereSeriesKernel",
     "AbstractStationaryKernel",
     "ActiveDims",
+    "Advected",
     "CKAAccumulator",
     "Chordal",
     "Constant",
@@ -269,6 +272,7 @@ __all__ = [
     "PermutationTestResult",
     "Polynomial",
     "Product",
+    "RandomAdvectionRBF",
     "RandomFourierFeatures",
     "RationalQuadratic",
     "Residual",

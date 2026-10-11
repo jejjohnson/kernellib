@@ -561,3 +561,57 @@ K = k(X, X)  # X: (N, 3) of (x_km, y_km, t_days)
 ```
 
 ::: kernellib.Gneiting
+
+## Transport
+
+Tracers carried by the wind or a current (a methane plume, smoke, a dye
+patch) are correlated *along the flow*: an observation downwind and later is
+close to an earlier one upwind. The transport kernels take space–time inputs
+`[space (D) | time (1)]` and lags $h = x - x'$, $u = t - t'$.
+
+`Advected(k_s, v)` is the frozen-field ("Taylor hypothesis") kernel: a
+spatial field $Z_0 \sim \mathcal{GP}(0, k_s)$ moving at a constant, learnable
+velocity $v$, $Z(x, t) = Z_0(x - vt)$, so
+
+$$
+k\bigl((x, t), (x', t')\bigr) = k_s(h - v u).
+$$
+
+It is `Warped` with the linear warp $w(x, t) = x - vt$, so it is PSD for any
+stationary $k_s$, and its frequencies $(\omega_0, -v^\top\omega_0)$ come from
+$k_s$'s: `RandomFourierFeatures` and `draw_rff_cosine_basis` accept it (its
+space–time spectral measure is singular, so `spectral_density` does not
+exist). Pure transport never forgets; multiply by a kernel on the time column
+for decay, `Advected(Matern(...), v) * Matern(...).select((D,))`.
+
+When the wind itself is uncertain, $V \sim \mathcal N(\mu, \Sigma_V)$,
+`RandomAdvectionRBF` is the frozen-field RBF averaged over it, in closed form
+(Cox & Isham, 1988; Schlather, 2010):
+
+$$
+C(h, u) = \sigma^2 \bigl|I + u^2 \Sigma_V / \ell^2\bigr|^{-1/2}
+\exp\Bigl(-\tfrac12 (h - \mu u)^\top (\ell^2 I + u^2 \Sigma_V)^{-1}
+(h - \mu u)\Bigr).
+$$
+
+The correlation still travels with the mean wind $\mu$, but spreads and
+weakens with the time lag; $\Sigma_V \to 0$ recovers `Advected(RBF, μ)`.
+$\Sigma_V$ is parametrised by its Cholesky factor `velocity_cov_tril`.
+
+```python
+import jax.numpy as jnp
+import kernellib as kl
+
+# plume in (x, y) km and t in hours; wind ~ 10 km/h east, uncertain by 3 km/h
+wind = jnp.array([10.0, 0.0])
+frozen = kl.Advected(kl.Matern(nu=1.5, lengthscale=2.0), wind)
+decaying = frozen * kl.Matern(nu=0.5, lengthscale=6.0).select((2,))
+uncertain = kl.RandomAdvectionRBF(wind, 3.0 * jnp.eye(2), lengthscale=2.0)
+```
+
+A deterministic wind that varies in space or time (true Lagrangian
+trajectories) is out of scope; it belongs with plumax's forward models.
+
+::: kernellib.Advected
+
+::: kernellib.RandomAdvectionRBF
