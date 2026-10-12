@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from kernellib._geo._advection import Advected, RandomAdvectionRBF
 from kernellib._geo._anisotropy import GeometricAnisotropy, LinearTransform
+from kernellib._geo._axial import JunStein, LatitudeScaled, LegendreLatitudeFn
 from kernellib._geo._chordal import Chordal
 from kernellib._geo._great_circle import (
     AbstractGreatCircleKernel,
@@ -57,6 +58,9 @@ __all__ = [
     "GreatCircleSpherical",
     "GreatCircleWendland",
     "HoleEffect",
+    "JunStein",
+    "LatitudeScaled",
+    "LegendreLatitudeFn",
     "LinearTransform",
     "MeshHeat",
     "MeshMatern",

@@ -152,8 +152,10 @@ def legendre_series(
     a `jax.lax.scan` over $l$ that accumulates the sum as it goes. That is
     $O(\text{size}(x)\,L)$ time and $O(\text{size}(x))$ memory: the
     ``(..., L + 1)`` table of `geonnax.basis.legendre_polynomials` is never
-    formed, which matters for a Gram matrix of $u \cdot v$. ``x`` is clipped to
-    $[-1, 1]$ first, so rounding in a dot product of unit vectors is harmless.
+    formed, which matters for a Gram matrix of $u \cdot v$. The value of ``x`` is
+    clipped to $[-1, 1]$ first, so rounding in a dot product of unit vectors is
+    harmless; the gradient passes straight through the clip, so derivatives at
+    coincident points ($u \cdot u = 1$ up to rounding) are exact.
 
     Args:
         x: Points, any shape; typically cosines $u \cdot v$ of unit vectors.
@@ -179,7 +181,11 @@ def legendre_series(
         raise ValueError(f"coeffs must be 1-D and non-empty; got shape {coeffs.shape}.")
     x = jnp.asarray(x)
     dtype = jnp.result_type(x, coeffs, 1.0)
-    x = jnp.clip(x.astype(dtype), -1.0, 1.0)
+    x = x.astype(dtype)
+    # Clip the value only: ``jnp.clip`` has a zero (or half) gradient at the
+    # boundary, which would corrupt the derivatives of a kernel on coincident
+    # points, where ``u . u`` is 1 up to rounding.
+    x = x + jax.lax.stop_gradient(jnp.clip(x, -1.0, 1.0) - x)
     coeffs = coeffs.astype(dtype)
     p0 = jnp.ones_like(x)
     total = coeffs[0] * p0

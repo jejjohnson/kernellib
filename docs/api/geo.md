@@ -233,6 +233,79 @@ k = kl.GeometricAnisotropy.from_angles(
 
 ::: kernellib.GeometricAnisotropy
 
+## Latitude-dependent kernels
+
+Global fields are rarely isotropic: variance and correlation change with
+latitude. Two constructions give valid covariances that do. Both take a base
+kernel on ``(lon, lat)`` inputs that is valid on the sphere (`Chordal`,
+`SphereMatern`).
+
+**Amplitude modulation.** `LatitudeScaled` multiplies by a function of
+latitude,
+
+$$
+k(x, y) = s(\phi_x)\,s(\phi_y)\,k_0(x, y),
+$$
+
+which is positive definite for every real $s$, since
+$v^\top D K_0 D v = (Dv)^\top K_0 (Dv) \ge 0$ with
+$D = \operatorname{diag}(s(\phi_i))$. It rescales the variance and keeps the
+correlation.
+
+**Axially symmetric (Jun & Stein 2008).** `JunStein` applies a
+latitude-dependent first-order operator to an isotropic process
+$Z_0 \sim \mathcal{GP}(0, k_0)$,
+
+$$
+Z(x) = a(\phi)\,\partial_\phi Z_0 + b(\phi)\,\partial_\lambda Z_0 + c(\phi)\,Z_0,
+$$
+
+$$
+\operatorname{Cov}(Z(x), Z(y)) = \sum_{p, q \in \{\phi, \lambda, 1\}}
+\alpha_p(\phi_x)\,\alpha_q(\phi_y)\,\partial_p^{(x)}\partial_q^{(y)} k_0(x, y),
+\qquad (\alpha_\phi, \alpha_\lambda, \alpha_1) = (a, b, c),
+$$
+
+with $\lambda$ the longitude and $\phi$ the latitude, in radians. The
+covariance depends on $\phi_x$, $\phi_y$ and $\lambda_x - \lambda_y$ only, so
+it is invariant to rotating all longitudes by the same angle. It is a linear
+operator applied to a Gaussian process, hence positive semi-definite, provided
+$k_0$ is twice differentiable at the origin: `Chordal(Matern(nu >= 1.5))`,
+`Chordal(RBF)` or `SphereMatern(nu > 1)`. Exponential, $\nu \le 1$ and
+great-circle base kernels are rejected with a `ValueError`. The derivatives are
+exact autodiff of ``kernel.pairwise``; the Gram costs $O(N^2)$ small Hessians.
+
+At the poles $\partial_\phi$ has a direction that depends on $\lambda$, so
+$Z$ is continuous there only if $a(\pm\pi/2) = 0$; $\partial_\lambda Z_0$
+vanishes at the poles already. `LegendreLatitudeFn(weights, cos_factor=True)`
+is $\cos\phi \sum_j w_j P_j(\sin\phi)$, which vanishes at the poles.
+
+```python
+import jax.numpy as jnp
+import kernellib as kl
+
+base = kl.Chordal(kl.Matern(nu=2.5, lengthscale=0.4))  # Chordal(RBF) also works
+s = kl.LegendreLatitudeFn(jnp.array([1.0, -0.3, 0.2]))  # s(phi), phi in radians
+k_amp = kl.LatitudeScaled(base, s)
+k_axial = kl.JunStein(
+    base,
+    a=kl.LegendreLatitudeFn(jnp.array([0.3]), cos_factor=True),
+    b=kl.LegendreLatitudeFn(jnp.array([0.2]), cos_factor=True),
+    c=kl.LegendreLatitudeFn(jnp.array([1.0, 0.4])),
+)
+K = k_axial(X, X)  # (N, N), X is (N, 2) lon/lat in degrees
+```
+
+References: Jun & Stein (2008), *Nonstationary covariance models for global
+data*, Ann. Appl. Stat. 2(4); Stein (2005), *J. Amer. Statist. Assoc.* 100;
+Porcu, Alegria & Furrer (2018), *Int. Stat. Rev.* 86.
+
+::: kernellib.LatitudeScaled
+
+::: kernellib.JunStein
+
+::: kernellib.LegendreLatitudeFn
+
 ## Variograms
 
 The empirical semivariogram $\hat\gamma(h)$ is the first step of a
