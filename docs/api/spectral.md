@@ -71,6 +71,7 @@ Woodbury.
 | `FastFoodFeatures` | stationary with a sampler | $2F$ | $O(F \log D)$, $O(F)$ storage |
 | `NystromFeatures` | any | $M$ | $O(MD + M^2)$ |
 | `LaplaceEigenfunctionFeatures` | stationary with a density | $\prod_d m_d$ | $O(D \prod_d m_d)$, deterministic |
+| [`DivergenceFreeFeatures` / `CurlFreeFeatures` / `HelmholtzFeatures`](#vector-fields-divergence-free-and-curl-free-features) | stationary with a density, 2-D vector fields | $\prod_d m_d$ (each part) | $O(\prod_d m_d)$ per component, exactly divergence- / curl-free |
 | [`SphericalHarmonicFeatures`](geo.md#spherical-harmonic-features) | zonal on the sphere (sphere-series, `Chordal`, isotropic on $\mathbb{R}^3$) | $(L+1)^2$ | $O((L+1)^2)$, deterministic |
 | [`SlepianFeatures`](geo.md#slepian-features) | zonal on the sphere, regional data | Shannon number $\approx (L+1)^2 A / 4\pi$ | $O((L+1)^2 K)$, deterministic |
 | [`MeshLaplaceFeatures`](geo.md#kernels-on-a-triangle-mesh) | `MeshMatern`, `MeshHeat`: meshes / coastlines (FEM eigenpairs) | $M$ | $O(M)$ at vertices, deterministic, exact |
@@ -307,6 +308,52 @@ Phi = lap(X)  # (N, 2048)
 ```
 
 ::: kernellib.LaplaceEigenfunctionFeatures
+
+## Vector fields: divergence-free and curl-free features
+
+The low-rank counterpart of the [`CurlFree` / `DivergenceFree` / `Helmholtz`
+kernels](geo.md#vector-fields), for a 2-D field on a box. With the Laplacian
+eigenpairs $(\lambda_j, \varphi_j)$ of $[-L_1, L_1]\times[-L_2, L_2]$
+(Dirichlet or Neumann) and the scalar kernel's spectral density $S$, the
+Hilbert-space approximation of Solin & Särkkä (2020) is
+$\psi \approx \sum_j \sqrt{S(\omega_j)}\, w_j \varphi_j$,
+$w_j \sim \mathcal{N}(0, 1)$, and differentiating term by term gives
+
+| Map | Columns | Field | Invariant | $\Phi\Phi^\top \to$ |
+|---|---|---|---|---|
+| `DivergenceFreeFeatures` | $\sqrt{S_j}\, R\nabla\varphi_j$ | $R\nabla\Psi$ | $\nabla\cdot F = 0$ | `DivergenceFree(k)` |
+| `CurlFreeFeatures` | $\sqrt{S_j}\, \nabla\varphi_j$ | $\nabla\Phi$ | $\nabla\times F = 0$ | `CurlFree(k)` |
+| `HelmholtzFeatures` | both, concatenated | $\nabla\Phi + R\nabla\Psi$ | none | `Helmholtz(k_Φ, k_Ψ)` |
+
+with $R = \begin{pmatrix} 0 & 1 \\ -1 & 0 \end{pmatrix}$ as in the kernels. The
+invariants hold for every column (symmetry of second derivatives), so every
+combination of features satisfies them exactly at any truncation; only the
+covariance is approximate, and only near the box edge. Rows are point-major,
+as in `vector_inputs`: row $n D + i$ is component $i$ at location $n$. The
+cost is $O(N D M^2)$ instead of $O((ND)^3)$.
+
+```python
+k = kl.RBF(lengthscale=0.3)  # kernel of the stream function
+feat = kl.DivergenceFreeFeatures(32, boundary_factor=2.5).fit(k, X)  # X: (N, 2)
+Phi = feat(X)  # (N * 2, 1024), rows (n i)
+lowrank = feat.operator(X)  # Phi Phi^T as a gaussx LowRankUpdate
+```
+
+Choose the box wider than the data (`boundary_factor` or `L`) and enough
+basis functions to resolve the lengthscale on it; see the class docstrings.
+
+- Solin & Särkkä (2020). Hilbert space methods for reduced-rank Gaussian
+  process regression. Stat. Comput. 30.
+  [arXiv:1401.5508](https://arxiv.org/abs/1401.5508)
+- Berlinghieri et al. (2023). Gaussian processes at the Helm(holtz): a more
+  fluid model for ocean currents. ICML.
+  [arXiv:2302.10364](https://arxiv.org/abs/2302.10364)
+
+::: kernellib.DivergenceFreeFeatures
+
+::: kernellib.CurlFreeFeatures
+
+::: kernellib.HelmholtzFeatures
 
 On the sphere, the analogue is `SphericalHarmonicFeatures`: weighted real
 spherical harmonics up to degree $L$ for the sphere-series kernels
