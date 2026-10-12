@@ -160,6 +160,7 @@ attainable with 199 permutations).
 | `cos(X @ W + b)` random features | `kl.RandomFourierFeatures(R, key).fit(kernel, X)` (draws from the kernel's own spectral density) |
 | Inducing-point / Nyström KRR | `kl.Falkon`, `kl.NystromFeatures` |
 | `trace(K H L H) / n**2` | `kl.hsic(kernel_x, kernel_y, X, Y)`; normalised, `kl.cka` |
+| `mean(vmap(grad(f))(X) ** 2, axis=0)`, `mean(grad(F)(X) ** 2, axis=0)` | `kl.sensitivity(f, X)` (per feature), `kl.point_sensitivity(f, X)` (per sample); predictors and dataset functionals like HSIC |
 | An MMD two-sample test | `kl.mmd_squared` + `kl.permutation_test(..., kind="two_sample")` |
 | A median-distance bandwidth | `kl.estimate_lengthscale(X)` |
 | A kNN graph Laplacian and its eigenvectors | `kl.knn_graph`, `kl.graph_laplacian`, `kl.LaplacianEigenmaps` |

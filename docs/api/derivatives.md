@@ -5,7 +5,10 @@ and Laplacian of a fitted predictor, and the divergence and curl of a vector
 field. A **scalar field** is any callable `f: (N, D) -> (N,)` and a **vector
 field** any callable `F: (N, D) -> (N, M)`: a fitted `KRR` / `Falkon` /
 `EigenPro` `predict`, a closure over a kernel expansion, or any JAX function.
-Every operator is autodiff, so the results are exact to rounding.
+Every operator is autodiff, so the results are exact to rounding. On top of
+them, `sensitivity` and `point_sensitivity` summarise a gradient matrix into a
+per-feature and a per-sample relevance, for predictors and for dataset
+functionals such as HSIC ([Sensitivity maps](#sensitivity-maps)).
 
 ```python
 import kernellib as kl
@@ -14,6 +17,7 @@ model = kl.KRR(kl.RBF(lengthscale=0.5), regularization=1e-3).fit(X, y)
 G = kl.gradient(model.predict, X_test)  # (N, D)
 H = kl.hessian(model.predict, X_test)  # (N, D, D)
 L = kl.laplacian(model.predict, X_test)  # (N,)
+s = kl.sensitivity(model.predict, X_test)  # (D,)
 ```
 
 These are derivatives of functions. Derivative **kernels**, the covariances of
@@ -158,6 +162,127 @@ def F(Z):
 div, vort = kl.divergence(F, Z), kl.curl(F, Z)  # div ≈ 0 up to rounding
 ```
 
+## Sensitivity maps
+
+A sensitivity map ranks the input features by how strongly a function varies
+along them, and the samples by how strongly it varies around them (Johnson et
+al., 2020, §2.2). Both reduce one $(N, D)$ derivative matrix $G$:
+
+```python
+model = kl.KRR(kl.RBF(lengthscale=ell_ard), regularization=1e-3).fit(X, y)
+s = kl.sensitivity(model.predict, X, normalize="sum")  # (D,) feature ranking
+q = kl.point_sensitivity(model.predict, X)  # (N,) sample relevance
+s_clf = kl.sensitivity(lambda X: jnp.tanh(model.predict(X)), X)  # margin
+
+
+def hsic_of_X(X):  # a dataset functional (N, D) -> ()
+    return kl.hsic(kx, ky, X, Y)
+
+
+s_hsic = kl.sensitivity(hsic_of_X, X, normalize="sum")  # features driving HSIC
+q_hsic = kl.point_sensitivity(hsic_of_X, X)  # samples driving HSIC
+```
+
+### Two kinds of callable
+
+| `f(X)` shape | Mode (`wrt=`) | $G_{nj}$ | Computed with |
+|---|---|---|---|
+| `(N,)`: a pointwise predictor (`model.predict`, a classifier margin, any JAX function) | `"point"` | $\partial_j f(x_n)$, how the output **at** $x_n$ changes with $x_n$ | `gradient` (the pointwise contract) |
+| `()`: a dataset functional (`hsic`, `mmd_squared`, a loss of the sample) | `"dataset"` | $\partial F / \partial X_{nj}$, how the statistic of the **whole sample** changes when sample $n$ moves | `jax.grad(F)(X)` |
+
+`wrt="auto"` (the default) reads `jax.eval_shape(f, X)` and picks the mode
+from the output shape; forcing `wrt` checks that the shape agrees. A
+multi-output predictor `(N, C)` raises: select an output first with
+`lambda X: f(X)[:, c]`. The two modes are different objects that share only
+the reduction: for a predictor, $G$ is local derivative information; for a
+functional, row $n$ is the influence of sample $n$ on $F$.
+
+### Formulation
+
+With $\tau(u) = u^2$ (`transform="square"`, the default) or $|u|$
+(`transform="abs"`):
+
+$$
+\hat s_j = \frac1N \sum_{n=1}^N \tau(G_{nj}),\qquad
+q_n = \frac1D \sum_{j=1}^D \tau(G_{nj}).
+$$
+
+$\hat s_j$ is the Monte-Carlo estimate (Eq. 12) of the population
+sensitivity (Eq. 11). The paper writes Eq. 11 with the marginal $p(x^j)$;
+since $\partial_j f$ depends on all of $x$, the well-defined quantity is the
+expectation under the joint density,
+
+$$
+s_j = \mathbb E_{x \sim p}\big[(\partial_j f(x))^2\big]
+    = \int (\partial_j f(x))^2\, p(x)\, dx .
+$$
+
+$q_n$ is the paper's point sensitivity (Eq. 13), a **mean** over features:
+$q_n = \|\nabla f(x_n)\|_2^2 / D$. Both are means, so
+
+$$
+\frac1D \sum_j \hat s_j = \frac1N \sum_n q_n = \frac{\|G\|_F^2}{N D},
+$$
+
+and the paper's §3.3 sum $\sum_n \|\nabla f(x_n)\|^2$ is $N \sum_j \hat s_j$.
+
+For a kernel expansion $\hat f(x) = \sum_i \alpha_i k(x, x_i)$,
+$G_{nj} = \sum_i \alpha_i \partial_j k(x_n, x_i)$; for the ARD RBF kernel,
+$\partial_j k(x, y) = -(x^j - y^j) / \ell_j^2\, k(x, y)$. For a classifier
+margin $g = \tanh \circ f$, autodiff applies the chain rule
+$\partial_j g = (1 - g^2)\, \partial_j f$ (§4).
+
+`order=2` replaces $G$ by the per-feature curvature
+$G_{nj} = \partial_j^2 f(x_n)$ (Eq. 6), the diagonal of the exact per-point
+`hessian`. It is pointwise only (a dataset functional would need the
+$(ND) \times (ND)$ Hessian) and holds an $(N, D, D)$ array, so pass
+`batch_size` for large $D$.
+
+### HSIC as a dataset functional
+
+With the biased estimator $\mathrm{HSIC}_b = \tfrac1{n^2}\operatorname{tr}(KHLH)$,
+$A = HLH$ and a symmetric $k$, the input gradient (the paper's §6) is
+
+$$
+\frac{\partial\, \mathrm{HSIC}_b}{\partial x_i^q}
+  = \frac{2}{n^2} \sum_{j=1}^n A_{ij}\, \frac{\partial k(x_i, x_j)}{\partial x_i^q}.
+$$
+
+The diagonal term vanishes for a stationary $k$. The rows are $O(1/n)$, so
+dataset-mode sensitivities are $O(1/n^2)$: compare features with
+`normalize="sum"`, not across sample sizes. A feature that $Y$ does not depend
+on still moves the Gram $K$, so its finite-sample share is small but not
+zero.
+
+### Normalisation
+
+`normalize="sum"` returns $\hat s / \sum_j \hat s_j$ (shares that sum to 1),
+`"max"` returns $\hat s / \max_j \hat s_j$. A zero divisor (a constant $f$)
+gives zeros, not NaN, and the division is guarded with a double `where`, so
+`jax.grad` through a normalised sensitivity (with respect to a lengthscale,
+say) stays finite.
+
+### Pseudocode
+
+```text
+mode = "auto" ? {(N,): "point", (): "dataset"}[eval_shape(f, X).shape] : wrt
+G = mode == "dataset"            ? grad(f)(X)                    # (N, D)
+  : order == 1                   ? gradient(f, X)                # (N, D)
+  :                                diag(hessian(f, X))           # (N, D)
+T = transform == "square" ? G * G : |G|
+s = mean_n T                                                     # (D,) sensitivity
+q = mean_d T                                                     # (N,) point_sensitivity
+normalize: v -> where(c > 0, v / where(c > 0, c, 1), 0),  c = sum(v) or max(v)
+```
+
+### Context: derivative-based global sensitivity
+
+$s_j$ is the derivative-based global sensitivity measure $\nu_j$ of Sobol'
+and Kucherenko (2009). For independent uniform inputs on $[0, 1]^D$ it bounds
+the total Sobol' index, $S_j^{\text{tot}} \le \nu_j / (\pi^2 \operatorname{Var} f)$.
+This is context, not a guarantee for kernel models fitted on other input
+distributions.
+
 ## Reference
 
 ::: kernellib.gradient
@@ -172,6 +297,10 @@ div, vort = kl.divergence(F, Z), kl.curl(F, Z)  # div ≈ 0 up to rounding
 
 ::: kernellib.curl
 
+::: kernellib.sensitivity
+
+::: kernellib.point_sensitivity
+
 ## References
 
 - Johnson, Laparra, Pérez-Suay, Mahecha & Camps-Valls (2020). Kernel methods
@@ -179,6 +308,16 @@ div, vort = kl.divergence(F, Z), kl.curl(F, Z)  # div ≈ 0 up to rounding
   sciences. PLOS ONE 15(10): e0235885.
   [doi:10.1371/journal.pone.0235885](https://doi.org/10.1371/journal.pone.0235885),
   [arXiv:2007.14706](https://arxiv.org/abs/2007.14706)
+- Pérez-Suay & Camps-Valls (2018). Sensitivity maps of the Hilbert–Schmidt
+  independence criterion. Applied Soft Computing 70: 1054–1063.
+  [doi:10.1016/j.asoc.2017.04.024](https://doi.org/10.1016/j.asoc.2017.04.024)
+- Rasmussen, Madsen, Lund & Hansen (2011). Visualization of nonlinear kernel
+  models in neuroimaging by sensitivity maps. NeuroImage 55(3): 1120–1131.
+  [doi:10.1016/j.neuroimage.2010.12.035](https://doi.org/10.1016/j.neuroimage.2010.12.035)
+- Sobol' & Kucherenko (2009). Derivative based global sensitivity measures
+  and their link with global sensitivity indices. Mathematics and Computers
+  in Simulation 79(10): 3009–3017.
+  [doi:10.1016/j.matcom.2009.01.023](https://doi.org/10.1016/j.matcom.2009.01.023)
 - Zhou (2008). Derivative reproducing properties for kernel methods in
   learning theory. Journal of Computational and Applied Mathematics 220(1–2):
   456–463. [doi:10.1016/j.cam.2007.08.023](https://doi.org/10.1016/j.cam.2007.08.023)

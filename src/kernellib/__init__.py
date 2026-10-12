@@ -55,6 +55,8 @@ from kernellib._derivatives import (
     hessian,
     jacobian,
     laplacian,
+    point_sensitivity,
+    sensitivity,
 )
 from kernellib._geo import (
     AbstractGreatCircleKernel,
@@ -419,6 +421,7 @@ __all__ = [
     "nystrom_kernel",
     "nystrom_operator",
     "permutation_test",
+    "point_sensitivity",
     "radius_graph",
     "radius_neighbors",
     "random_walk_kernel",
@@ -427,6 +430,7 @@ __all__ = [
     "rff_operator",
     "schrodinger_eigenmap",
     "select_landmarks",
+    "sensitivity",
     "spatial_spectral_graph",
     "spatial_spectral_potential",
     "structure_matrix",
