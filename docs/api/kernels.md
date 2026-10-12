@@ -19,9 +19,12 @@ alpha = gx.solve(K, y, solver=gx.PreconditionedCGSolver(preconditioner_rank=100)
 ```
 
 Kernels are equinox modules and `pairwise` is a scalar JAX function, so
-derivatives, derivative Gram blocks, predictor gradients and hyperparameter
-gradients are compositions of `jax.grad`, `jax.jacfwd` and `jax.vmap`; the
-[Kernels and JAX](../../kernels-and-jax/) tutorial shows each.
+kernel derivatives and hyperparameter gradients are compositions of
+`jax.grad`, `jax.jacfwd` and `jax.vmap`; the
+[Kernels and JAX](../../kernels-and-jax/) tutorial shows each. Derivatives of
+a fitted predictor or a vector field (gradient, Hessian, Laplacian,
+divergence, curl) are the operators on the [Derivatives](derivatives.md)
+page.
 
 ## Contract
 

@@ -349,6 +349,8 @@ src/kernellib/
 │   ├── _feature.py        # FeatureKernel, Modulated
 │   ├── _residual.py       # nystrom_kernel, Residual
 │   └── _derivative.py     # Derivative, DerivativeIndexed, derivative_inputs
+├── _derivatives/          # layer 0: derivative operators of callables
+│   └── _operators.py      #   gradient, jacobian, hessian, laplacian, divergence, curl (KD1)
 ├── _operators/
 │   ├── _kernel.py         # KernelOperator (moved from gaussx)
 │   ├── _implicit.py       # ImplicitKernelOperator (moved)
@@ -685,7 +687,7 @@ model = kl.EigenPro(
 ).fit(X, y, key=key)
 
 y_hat = model.predict(X_test)
-dy = kl.predictor_gradient(model, X_test)  # ∂f̂/∂x via pairwise
+dy = kl.gradient(model.predict, X_test)  # ∂f̂/∂x, (N, D)
 model.alpha, model.landmarks  # fitted state is plain fields
 
 # the fitted model is a PyTree, so hyperparameter gradients just work
@@ -695,8 +697,10 @@ loss = jax.grad(lambda ell: kl.KRR(kl.RBF(ell), 1e-2).fit(X, y).loss(X_val, y_va
 ### Derivatives and decomposition
 
 ```python
-J = kl.kernel_jacobian(k, x, y)  # ∂k(x, y)/∂x
-dK = kl.derivative_gram(k, X1, X2)  # (N1, N2, D)
+dk = jax.grad(k.pairwise)(x, y)  # ∂k(x, y)/∂x: one-off kernel derivatives stay jax.grad
+kd = kl.DerivativeIndexed(k)  # value / partial covariances as a kernel
+H = kl.hessian(model.predict, X)  # (N, D, D); also jacobian, laplacian
+div, vort = kl.divergence(F, X), kl.curl(F, X)  # F: (N, D) -> (N, D)
 emb = kl.kernel_pca(k, X, n_components=10, solver=gx.DenseSolver())
 Kg = kl.diffusion_kernel(adjacency, beta=0.5)
 ```
@@ -800,8 +804,7 @@ In order of value, each its own PR:
    gradients); the randomized path over the phase 4 feature maps.
 4. `_regression/_falkon.py`, `_eigenpro.py`: the moved primitives plus the
    `Falkon` and `EigenPro` estimators.
-5. `_derivatives.py`.
-6. `_decomposition/_kpca.py`, `_graph.py`.
+5. `_decomposition/_kpca.py`, `_graph.py`.
 
 Release `kernellib 0.3.0`.
 
@@ -847,8 +850,10 @@ Algorithms:
   randomized HSIC converges to dense as `m → n`; CKA of a matrix with itself
   is one; unbiased HSIC of independent draws has mean zero within its
   sampling bound.
-- `kernel_jacobian` matches finite differences; `derivative_gram` matches
-  the closed-form RBF derivative.
+- `gradient`, `hessian` and `laplacian` of a KRR predictor match the
+  closed-form RBF ARD derivatives (also at the training points) and finite
+  differences for Matérn; `divergence` / `curl` satisfy the vector-calculus
+  identities and vanish on `DivergenceFree` / `CurlFree` posterior means.
 - Every reimplemented pysim function is compared against a numpy
   reference implementation written inline in the test (not against pysim,
   which is not a dependency).
@@ -949,3 +954,4 @@ equals the dense value.
 | 2026-09-29 | Narrows the entry above. Derivative *helpers* stay a tutorial, but derivative *kernels* are objects, because a GP with gradient observations needs the joint covariance as a kernel that composes with `Sum`, `to_operator` and the solvers, which a recipe cannot provide (#58, prompted by mlkernels' `k.diff`). `Derivative(k, dx, dy)` is ∂ₓᵢ∂ₓ'ⱼk for fixed dimensions; `DerivativeIndexed(k)` takes rows `[x, i]` (`i = -1` value, `i = d` partial) and keeps the `(N1, N2)` Gram contract, so any mix of value and partial observations is one Gram; `derivative_inputs` builds the rows. Both are autodiff of `pairwise` and reject kernels whose GP is not mean-square differentiable (`Matern(nu=0.5)`, `White`) |
 | 2026-09-29 | pysim is retired and kernellib is its successor (supersedes "pysim itself is not changed"). Its remaining kernel-side content moves here: the `Distance` kernel with distance covariance / correlation and energy distance as HSIC / CKA / MMD under it, `taylor_statistics` for kernel Taylor diagrams, the RV coefficient documented as linear CKA, and its derivations as a notebook. Information-theory estimators stay out of scope |
 | 2026-10-05 | The graph, GMRF-structure, randomized-kernel and dependence-penalty work (phases K1–K15) is planned and recorded in the [kernellib roadmap](../../docs/roadmap/roadmap-kernellib.md), which is the reference for those decisions; this document's package layout and ownership map were refreshed to match it (K11). Graph code lives in its own layer-1 package `_graph/`; randomized primitives (`randomized_eigh`, `rp_cholesky`, sketching, `hadamard_transform`) are gaussx's |
+| 2026-10-12 | Amends 2026-09-26 and 2026-09-29. Derivative *operators on functions* become public in `_derivatives/` (layer 0): `gradient`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` (#268). They are no longer a tutorial recipe, because sensitivity maps (KD3), stochastic traces (KD2), derivative penalties (KD5), density-gradient / SCMS and classifier-margin derivatives all need the same batched, pointwise contract. Kernel derivative Grams stay kernels (`Derivative`, `DerivativeIndexed`); one-off derivatives of a kernel's `pairwise` stay `jax.grad`. The squared-distance clip in the Gram path now acts on the value only, so second derivatives of a predictor at its training points are exact (the tie in `clip` used to halve them) |
