@@ -13,6 +13,7 @@ from kernellib._spectral._feature_maps import (
 )
 from kernellib._spectral._funk_hecke import funk_hecke_coefficients
 from kernellib._spectral._graph import GraphEigenFeatures
+from kernellib._spectral._kronecker import KroneckerFeatures
 from kernellib._spectral._landmarks import select_landmarks
 from kernellib._spectral._laplace import LaplaceEigenfunctionFeatures
 from kernellib._spectral._mesh import MeshLaplaceFeatures
@@ -26,6 +27,7 @@ __all__ = [
     "AbstractFeatureMap",
     "FastFoodFeatures",
     "GraphEigenFeatures",
+    "KroneckerFeatures",
     "LaplaceEigenfunctionFeatures",
     "MeshLaplaceFeatures",
     "NystromFeatures",

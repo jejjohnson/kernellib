@@ -76,6 +76,7 @@ Woodbury.
 | [`MeshLaplaceFeatures`](geo.md#kernels-on-a-triangle-mesh) | `MeshMatern`, `MeshHeat`: meshes / coastlines (FEM eigenpairs) | $M$ | $O(M)$ at vertices, deterministic, exact |
 | `PeriodicFeatures` | `Periodic`, 1-D (seasonal / diurnal cycles) | $2K + 1$ | $O(K)$, exact up to the truncation tail; see [Geostatistics](geo.md#seasonal-and-diurnal-cycles) |
 | [`GraphEigenFeatures`](graph.md#graph-kernel-classes-and-features) | graphs: `GraphMatern`, `GraphHeat` on node indices | $M$ | $O(M)$ after one eigensolve, deterministic; exact at $M = V$ |
+| [`KroneckerFeatures`](#separable-space-time-features) | space × time: any two maps, on a `Product` of two `ActiveDims` | $R_s R_t$ | $O(R_s R_t)$ per input; on a grid a `gaussx.Kronecker`, $O(N_s R_s + N_t R_t)$ memory |
 
 The random maps store their draw at unit lengthscale and unit variance and read
 the kernel's hyperparameters when called, so a fitted map differentiates with
@@ -112,6 +113,28 @@ uniform distribution to guard against that; `0` gives pure leverage sampling.
 ::: kernellib.FastFoodFeatures
 
 ::: kernellib.NystromFeatures
+
+## Separable space-time features
+
+A separable kernel $k_s(x, x')\,k_t(t, t')$ has features
+$\phi_s(x) \otimes \phi_t(t)$ (the mixed-product rule). `KroneckerFeatures`
+takes any two feature maps and a kernel
+`Product(ActiveDims(k_s, space), ActiveDims(k_t, time))`; on a full
+$N_s \times N_t$ grid, `features_grid(Xs, Xt)` returns $\Phi_s \otimes \Phi_t$
+as a `gaussx.Kronecker`, so normal equations and ridge / GP solves cost
+$O(R_s^3 + R_t^3)$ through $\Phi^\top\Phi = G_s \otimes G_t$ and are never
+formed as $N_s N_t \times R_s R_t$ (Saatçi, 2012).
+
+```python
+k = kl.Product(kl.ActiveDims(k_space, dims=(0, 1)), kl.ActiveDims(k_time, dims=(2,)))
+kf = kl.KroneckerFeatures(
+    kl.RandomFourierFeatures(512, key), kl.PeriodicFeatures(8), space_dims=2
+).fit(k, X)  # X = [lon, lat | time]
+Phi = kf(X)  # (N, 1024 * 17), row-wise Kronecker
+Phi_op = kf.features_grid(Xs, Xt)  # gaussx.Kronecker, Ns*Nt x Rs*Rt, lazy
+```
+
+::: kernellib.KroneckerFeatures
 
 ## Landmark selection
 
