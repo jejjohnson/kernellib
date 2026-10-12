@@ -24,7 +24,7 @@ import jax.numpy as jnp
 from jax.scipy.special import gammaln
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from kernellib._einx import rearrange, reduce
+from kernellib._einx import einsum, rearrange, reduce
 from kernellib.functional._distances import _pairwise_sq_dist
 from kernellib.functional._geo import chordal_distance, great_circle_distance
 
@@ -257,3 +257,37 @@ def lengthscale_grid(
         raise ValueError(f"n_points must be >= 1, got {n_points}.")
     log_center = jnp.log10(jnp.asarray(center))
     return jnp.logspace(log_center - decades, log_center + decades, n_points)
+
+
+def _weighted_rule_lengthscale(
+    X: Float[Array, "N D"],
+    rule: Literal["scott", "silverman"],
+    weights: Float[Array, " N"] | None = None,
+    *,
+    ard: bool = False,
+) -> Float[Array, ""] | Float[Array, " D"]:
+    r"""Scott's or Silverman's rule with sample weights (`KernelDensity`).
+
+    ``weights=None`` is `estimate_lengthscale` itself. With weights
+    $\beta_i \ge 0$ (normalised here), $n$ becomes Kish's effective sample
+    size $n_{\rm eff} = (\sum_i\beta_i)^2 / \sum_i\beta_i^2$ and $\hat\sigma_d$
+    the weighted standard deviation with the unbiased (``ddof=1``) reliability
+    correction $1 / (1 - \sum_i\beta_i^2)$, as ``scipy.stats.gaussian_kde``
+    does. Uniform weights recover `estimate_lengthscale` up to rounding.
+    """
+    if weights is None:
+        return estimate_lengthscale(X, rule, ard=ard)
+    X = jnp.asarray(X)
+    beta = weights / jnp.sum(weights)
+    sum_sq = jnp.sum(beta**2)
+    n_eff = 1.0 / sum_sq
+    mean = einsum(beta, X, "n, n d -> d")
+    centred = einx.subtract("n d, d -> n d", X, mean)
+    var = einsum(beta, centred**2, "n, n d -> d") / (1.0 - sum_sq)
+    std = jnp.sqrt(var)
+    # As `estimate_lengthscale`: the mean per-dimension std in d dimensions,
+    # or (ARD) each dimension's own std in one dimension.
+    sigma, d = (std, 1) if ard else (jnp.mean(std), X.shape[1])
+    if rule == "silverman":
+        return sigma * (n_eff * (d + 2.0) / 4.0) ** (-1.0 / (d + 4.0))
+    return sigma * n_eff ** (-1.0 / (d + 4.0))

@@ -131,7 +131,7 @@ eigenmaps, LPP.
 | GP models, ELBOs, conditionals, Markov / sparse GPs | pyrox-gp (modelling), gaussx (`_gp` recipes) |
 | Structured operators, solvers, preconditioners, logdets | gaussx |
 | Basis-function zoo (Laplace eigenfunctions, spherical harmonics, Slepian, wavelets, Gabor) | geonnax |
-| Information theory (entropy, MI estimators, KDE, kNN) | out of scope (pysim is retired, see below) |
+| Information theory (entropy and MI estimators, kNN estimators) | out of scope (pysim is retired, see below); KDE and KECA are in scope (see decision log) |
 | Multi-output kernels (LMC, ICM, OILMM) | pyrox-gp, for now (see open questions) |
 | Positivity transforms / constrained optimisation of hyperparameters | caller (optax / pyrox-gp), see open questions |
 | numpy / PyTorch backends | never |
@@ -163,6 +163,7 @@ kernel-agnostic feature-map arithmetic.**
 | GMRF structure: Besag / BYM2-scaled `structure_matrix`, `graph_null_space` constraints, cotangent `mesh_graph` | **kernellib** (`_graph/_structure.py`) | The graph side only; the GMRF precisions, SPDE builders and constrained samplers are gaussx's (and pyrox-lgm's), which take the graph's operators |
 | Landmark selection (`select_landmarks`), preconditioned `KRR` | **kernellib** | Built on gaussx's randomized primitives (below) |
 | Kernel derivatives (∂k/∂x, Gram blocks of derivatives, derivative of a KRR predictor) | **kernellib** | Autodiff of `pairwise` |
+| Kernel density estimation (weighted Parzen, score / Hessian) and kernel entropy components (KECA / OKECA) | **kernellib** (`_density/`, `_decomposition/_keca.py`) | Johnson et al. 2020 §5 |
 | Structured operators (`LowRankUpdate`, `Kronecker`, ...), solvers and strategies, preconditioners (`NystromPreconditioner`, `PartialCholeskyPreconditioner`), `trace_product`, `stable_squared_distances`, grids for interpolated operators, Gaussians, GP recipes, SSMs | **gaussx** | Kernel-agnostic. `stable_squared_distances` stays because gaussx's ensemble localization uses it and gaussx cannot import kernellib |
 | Randomized linear algebra: `randomized_eigh`, `rp_cholesky`, sketching operators, `hadamard_transform` | **gaussx** | Kernel-agnostic, so they are gaussx's; kernellib calls them (`hadamard_transform` moved to gaussx in K7 and is re-exported as `kernellib.hadamard_transform`) |
 | `Parameterized` kernel wrappers, priors, context scoping | **pyrox-gp** | Delegates the math to kernellib |
@@ -399,6 +400,8 @@ src/kernellib/
 │   ├── _eigenmaps.py      # LaplacianEigenmaps, SchrodingerEigenmaps, the potentials, combine_potentials, spatial_spectral_graph (K5)
 │   ├── _projections.py    # LocalityPreservingProjections, SchrodingerEigenmapProjections (K5)
 │   └── _kernel_projections.py  # KernelLocalityPreservingProjections, KernelSchrodingerProjections (K5)
+├── _density/              # layer 2: kernel density estimation
+│   └── _kde.py            #   KernelDensity: weighted Parzen, log-space / streaming, score + Hessian, Scott / Silverman / LOO (KD6)
 └── sklearn/               # opt-in scikit-learn adapters (extra kernellib[sklearn]); never imported by the core
 ```
 
@@ -549,7 +552,8 @@ notebook:
 | Distance correlation (`docs/linear/dist.md`, never implemented) | `Distance(exponent)` kernel; `distance_covariance_squared` = 4 `hsic`, `distance_correlation_squared` = `cka`, `energy_distance` = 2 `mmd_squared` (Sejdinovic et al., 2013) |
 | `viz.TaylorDiagram` (matplotlib) and the kernel Taylor diagram of `docs/viz/taylor.md` | `taylor_statistics(kx, ky, X, Y)` returns the coordinates; plotting stays out of kernellib and lives in the notebook |
 | `docs/` derivations (RV, HSIC, MMD, linear-algebra tricks, Taylor diagrams) | `docs/notebooks/similarity_measures.ipynb` |
-| `information/*` (entropy, MI, KDE, kNN) | out of scope |
+| `information/*` KDE | `KernelDensity` (`_density/`, weighted, with score / Hessian and bandwidth selection) |
+| `information/*` (entropy, MI, kNN) | out of scope |
 
 Old kernellib's `hsic_rbf_derivative` / `rhsic_rff_derivative` become
 `jax.grad(hsic, argnums=...)` with respect to `X`; a convenience
@@ -956,3 +960,4 @@ equals the dense value.
 | 2026-10-05 | The graph, GMRF-structure, randomized-kernel and dependence-penalty work (phases K1–K15) is planned and recorded in the [kernellib roadmap](../../docs/roadmap/roadmap-kernellib.md), which is the reference for those decisions; this document's package layout and ownership map were refreshed to match it (K11). Graph code lives in its own layer-1 package `_graph/`; randomized primitives (`randomized_eigh`, `rp_cholesky`, sketching, `hadamard_transform`) are gaussx's |
 | 2026-10-12 | Amends 2026-09-26 and 2026-09-29. Derivative *operators on functions* become public in `_derivatives/` (layer 0): `gradient`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` (#268). They are no longer a tutorial recipe, because sensitivity maps (KD3), stochastic traces (KD2), derivative penalties (KD5), density-gradient / SCMS and classifier-margin derivatives all need the same batched, pointwise contract. Kernel derivative Grams stay kernels (`Derivative`, `DerivativeIndexed`); one-off derivatives of a kernel's `pairwise` stay `jax.grad`. The squared-distance clip in the Gram path now acts on the value only, so second derivatives of a predictor at its training points are exact (the tie in `clip` used to halve them) |
 | 2026-10-12 | `Tanh` (sigmoid) kernel, `σ² tanh(γ xᵀx′ + c₀)`, added with an `is_psd` contract (#271, KD4). `AbstractKernel.is_psd` is a property defaulting to `True`, like `is_pointwise`; `Tanh` returns `False`; `Sum` / `Product` are PSD iff all parts are, `Scaled` iff its kernel is and the scale is not negative (a traced scale is assumed non-negative), `ActiveDims`, `Warped`, `Periodised`, `Modulated` and `DerivativeIndexed` follow their kernel, `Derivative` is PSD only for `dx == dy` (one-sided and mixed blocks are cross-covariances), and `Residual` is `False` (only a Nyström residual is PSD, which the types cannot show). Centring in randomized `KernelPCA` carries the PSD tag over, never adds it, and `KRR`'s Nyström / RP-Cholesky preconditioners reject a non-PSD kernel. `Periodic` and `Cosine` keep `True` (their 1-D-only caveat depends on the input dimension and stays documented). `to_operator` warns (`UserWarning`) and tags the operator `symmetric` only when `not kernel.is_psd`, never `positive_semidefinite` (a false PSD tag sends gaussx down Cholesky paths); `to_cross_operator` carries no tags, so it does not warn. A large enough ridge (`λn > -λ_min(K)`) makes `KRR` usable with it. The derivative tables of Johnson et al. (2020) are pinned to autodiff in `tests/test_kernel_derivative_tables.py`, with the corrected ARD row (the paper has two sign errors there) |
+| 2026-10-12 | KDE and KECA brought into scope (amends the non-goals and the pysim table; user decision, #273). `KernelDensity` (`_density/`, layer 2) is a weighted Parzen estimator evaluated in log space through a private `AbstractStationaryKernel._log_shape` hook, normalised by $S(0) = \int k$ (`spectral_density`), with a closed-form RBF score / Hessian and KD1 autodiff otherwise. The only entropy quantity in scope is the quadratic information potential $\hat V = \mathbf 1^\top K\mathbf 1/N^2$ that KECA ranks by (KD7). Entropy and MI estimators stay out |

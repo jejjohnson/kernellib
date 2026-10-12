@@ -104,6 +104,9 @@ class RBF(AbstractStationaryKernel):
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
         return jnp.exp(-0.5 * r2)
 
+    def _log_shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
+        return -0.5 * r2
+
     def unit_spectral_density(
         self, omega_sq: Float[Array, ...], d: int
     ) -> Float[Array, ...]:
@@ -173,6 +176,24 @@ class Matern(AbstractStationaryKernel):
             r2, exact, lambda s: 1.0 - 5.0 * s / 6.0 + 25.0 * s * s / 24.0
         )
 
+    def _log_shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
+        # log(poly(a)) - a with a = sqrt(2 nu) r, via log1p; near r = 0 the
+        # Taylor series of log(shape) in r² (as `shape` does), so the
+        # derivatives at coincident points stay exact.
+        if self.nu == 0.5:
+            return -_sqrt_safe(r2)
+        if self.nu == 1.5:
+            c = jnp.sqrt(3.0)
+            return _smooth_in_r2(
+                r2, lambda r: jnp.log1p(c * r) - c * r, lambda s: -1.5 * s
+            )
+
+        def exact(r: Float[Array, ...]) -> Float[Array, ...]:
+            a = jnp.sqrt(5.0) * r
+            return jnp.log1p(a + (a * a) / 3.0) - a
+
+        return _smooth_in_r2(r2, exact, lambda s: -5.0 * s / 6.0 + 25.0 * s * s / 36.0)
+
     def unit_spectral_density(
         self, omega_sq: Float[Array, ...], d: int
     ) -> Float[Array, ...]:
@@ -234,6 +255,9 @@ class RationalQuadratic(AbstractStationaryKernel):
 
     def shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
         return (1.0 + r2 / (2.0 * self.alpha)) ** (-self.alpha)
+
+    def _log_shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
+        return -self.alpha * jnp.log1p(r2 / (2.0 * self.alpha))
 
     def unit_spectral_density(
         self, omega_sq: Float[Array, ...], d: int

@@ -9,6 +9,7 @@ from kernellib.sklearn import (
     EigenProRegressor,
     FalkonRegressor,
     FastFoodFeatures,
+    KernelDensity,
     KernelLocalityPreservingProjections,
     KernelPCA,
     KernelRidge,
@@ -65,4 +66,16 @@ DECOMPOSITION = [
 @pytest.mark.slow
 @parametrize_with_checks(DECOMPOSITION)
 def test_decomposition_sklearn_compatible(estimator, check):
+    check(estimator)
+
+
+DENSITY = [
+    KernelDensity(),
+    KernelDensity(bandwidth="scott", batch_size=16),
+]
+
+
+@pytest.mark.slow
+@parametrize_with_checks(DENSITY)
+def test_density_sklearn_compatible(estimator, check):
     check(estimator)
