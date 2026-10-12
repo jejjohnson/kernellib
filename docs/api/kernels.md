@@ -70,7 +70,7 @@ kernels for SVM and the training of non-PSD kernels by SMO-type methods*.
 
 ### Paper and scikit-learn parameter mapping
 
-Johnson, Laparra, Piles & Camps-Valls (2020), *Kernel methods and their
+Johnson, Laparra, Pérez-Suay, Mahecha & Camps-Valls (2020), *Kernel methods and their
 derivatives*, PLOS ONE 15(10): e0235885 ([arXiv:2007.14706](https://arxiv.org/abs/2007.14706)),
 write the kernels in the parameterisation on the left.
 

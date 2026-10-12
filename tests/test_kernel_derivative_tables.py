@@ -1,6 +1,6 @@
 """Closed-form derivative tables of Johnson et al. (2020), pinned to autodiff.
 
-Johnson, Laparra, Piles & Camps-Valls (2020), *Kernel methods and their
+Johnson, Laparra, Pérez-Suay, Mahecha & Camps-Valls (2020), *Kernel methods and their
 derivatives*, PLOS ONE 15(10): e0235885 (arXiv:2007.14706), Tables 1 and 2
 give the first, second and mixed partials of the Linear, Polynomial, RBF,
 Tanh and ARD kernels. Each test evaluates the closed form in the paper's
