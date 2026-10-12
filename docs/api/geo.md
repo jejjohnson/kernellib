@@ -751,3 +751,51 @@ Phi = kl.MeshLaplaceFeatures(inputs="points").fit(k, obs_xy)(obs_xy)  # (N, 200)
 ::: kernellib.MeshHeat
 
 ::: kernellib.MeshLaplaceFeatures
+
+## Nonstationary
+
+`Gibbs` and `PaciorekSchervish` let the correlation length, or the full local
+anisotropy ellipse, vary with location: shorter ranges over rough terrain or
+coastlines, longer over plains, or latitude-dependent ranges on the sphere when
+applied to chordal coordinates. Both wrap a stationary isotropic correlation
+$R$ chosen by `base` (`"rbf"`, `"matern12"`, `"matern32"`, `"matern52"` or
+`"rq"`), and both are positive definite for *any* positive field, however
+rough (Paciorek & Schervish 2006, Thm. 1):
+
+$$
+k(x, x') = \sigma^2\,|\Sigma_x|^{1/4}|\Sigma_{x'}|^{1/4}
+\left|\tfrac{\Sigma_x + \Sigma_{x'}}{2}\right|^{-1/2} R\!\left(\sqrt{Q_{xx'}}\right),
+\qquad Q_{xx'} = (x - x')^\top \left(\tfrac{\Sigma_x + \Sigma_{x'}}{2}\right)^{-1} (x - x').
+$$
+
+`Gibbs(lengthscale_fn)` is the case $\Sigma_x = \operatorname{diag}(\ell_d(x)^2)$
+(`lengthscale_fn` returns a scalar or one value per dimension), in closed form
+with no matrices. `PaciorekSchervish(cov_fn)` takes `cov_fn(x)` returning the
+Cholesky factor of $\Sigma_x$. Either field is a plain callable or an
+`equinox.Module` (a small MLP, a basis expansion), differentiable in its
+parameters.
+
+**Valid `base` rule.** $R$ must be PD in *every* dimension: those that are
+Gaussian scale mixtures (RBF, any Matérn, rational quadratic). Compact or
+$d \le 3$ models (Spherical, Wendland, Pentaspherical) are not valid, so they
+are not offered. The field must be strictly positive (use a `softplus` or `exp`
+output head); constant fields recover the stationary kernel exactly and the
+diagonal is always $\sigma^2$. Determinants are taken through the Cholesky
+factors in log space, one $D \times D$ factorisation per pair, which suits
+$D \le 3$.
+
+```python
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import kernellib as kl
+
+mlp = eqx.nn.MLP(2, "scalar", 16, 2, key=jax.random.key(0))
+ell = lambda x: 0.05 + jax.nn.softplus(mlp(x))  # ℓ(x) > 0
+k = kl.Gibbs(ell, base="matern32")
+K = k(X, X)  # (N, N), PSD for any parameters
+```
+
+::: kernellib.Gibbs
+
+::: kernellib.PaciorekSchervish

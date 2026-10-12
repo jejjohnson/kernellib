@@ -30,6 +30,7 @@ from kernellib._geo._models import (
     Stable,
     Wendland,
 )
+from kernellib._geo._nonstationary import Gibbs, PaciorekSchervish
 from kernellib._geo._spacetime import Gneiting
 from kernellib._geo._sphere_series import (
     AbstractSphereSeriesKernel,
@@ -50,6 +51,7 @@ __all__ = [
     "Cubic",
     "GeneralizedCauchy",
     "GeometricAnisotropy",
+    "Gibbs",
     "Gneiting",
     "GreatCircleAskey",
     "GreatCircleCauchy",
@@ -64,6 +66,7 @@ __all__ = [
     "LinearTransform",
     "MeshHeat",
     "MeshMatern",
+    "PaciorekSchervish",
     "Pentaspherical",
     "RandomAdvectionRBF",
     "SphereHeat",
