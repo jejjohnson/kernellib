@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.21](https://github.com/jejjohnson/kernellib/compare/v0.0.20...v0.0.21) (2026-10-12)
+
+
+### Features
+
+* **geo:** add curl-free, divergence-free and helmholtz vector-field kernels (GEO15) ([#262](https://github.com/jejjohnson/kernellib/issues/262)) ([c28f4e6](https://github.com/jejjohnson/kernellib/commit/c28f4e666b889d2bc5ff7041308ab0005ed33adb)), closes [#214](https://github.com/jejjohnson/kernellib/issues/214)
+* **geo:** add divergence-free and curl-free hilbert-space features for 2-d vector fields (GEO23) ([#263](https://github.com/jejjohnson/kernellib/issues/263)) ([95554a4](https://github.com/jejjohnson/kernellib/commit/95554a44966fe335904396e28195b29281fb2054)), closes [#223](https://github.com/jejjohnson/kernellib/issues/223)
+* **geo:** add Gibbs and Paciorek–Schervish nonstationary kernels (GEO14) ([#256](https://github.com/jejjohnson/kernellib/issues/256)) ([271924f](https://github.com/jejjohnson/kernellib/commit/271924fb0496b0ad09fc66466e54d7a0bb6f2c0b)), closes [#213](https://github.com/jejjohnson/kernellib/issues/213)
+* **geo:** add latitude-dependent and axially symmetric sphere kernels (GEO11) ([#255](https://github.com/jejjohnson/kernellib/issues/255)) ([415ab97](https://github.com/jejjohnson/kernellib/commit/415ab97e38306b8cf5807890cea4678be1e6677d)), closes [#210](https://github.com/jejjohnson/kernellib/issues/210)
+* **graph:** add RootedTree and tail-up / tail-down tree kernels (GEO16) ([#261](https://github.com/jejjohnson/kernellib/issues/261)) ([09f8156](https://github.com/jejjohnson/kernellib/commit/09f8156268d5796e09bc23875a4d4fcc4e946a59)), closes [#215](https://github.com/jejjohnson/kernellib/issues/215)
+* **spectral:** add KroneckerFeatures for separable space-time feature products (GEO24) ([#260](https://github.com/jejjohnson/kernellib/issues/260)) ([3054555](https://github.com/jejjohnson/kernellib/commit/3054555de00099bee36b65c55962138c0598a7b0)), closes [#224](https://github.com/jejjohnson/kernellib/issues/224)
+
 ## [0.0.20](https://github.com/jejjohnson/kernellib/compare/v0.0.19...v0.0.20) (2026-10-11)
 
 
