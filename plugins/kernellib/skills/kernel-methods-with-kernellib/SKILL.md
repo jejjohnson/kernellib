@@ -38,11 +38,12 @@ loop, random features or an HSIC estimator, look it up:
 
 | You need… | Use |
 |---|---|
-| A kernel object | `kl.RBF`, `Matern`, `RationalQuadratic`, `Periodic`, `Cosine`, `Linear`, `Polynomial`, `Distance`, `White`, `Constant`; compose with `+`, `*`, a scalar, `.select(dims)`, `.stretch(scale)`, `.periodic(period)`, `Warped`, `Periodised`, `Modulated` |
+| A kernel object | `kl.RBF`, `Matern`, `RationalQuadratic`, `Periodic`, `Cosine`, `Linear`, `Polynomial`, `Tanh` (not PSD), `Distance`, `White`, `Constant`; compose with `+`, `*`, a scalar, `.select(dims)`, `.stretch(scale)`, `.periodic(period)`, `Warped`, `Periodised`, `Modulated` |
 | A kernel as a pure function on arrays | `kernellib.functional` (`rbf_kernel(X1, X2, variance, lengthscale)`, …; variance before lengthscale) |
 | Derivative observations | `kl.Derivative`, `DerivativeIndexed`, `derivative_inputs` |
+| Derivatives of a fitted predictor or vector field | `kl.gradient`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` (batched, exact; pass `model.predict`) |
 | A starting lengthscale | `kl.estimate_lengthscale(X, method=...)` (median, Silverman, Scott, …), `lengthscale_grid` |
-| `K + σ²I` for a solver | `kl.to_operator(kernel, X, noise=σ²)` (PSD-tagged; `implicit=True` for matrix-free), `to_cross_operator`; then `gaussx.solve`, `gaussx.logdet` |
+| `K + σ²I` for a solver | `kl.to_operator(kernel, X, noise=σ²)` (PSD-tagged when `kernel.is_psd`; `Tanh`, `Residual` and composites containing them warn and get the symmetric tag only; `implicit=True` for matrix-free), `to_cross_operator`; then `gaussx.solve`, `gaussx.logdet` |
 | Matrix-free matvecs in batches | `kl.ImplicitKernelOperator`, `batched_kernel_matvec`, `implicit_cross_kernel` |
 | A low-rank kernel approximation | `kl.RandomFourierFeatures`, `OrthogonalRandomFeatures`, `FastFoodFeatures`, `NystromFeatures` (+ `select_landmarks`), `LaplaceEigenfunctionFeatures`; as operators, `nystrom_operator`, `rff_operator`, `fastfood_operator` |
 | Spectral densities / frequency samples | `kernel.spectral_density`, `kernel.sample_frequencies` |

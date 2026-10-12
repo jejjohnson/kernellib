@@ -126,7 +126,9 @@ class Derivative(AbstractPointwiseKernel):
 
     @property
     def is_psd(self) -> bool:
-        return self.kernel.is_psd
+        # One-sided and mixed (dx != dy) blocks are cross-covariances, not
+        # covariances: their Gram is not even symmetric.
+        return self.dx is not None and self.dx == self.dy and self.kernel.is_psd
 
     @property
     def is_stationary(self) -> bool:

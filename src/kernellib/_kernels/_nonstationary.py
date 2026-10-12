@@ -9,7 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from kernellib._einx import reduce
+from kernellib._einx import einsum, reduce
 from kernellib._kernels._base import AbstractPointwiseKernel, GramParts
 from kernellib.functional import _nonstationary as _f
 
@@ -122,7 +122,9 @@ class Tanh(AbstractPointwiseKernel):
     Hence ``is_psd`` is ``False``: `to_operator` warns and tags the operator
     symmetric only, never positive semidefinite. A kernel ridge system
     ``K + lambda n I`` is positive definite once ``lambda n > -lambda_min(K)``,
-    so a large enough ridge makes the Gram usable in `KRR`.
+    so a large enough ridge makes the Gram usable in `KRR` with
+    ``preconditioner="none"`` (the Nystrom / partial-Cholesky preconditioners
+    factor the unshifted Gram and reject a non-PSD kernel).
 
     scikit-learn's ``kernel="sigmoid"`` is
     ``Tanh(scale=gamma, bias=coef0)``; the defaults follow its ``coef0=0``
@@ -153,7 +155,9 @@ class Tanh(AbstractPointwiseKernel):
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:
-        return self.variance * jnp.tanh(self.scale * jnp.dot(x, y) + self.bias)
+        return self.variance * jnp.tanh(
+            self.scale * einsum(x, y, "d, d ->") + self.bias
+        )
 
     def __call__(
         self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]

@@ -423,14 +423,17 @@ class KernelPCA(eqx.Module):
 def _doubly_centred(K: lx.AbstractLinearOperator, n: int) -> lx.FunctionLinearOperator:
     """``H K H`` with ``H = centering_operator(n)``, matrix-free.
 
-    ``H`` on both sides keeps it symmetric positive semidefinite (a one-sided
-    ``H K`` is neither); each ``H`` costs ``O(n)``.
+    ``H`` on both sides keeps it symmetric, and positive semidefinite when
+    ``K`` is (a one-sided ``H K`` is neither); centring does not repair an
+    indefinite ``K`` (`Tanh`), so the PSD tag is carried over, never added.
+    Each ``H`` costs ``O(n)``.
     """
     H = centering_operator(n)
+    tags = (lx.symmetric_tag,)
+    if lx.is_positive_semidefinite(K):
+        tags = (*tags, lx.positive_semidefinite_tag)
     return lx.FunctionLinearOperator(
-        lambda v: H.mv(K.mv(H.mv(v))),
-        K.in_structure(),
-        tags=(lx.symmetric_tag, lx.positive_semidefinite_tag),
+        lambda v: H.mv(K.mv(H.mv(v))), K.in_structure(), tags=tags
     )
 
 
