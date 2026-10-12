@@ -1,4 +1,4 @@
-"""Non-stationary kernels on arrays: linear, polynomial and distance-induced.
+"""Non-stationary kernels on arrays: linear, polynomial, tanh and distance-induced.
 
 Ported from ``pyrox_gp._src.kernels``; the math is unchanged.
 """
@@ -15,6 +15,7 @@ __all__ = [
     "distance_kernel",
     "linear_kernel",
     "polynomial_kernel",
+    "tanh_kernel",
 ]
 
 
@@ -88,6 +89,44 @@ def polynomial_kernel(
         raise ValueError(f"polynomial_kernel requires degree >= 1, got {degree!r}")
     dot = einx.dot("n1 d, n2 d -> n1 n2", X1, X2)
     return variance * (dot + bias) ** degree
+
+
+def tanh_kernel(
+    X1: Float[Array, "N1 D"],
+    X2: Float[Array, "N2 D"],
+    variance: Float[Array, ""],
+    scale: Float[Array, ""],
+    bias: Float[Array, ""],
+) -> Float[Array, "N1 N2"]:
+    r"""Hyperbolic-tangent (sigmoid) kernel.
+
+    $$
+    k(x, x') = \sigma^2 \tanh\bigl(\gamma\, x^\top x' + c_0\bigr)
+    $$
+
+    **Not positive semidefinite in general**: the Gram can have negative
+    eigenvalues for most $(\gamma, c_0)$. scikit-learn's
+    ``kernel="sigmoid"`` is ``tanh_kernel(X1, X2, 1, gamma, coef0)``.
+
+    Args:
+        X1: ``(N1, D)`` inputs.
+        X2: ``(N2, D)`` inputs.
+        variance: Scalar multiplier $\sigma^2$.
+        scale: Scalar slope $\gamma$ on the dot product.
+        bias: Scalar offset $c_0$ inside the ``tanh``.
+
+    Returns:
+        ``(N1, N2)`` Gram matrix.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> from kernellib.functional import tanh_kernel
+        >>> X = jnp.array([[1.0], [2.0]])
+        >>> one, zero = jnp.array(1.0), jnp.array(0.0)
+        >>> round(float(tanh_kernel(X, X, one, one, zero)[0, 1]), 4)  # tanh(2)
+        0.964
+    """
+    return variance * jnp.tanh(scale * einx.dot("n1 d, n2 d -> n1 n2", X1, X2) + bias)
 
 
 def distance_kernel(

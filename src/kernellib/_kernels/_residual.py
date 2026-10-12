@@ -61,7 +61,9 @@ class Residual(AbstractKernel):
 
     The residual of an *unbiased* approximation such as random Fourier
     features is not PSD in general (it is not a lower bound on $k$); it is
-    still useful for error analysis.
+    still useful for error analysis. Because the two cases cannot be told
+    apart from the types, ``is_psd`` is ``False``: `to_operator` warns and
+    tags the Gram symmetric only.
 
     Attributes:
         kernel: The exact kernel.
@@ -80,6 +82,12 @@ class Residual(AbstractKernel):
 
     kernel: AbstractKernel
     approx: AbstractKernel
+
+    @property
+    def is_psd(self) -> bool:
+        # Only a lower-bounding approximation (Nyström) leaves a PSD residual,
+        # and that is not visible from the types, so claim nothing.
+        return False
 
     def __call__(
         self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]

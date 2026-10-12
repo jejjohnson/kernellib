@@ -196,3 +196,84 @@ def test_structured_white_is_observation_noise_on_repeated_rows():
 def test_unknown_structure_raises():
     with pytest.raises(ValueError, match="structure"):
         kl.to_operator(kl.RBF(), X, structure="sparse")
+
+
+# -- non-PSD kernels (Tanh): symmetric tag only, with a warning ---------------
+
+
+def _tags_of(op):
+    return lx.is_symmetric(op), lx.is_positive_semidefinite(op)
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+def test_tanh_operator_warns_and_drops_psd_tag(implicit):
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(kl.Tanh(), X, noise=NOISE, implicit=implicit)
+    assert _tags_of(op) == (True, False)
+
+
+def test_tanh_in_a_sum_also_warns():
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(kl.RBF() + kl.Tanh(), X)
+    assert _tags_of(op) == (True, False)
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+def test_psd_kernel_does_not_warn_and_keeps_both_tags(implicit, recwarn):
+    op = kl.to_operator(kl.RBF(), X, noise=NOISE, implicit=implicit)
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+    assert _tags_of(op) == (True, True)
+
+
+def test_structured_non_psd_kernel_keeps_symmetric_tag_only():
+    # A negative Scaled Linear is low-rank structured and not PSD.
+    k = -1.0 * kl.Linear()
+    assert not k.is_psd
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(k, X, noise=NOISE)
+    assert _tags_of(op) == (True, False)
+
+
+def test_krr_with_tanh_and_large_ridge_matches_dense_solve():
+    n = X.shape[0]
+    k = kl.Tanh()
+    K = k(X, X)
+    lam_min = float(jnp.linalg.eigvalsh(K)[0])
+    assert lam_min < 0  # indefinite on this sample
+    ridge = (-lam_min + 0.1) / n * 1.05
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        model = kl.KRR(k, regularization=ridge).fit(X, Y)
+    expected = jnp.linalg.solve(K + ridge * n * jnp.eye(n), Y)
+    assert jnp.allclose(model.alpha, expected, atol=1e-10, rtol=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("dx", "dy", "psd"), [(0, 0, True), (0, None, False), (None, 0, False)]
+)
+def test_derivative_is_psd_only_on_the_diagonal_block(dx, dy, psd):
+    assert kl.Derivative(kl.RBF(), dx=dx, dy=dy).is_psd is psd
+
+
+def test_mixed_derivative_block_is_not_psd():
+    assert not kl.Derivative(kl.RBF(lengthscale=jnp.ones(2)), dx=0, dy=1).is_psd
+
+
+def test_residual_claims_no_psd():
+    k = kl.RBF()
+    assert not kl.Residual(k, kl.nystrom_kernel(k, X[:3])).is_psd
+
+
+@pytest.mark.parametrize("preconditioner", ["nystrom", "rpcholesky"])
+def test_krr_preconditioners_reject_non_psd_kernels(preconditioner):
+    with pytest.raises(ValueError, match="positive semidefinite"):
+        kl.KRR(kl.Tanh(), regularization=1.0, preconditioner=preconditioner)
+
+
+def test_double_centring_keeps_only_the_input_psd_claim():
+    from kernellib._decomposition._kpca import _doubly_centred
+
+    n = X.shape[0]
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        indefinite = kl.to_operator(kl.Tanh(), X)
+    assert _tags_of(_doubly_centred(indefinite, n)) == (True, False)
+    assert _tags_of(_doubly_centred(kl.to_operator(kl.RBF(), X), n)) == (True, True)

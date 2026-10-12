@@ -38,6 +38,7 @@ from kernellib.functional._nonstationary import (
     distance_kernel,
     linear_kernel,
     polynomial_kernel,
+    tanh_kernel,
 )
 from kernellib.functional._stationary import (
     constant_kernel,
@@ -90,6 +91,7 @@ __all__ = [
     "spherical_kernel",
     "stable_kernel",
     "stable_rbf_kernel",
+    "tanh_kernel",
     "wendland_kernel",
     "white_kernel",
 ]

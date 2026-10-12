@@ -23,7 +23,7 @@ from kernellib._kernels._derivative import (
     derivative_inputs,
 )
 from kernellib._kernels._feature import FeatureKernel, Modulated
-from kernellib._kernels._nonstationary import Distance, Linear, Polynomial
+from kernellib._kernels._nonstationary import Distance, Linear, Polynomial, Tanh
 from kernellib._kernels._residual import Residual, nystrom_kernel
 from kernellib._kernels._stationary import (
     RBF,
@@ -61,6 +61,7 @@ __all__ = [
     "Shift",
     "Stretch",
     "Sum",
+    "Tanh",
     "Warped",
     "White",
     "derivative_inputs",

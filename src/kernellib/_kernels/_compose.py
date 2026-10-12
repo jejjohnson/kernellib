@@ -207,6 +207,10 @@ class Sum(_SpectralComposite):
         return all(k.is_pointwise for k in self.kernels)
 
     @property
+    def is_psd(self) -> bool:
+        return all(k.is_psd for k in self.kernels)
+
+    @property
     def is_stationary(self) -> bool:
         return all(k.is_stationary for k in self.kernels)
 
@@ -250,6 +254,10 @@ class Product(AbstractKernel):
         return all(k.is_pointwise for k in self.kernels)
 
     @property
+    def is_psd(self) -> bool:
+        return all(k.is_psd for k in self.kernels)
+
+    @property
     def is_stationary(self) -> bool:
         return all(k.is_stationary for k in self.kernels)
 
@@ -283,6 +291,14 @@ class Scaled(_SpectralComposite):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_psd(self) -> bool:
+        try:
+            non_negative = bool(self.scale >= 0)
+        except jax.errors.TracerBoolConversionError:
+            non_negative = True  # a traced scale is assumed non-negative
+        return self.kernel.is_psd and non_negative
 
     @property
     def is_stationary(self) -> bool:
@@ -334,6 +350,10 @@ class ActiveDims(AbstractKernel):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
 
     @property
     def is_stationary(self) -> bool:
@@ -395,6 +415,10 @@ class Warped(AbstractKernel):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
 
     @property
     def is_stationary(self) -> bool:
@@ -462,6 +486,10 @@ class Periodised(AbstractKernel):
     @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise
+
+    @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
 
     @property
     def is_stationary(self) -> bool:

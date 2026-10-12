@@ -216,6 +216,13 @@ class KRR(AbstractEstimator):
                 "Pass a solver or a preconditioner, not both: with a "
                 "preconditioner, KRR solves by preconditioned CG."
             )
+        if self.preconditioner != "none" and not self.kernel.is_psd:
+            raise ValueError(
+                f"preconditioner={self.preconditioner!r} builds a Nystrom / "
+                "partial-Cholesky factor of K, which needs a positive "
+                f"semidefinite kernel; {type(self.kernel).__name__} is not "
+                "(is_psd is False). Use preconditioner='none'."
+            )
         if self.preconditioner_rank < 1:
             raise ValueError(
                 f"preconditioner_rank must be >= 1, got {self.preconditioner_rank}."
