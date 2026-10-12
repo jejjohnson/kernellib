@@ -30,6 +30,7 @@ plus `kernellib.functional` and the opt-in `kernellib.sklearn`.
 |---|---|---|
 | 0 | `functional/` | Pure kernel functions on arrays; matrix-level `hsic`, `cka`, `mmd_squared`, `center_kernel`, graph spectra |
 | 0 | `_kernels/` | `AbstractKernel` ⊃ `AbstractPointwiseKernel` ⊃ `AbstractStationaryKernel`, concrete kernels, composition, feature / Nyström / derivative kernels |
+| 0 | `_derivatives/` | Derivative operators of callables: gradient, Jacobian, Hessian, Laplacian, divergence, curl (stochastic traces and sensitivity maps planned) |
 | 1 | `_operators/` | `KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`, Nyström / RFF / FastFood low-rank operators; the `to_operator` / `to_cross_operator` bridge |
 | 1 | `_spectral/` | Feature maps (RFF, ORF, FastFood, Nyström, Laplace eigenfunctions), `select_landmarks`, RFF prior draws |
 | 1 | `_heuristics.py` | Bandwidth heuristics |
@@ -96,6 +97,7 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | A graph kernel or GMRF structure matrix | `diffusion_kernel`, `matern_graph_kernel`, …; `structure_matrix`, `graph_null_space` |
 | Kernel PCA / eigenmaps / LPP | `KernelPCA`, `LaplacianEigenmaps`, `LocalityPreservingProjections`, … |
 | GP derivative covariances | `Derivative`, `DerivativeIndexed`, `derivative_inputs` |
+| `vmap(grad(lambda x: f(x[None])[0]))`, a Hessian / Laplacian / divergence / curl of a predictor or vector field | `gradient(f, X)`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` |
 | A trace of a product, a Hadamard transform, an RP-Cholesky | gaussx (`trace_product`, `hadamard_transform`, `rp_cholesky`) |
 | RFF arithmetic, Fourier bases | `geonnax.randfeat`, `geonnax.basis` |
 | A transpose, reshape, axis reduction or inserted-axis broadcast | `kernellib._einx` (`einsum`, `rearrange`, `reduce`, `repeat`) and `einx.<op>` |

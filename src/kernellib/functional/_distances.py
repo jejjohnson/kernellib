@@ -10,8 +10,14 @@ and called with the input dtype it performs the same expansion as below.
 from __future__ import annotations
 
 import einx
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
+
+
+def _clip_at_zero(sq: Array) -> Array:
+    """``max(sq, 0)`` in value, the identity in derivative."""
+    return sq + jax.lax.stop_gradient(jnp.maximum(sq, 0.0) - sq)
 
 
 def _pairwise_sq_dist(
@@ -33,7 +39,11 @@ def _pairwise_sq_dist(
       tensor is ever built.
 
     Both clip at zero to absorb the small negative values that arise from
-    float cancellation on near-identical points.
+    float cancellation on near-identical points. The clip changes the value
+    only: its derivative is that of the unclipped expansion, so input
+    derivatives of the Gram at coincident points (the Hessian of a kernel
+    expansion at its training points) are exact rather than halved by the
+    tie in ``clip``.
 
     Note:
         The ARD path expands on scaled coordinates, so — like any
@@ -60,8 +70,7 @@ def _pairwise_sq_dist(
         cross = einx.dot("n1 d, n2 d -> n1 n2", X1, X2)
         # ‖xᵢ‖² + ‖x′ⱼ‖² broadcast to (N1, N2) via a named outer sum.
         norm_sum = einx.add("n1, n2 -> n1 n2", n1, n2)
-        sq = jnp.clip(norm_sum - 2.0 * cross, min=0.0)
-        return sq / lengthscale**2
+        return _clip_at_zero(norm_sum - 2.0 * cross) / lengthscale**2
 
     d = jnp.size(lengthscale)
     if X1.shape[-1] != d or X2.shape[-1] != d:
@@ -77,4 +86,4 @@ def _pairwise_sq_dist(
     n2 = einx.dot("n2 d, n2 d -> n2", X2, X2)
     cross = einx.dot("n1 d, n2 d -> n1 n2", X1, X2)
     norm_sum = einx.add("n1, n2 -> n1 n2", n1, n2)
-    return jnp.clip(norm_sum - 2.0 * cross, min=0.0)
+    return _clip_at_zero(norm_sum - 2.0 * cross)

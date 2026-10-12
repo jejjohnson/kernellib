@@ -4,9 +4,10 @@ For $f \sim \mathcal{GP}(0, k)$,
 $\operatorname{cov}(\partial_i f(x), \partial_j f(x')) =
 \partial^2 k / \partial x_i \partial x'_j$. These kernels are autodiff of
 `pairwise`, so they compose with `+`, `*`, `to_operator` and the solvers like
-any other kernel. Helpers that only *evaluate* derivatives (a derivative
-Gram, a predictor's gradient) remain one-line `jax.grad` compositions; see
-the "Kernels and JAX" tutorial.
+any other kernel. Derivatives of *functions* (a fitted predictor's
+gradient, Hessian or Laplacian, a vector field's divergence or curl) are the
+operators in `kernellib._derivatives`; a one-off derivative of `pairwise` is
+`jax.grad`.
 """
 
 from __future__ import annotations
@@ -27,14 +28,24 @@ __all__ = ["Derivative", "DerivativeIndexed", "derivative_inputs"]
 
 def _check_differentiable(kernel: AbstractKernel, name: str) -> None:
     """Reject kernels whose GP is not mean-square differentiable."""
-    from kernellib._kernels._nonstationary import Distance
-    from kernellib._kernels._stationary import Matern, White
-
     if not kernel.is_pointwise:
         raise TypeError(
             f"{name} differentiates pairwise(x, y); {type(kernel).__name__} is "
             "Gram-only."
         )
+    _reject_rough(kernel, name)
+
+
+def _reject_rough(kernel: AbstractKernel, name: str) -> None:
+    """Raise if any leaf of ``kernel`` is rough at ``x = y``.
+
+    ``Matern(nu < 1)``, ``White`` and ``Distance(exponent < 2)`` have no
+    derivative on the diagonal, so neither their GP sample paths nor a kernel
+    expansion ``sum_i alpha_i k(x, x_i)`` (at ``x = x_i``) are differentiable.
+    """
+    from kernellib._kernels._nonstationary import Distance
+    from kernellib._kernels._stationary import Matern, White
+
     rough = [
         leaf
         for leaf in jax.tree.leaves(

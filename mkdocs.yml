@@ -74,6 +74,7 @@ nav:
   - Overview: index.md
   - Capability index: capabilities.md
   - Kernels: kernels.md
+  - Derivatives: derivatives.md
   - Functional: functional.md
   - Operators: operators.md
   - Spectral: spectral.md
