@@ -105,7 +105,7 @@ def tanh_kernel(
     $$
 
     **Not positive semidefinite in general**: the Gram can have negative
-    eigenvalues for any $(\gamma, c_0)$. scikit-learn's
+    eigenvalues for most $(\gamma, c_0)$. scikit-learn's
     ``kernel="sigmoid"`` is ``tanh_kernel(X1, X2, 1, gamma, coef0)``.
 
     Args:
