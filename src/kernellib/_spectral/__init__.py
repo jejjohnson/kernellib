@@ -21,12 +21,20 @@ from kernellib._spectral._periodic import PeriodicFeatures
 from kernellib._spectral._rff import draw_rff_cosine_basis, evaluate_rff_cosine_paths
 from kernellib._spectral._slepian import SlepianFeatures
 from kernellib._spectral._spherical import SphericalHarmonicFeatures
+from kernellib._spectral._vector import (
+    CurlFreeFeatures,
+    DivergenceFreeFeatures,
+    HelmholtzFeatures,
+)
 
 
 __all__ = [
     "AbstractFeatureMap",
+    "CurlFreeFeatures",
+    "DivergenceFreeFeatures",
     "FastFoodFeatures",
     "GraphEigenFeatures",
+    "HelmholtzFeatures",
     "KroneckerFeatures",
     "LaplaceEigenfunctionFeatures",
     "MeshLaplaceFeatures",
