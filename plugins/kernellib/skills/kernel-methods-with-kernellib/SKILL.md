@@ -50,8 +50,9 @@ loop, random features or an HSIC estimator, look it up:
 | Kernel ridge regression | `kl.KRR` (any gaussx solver strategy; Nyström / RP-Cholesky preconditioned CG), `Falkon`, `EigenPro` |
 | Dependence and two-sample tests | `kl.hsic`, `cka`, `kernel_alignment`, `mmd_squared`, `energy_distance`, `distance_correlation_squared`, `permutation_test`, `CKAAccumulator` (streaming) |
 | Kernel PCA, graph embeddings | `kl.KernelPCA`, `LaplacianEigenmaps`, `SchrodingerEigenmaps`, `LocalityPreservingProjections` |
+| A kernel density estimate, its score or Hessian | `kl.KernelDensity(kl.RBF(), bandwidth="scott").fit(X, weights=w)`: `log_density`, `score` ($\nabla_x\log\hat p$), `hessian_log_density`, `sample`; log-space, so finite far from the data |
 | Graphs and graph kernels | `kl.knn_graph`, `grid_graph`, `mesh_graph`, `graph_laplacian`, `diffusion_kernel`, `matern_graph_kernel`, … |
-| scikit-learn pipelines | `kernellib.sklearn.KernelRidge`, `FalkonRegressor`, the feature-map transformers, `HSIC`, `MMD`, `KernelPCA` |
+| scikit-learn pipelines | `kernellib.sklearn.KernelRidge`, `FalkonRegressor`, the feature-map transformers, `HSIC`, `MMD`, `KernelPCA`, `KernelDensity` |
 
 Priors on hyperparameters and GP models live in pyrox-gp, which wraps
 these kernels; structured linear algebra (Kronecker, low-rank, solvers,
@@ -163,6 +164,7 @@ attainable with 199 permutations).
 | `mean(vmap(grad(f))(X) ** 2, axis=0)`, `mean(grad(F)(X) ** 2, axis=0)` | `kl.sensitivity(f, X)` (per feature), `kl.point_sensitivity(f, X)` (per sample); predictors and dataset functionals like HSIC |
 | An MMD two-sample test | `kl.mmd_squared` + `kl.permutation_test(..., kind="two_sample")` |
 | A median-distance bandwidth | `kl.estimate_lengthscale(X)` |
+| `jnp.log(jnp.mean(K(Q, X), axis=1))` as a KDE | `kl.KernelDensity(kernel).fit(X).log_density(Q)` (no underflow; normalised) |
 | A kNN graph Laplacian and its eigenvectors | `kl.knn_graph`, `kl.graph_laplacian`, `kl.LaplacianEigenmaps` |
 | A scikit-learn wrapper around a JAX kernel model | `kernellib.sklearn` |
 

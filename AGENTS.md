@@ -38,6 +38,7 @@ plus `kernellib.functional` and the opt-in `kernellib.sklearn`.
 | 2 | `_regression/` | `KRR`, `Falkon`, `EigenPro`, penalties, the Falkon / EigenPro primitives |
 | 2 | `_dependence/` | HSIC, CKA, MMD, distance covariance, permutation tests, streaming CKA |
 | 2 | `_decomposition/` | Kernel PCA, Laplacian / Schrödinger eigenmaps, LPP / SEP and their kernel forms |
+| 2 | `_density/` | `KernelDensity`: weighted Parzen estimator, score / Hessian, bandwidth selection |
 | adapter | `sklearn/` | scikit-learn estimators wrapping the core objects (extra `kernellib[sklearn]`) |
 | shared | `_einx.py`, `_testing.py` | einx wrappers; `tree_allclose`, `random_pd_matrix` |
 
@@ -96,6 +97,7 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | A k-NN graph, a Laplacian, its eigenpairs | `knn_graph`, `graph_from_edges`, `laplacian_eigpairs`, the graph types' `laplacian_operator` |
 | A graph kernel or GMRF structure matrix | `diffusion_kernel`, `matern_graph_kernel`, …; `structure_matrix`, `graph_null_space` |
 | Kernel PCA / eigenmaps / LPP | `KernelPCA`, `LaplacianEigenmaps`, `LocalityPreservingProjections`, … |
+| `log(mean(K(X*, X)))`, a Parzen / KDE density, its score or Hessian | `KernelDensity` (log-space, closed-form RBF score / Hessian, Scott / Silverman / LOO bandwidth) |
 | GP derivative covariances | `Derivative`, `DerivativeIndexed`, `derivative_inputs` |
 | `vmap(grad(lambda x: f(x[None])[0]))`, a Hessian / Laplacian / divergence / curl of a predictor or vector field | `gradient(f, X)`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` |
 | `mean(grad(f)(X) ** 2, axis=0)`, a feature or sample relevance from gradients | `sensitivity(f, X)`, `point_sensitivity(f, X)` |

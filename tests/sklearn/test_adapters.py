@@ -423,3 +423,39 @@ class TestDecomposition:
         assert float(model.kernel.lengthscale) == pytest.approx(0.3)
         pipe = make_pipeline(StandardScaler(), SkKLPP(n_components=2), Ridge())
         assert np.isfinite(pipe.fit(X, X[:, 0]).score(X, X[:, 0]))
+
+
+class TestKernelDensity:
+    def test_matches_the_core_object(self):
+        from kernellib.sklearn import KernelDensity as SkKDE
+
+        X, _ = _data(n=60, d=2)
+        w = np.random.default_rng(1).uniform(0.1, 2.0, size=60)
+        model = SkKDE(kernel=kl.RBF(), bandwidth="scott").fit(X, sample_weight=w)
+        ref = kl.KernelDensity(kl.RBF(), bandwidth="scott").fit(
+            jnp.asarray(X), weights=jnp.asarray(w)
+        )
+        log_p = np.asarray(ref.log_density(jnp.asarray(X)))
+        assert np.allclose(model.score_samples(X), log_p)
+        assert model.score(X) == pytest.approx(float(np.sum(log_p)))
+        assert np.allclose(model.bandwidth_, np.asarray(ref.lengthscale))
+        assert isinstance(model.kernel_, kl.RBF)
+        assert model.sample(7, random_state=0).shape == (7, 2)
+
+    def test_grid_search_matches_sklearn_kernel_density(self):
+        from sklearn.neighbors import KernelDensity as RefKDE
+
+        from kernellib.sklearn import KernelDensity as SkKDE
+
+        X, _ = _data(n=80, d=2)
+        grid = np.geomspace(0.05, 2.0, 12)
+        ours = GridSearchCV(
+            SkKDE(kernel=kl.RBF()), {"kernel__lengthscale": list(grid)}, cv=4
+        ).fit(X)
+        ref = GridSearchCV(RefKDE(), {"bandwidth": list(grid)}, cv=4).fit(X)
+        assert float(ours.best_params_["kernel__lengthscale"]) == pytest.approx(
+            ref.best_params_["bandwidth"]
+        )
+        assert np.allclose(
+            ours.cv_results_["mean_test_score"], ref.cv_results_["mean_test_score"]
+        )
