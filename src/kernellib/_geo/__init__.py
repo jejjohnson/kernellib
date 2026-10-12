@@ -40,6 +40,7 @@ from kernellib._geo._sphere_series import (
 )
 from kernellib._geo._taper import Tapered, tapered_operator
 from kernellib._geo._variogram import Variogram, empirical_variogram, fit_variogram
+from kernellib._geo._vector import CurlFree, DivergenceFree, Helmholtz, vector_inputs
 
 
 __all__ = [
@@ -49,6 +50,8 @@ __all__ = [
     "Advected",
     "Chordal",
     "Cubic",
+    "CurlFree",
+    "DivergenceFree",
     "GeneralizedCauchy",
     "GeometricAnisotropy",
     "Gibbs",
@@ -59,6 +62,7 @@ __all__ = [
     "GreatCirclePoweredExponential",
     "GreatCircleSpherical",
     "GreatCircleWendland",
+    "Helmholtz",
     "HoleEffect",
     "JunStein",
     "LatitudeScaled",
@@ -80,4 +84,5 @@ __all__ = [
     "empirical_variogram",
     "fit_variogram",
     "tapered_operator",
+    "vector_inputs",
 ]

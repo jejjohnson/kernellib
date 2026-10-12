@@ -799,3 +799,63 @@ K = k(X, X)  # (N, N), PSD for any parameters
 ::: kernellib.Gibbs
 
 ::: kernellib.PaciorekSchervish
+
+## Vector fields
+
+Matrix-valued kernels $K(x, x') = \operatorname{cov}(F(x), F(x')) \in
+\mathbb{R}^{D\times D}$ for a vector field $F : \mathbb{R}^D \to \mathbb{R}^D$,
+built by autodiff from any twice-differentiable scalar kernel (closed form for
+`RBF`). With $H = \nabla_x \nabla_{x'}^\top k$:
+
+| Kernel | Field | $K(x, x')$ | Invariant |
+|---|---|---|---|
+| `CurlFree(k)` | $\nabla\Phi$, potential $\Phi \sim \mathcal{GP}(0, k)$ | $H$ | zero curl |
+| `DivergenceFree(k)` | $R\nabla\Psi$ in 2-D, stream function $\Psi \sim \mathcal{GP}(0, k)$ | $R H R^\top = \operatorname{tr}(H) I - H^\top$ | zero divergence |
+| `Helmholtz(k_Φ, k_Ψ)` | $\nabla\Phi + R\nabla\Psi$ (Berlinghieri et al. 2023) | sum of the two | — |
+
+with $R$ the 90° rotation. Each is positive semidefinite because it is the
+covariance of a linear operator applied to a GP, and every sample and
+posterior mean satisfies the invariant exactly. The base must be
+mean-square differentiable (`RBF`, `RationalQuadratic`, `Matern` with
+$\nu \ge 3/2$); `Matern(nu=0.5)` and `White` raise.
+
+**Layout.** As with `DerivativeIndexed`, each row is a location plus a
+component index, ``[x, i]``, and the kernel is the scalar
+$k([x, i], [x', j]) = K(x, x')_{ij}$. So the kernels keep the ``(N1, N2)``
+Gram contract and go through `to_operator` (dense or ``implicit=True``),
+noise and the gaussx solvers unchanged, and a component missing at some
+location is simply a dropped row. `vector_inputs(X)` builds the point-major
+rows (row ``n * D + i`` is component ``i`` at location ``n``), matching
+``rearrange(F, "n i -> (n i)")`` of an ``(N, D)`` array of vectors;
+`matrix_gram(X1, X2)` returns the ``(N1, N2, D, D)`` blocks directly.
+
+**Drifters.** Ocean currents are nearly divergence-free at the surface, so a
+`Helmholtz` prior lets drifter velocities separate the rotational part
+(eddies, through $k_\Psi$) from the divergent part (upwelling and fronts,
+through $k_\Phi$), each with its own lengthscale and variance:
+
+```python
+import gaussx as gx
+import kernellib as kl
+from kernellib._einx import rearrange
+
+k = kl.Helmholtz(
+    potential=kl.RBF(lengthscale=20.0, variance=0.01),  # divergent part, km
+    stream=kl.RBF(lengthscale=30.0, variance=1.0),  # rotational part
+)
+Xv = kl.vector_inputs(X)  # X: (N, 2) positions; rows (n i)
+alpha = gx.solve(kl.to_operator(k, Xv, noise=1e-3), rearrange(UV, "n i -> (n i)"))
+UV_star = rearrange(k(kl.vector_inputs(X_star), Xv) @ alpha, "(n i) -> n i", i=2)
+```
+
+The cost is that of a GP on $N D$ scalar observations; for large drifter
+sets use the implicit operator with a CG solver. Tangent vector fields on
+the sphere (Hodge-type kernels on $S^2$) are a planned follow-up.
+
+::: kernellib.CurlFree
+
+::: kernellib.DivergenceFree
+
+::: kernellib.Helmholtz
+
+::: kernellib.vector_inputs
