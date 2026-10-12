@@ -191,10 +191,13 @@ from kernellib._geo import (
     AbstractSphereSeriesKernel,
     Advected,
     Cubic,
+    CurlFree,
+    DivergenceFree,
     GeneralizedCauchy,
     GeometricAnisotropy,
     Gibbs,
     Gneiting,
+    Helmholtz,
     HoleEffect,
     JunStein,
     LatitudeScaled,
@@ -216,6 +219,7 @@ from kernellib._geo import (
     empirical_variogram,
     fit_variogram,
     tapered_operator,
+    vector_inputs,
 )
 
 
@@ -239,9 +243,11 @@ __all__ = [
     "Constant",
     "Cosine",
     "Cubic",
+    "CurlFree",
     "Derivative",
     "DerivativeIndexed",
     "Distance",
+    "DivergenceFree",
     "EigenPro",
     "EigenProPreconditioner",
     "Falkon",
@@ -266,6 +272,7 @@ __all__ = [
     "GreatCircleSpherical",
     "GreatCircleWendland",
     "GridGraph",
+    "Helmholtz",
     "HoleEffect",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
@@ -397,4 +404,5 @@ __all__ = [
     "taylor_statistics",
     "to_cross_operator",
     "to_operator",
+    "vector_inputs",
 ]
