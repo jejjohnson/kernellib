@@ -256,3 +256,70 @@ Phi = fm(nodes)  # (V, 256), no V x V matrix
 ::: kernellib.GraphHeat
 
 ::: kernellib.GraphEigenFeatures
+
+## Rooted trees
+
+A **rooted tree** is a tree with one root, edge lengths and an additive
+weight function $\Omega$ (equal to 1 at the root and conserved at every
+junction: a node's weight is the sum of its children's). Euclidean kernels
+are wrong on such networks and are not even valid on path distance. The
+tail-up and tail-down moving-average covariances of Ver Hoef & Peterson
+(2010) are the standard valid models: they hold on **any** rooted tree,
+binary or not, by construction. They do **not** extend to graphs with loops
+(braided channels, meshed grids); for those use `matern_graph_kernel` or the
+other graph kernels, and note that `RootedTree.from_graph` raises on a
+graph that is not a tree. Other uses: sewer or drainage systems, radial
+power-distribution feeders, airway or vascular trees, neuron dendrites.
+
+`RootedTree` holds the tree (`from_parents`, or `from_graph` to orient a
+tree-shaped `Graph` away from a root). Weights are a user array (checked for
+additivity), `"leaf_count"` (Shreve order over the number of leaves) or
+`"uniform"` (equal split at each junction). `RootedTree.sites(edge, offset)`
+places points anywhere on the edges and computes, on the host in NumPy, the
+`TreeSites`: path distance $h$, the distances $a \le b$ to the closest common
+ancestor, the ancestor--descendant mask and the weights
+$\pi_{ij} = \sqrt{\Omega(\text{leafward}) / \Omega(\text{rootward})}$.
+
+`TailUp` is non-zero only between ancestor--descendant pairs,
+$C = \pi_{ij}\,C_1(h_{ij})$; `TailDown` correlates every pair, as a function
+of $h$ (connected pairs) or of $(a, b)$ (the others). Both take `(N, 1)` site
+indices into the `TreeSites`, like the graph kernels, and combine by
+addition into a full model.
+
+```python
+tree = kl.RootedTree.from_parents(parent, length)  # weights="leaf_count"
+sites = tree.sites(edge, offset)  # points on edges, host-side
+up = kl.TailUp(sites, "spherical", range=5.0)
+k = up + kl.TailDown(sites, "exponential", range=2.0)
+idx = einx.id("n -> n 1", jnp.arange(sites.n_sites))
+K = k(idx, idx)  # (N, N), positive definite
+```
+
+### Stream networks
+
+The construction was developed for stream networks and keeps the literature
+names `TailUp` / `TailDown`; "up" reads as "away from the root".
+
+| Here (general) | Stream networks (Ver Hoef & Peterson) |
+|---|---|
+| root | outlet |
+| toward the root / toward the leaves | downstream / upstream |
+| ancestor--descendant pair | flow-connected pair |
+| junction: the closest common ancestor | confluence |
+| `weights` (additive function $\Omega$) | watershed area, Shreve order, ... |
+| `TailUp`: tail points toward the leaves | tail-up |
+| `TailDown`: tail points toward the root | tail-down |
+
+Credits: Ver Hoef & Peterson (2010), *A moving average approach for spatial
+statistical models of stream networks*, JASA 105(489), 6--18; Ver Hoef,
+Peterson & Theobald (2006), *Environ. Ecol. Stat.* 13; Peterson & Ver Hoef
+(2010), *Ecology* 91(3), a mixed tail-up / tail-down example. The R package
+SSN2 is the reference behaviour (not a dependency).
+
+::: kernellib.RootedTree
+
+::: kernellib.TreeSites
+
+::: kernellib.TailUp
+
+::: kernellib.TailDown

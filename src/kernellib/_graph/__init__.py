@@ -46,6 +46,8 @@ from kernellib._graph._proximity import (
     relative_neighborhood_graph,
 )
 from kernellib._graph._structure import graph_null_space, structure_matrix
+from kernellib._graph._tree import RootedTree, TreeSites
+from kernellib._graph._tree_kernels import TailDown, TailUp
 from kernellib._graph._types import AbstractGraph, Graph, GraphTopology, GridGraph
 
 
@@ -57,6 +59,10 @@ __all__ = [
     "GraphTopology",
     "GridGraph",
     "KNNGraph",
+    "RootedTree",
+    "TailDown",
+    "TailUp",
+    "TreeSites",
     "adjacency_matrix",
     "commute_time_kernel",
     "cosine_graph_kernel",

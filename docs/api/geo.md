@@ -202,6 +202,14 @@ is `Matern(nu=0.5)`, and `GeneralizedCauchy(alpha=2, beta=b)` is
 
 ::: kernellib.functional.wendland_kernel
 
+## Rivers and other tree networks
+
+Data on a river network, or any rooted tree (drainage, sewer, feeder, airway
+or dendrite networks), needs covariances on the path distance along the
+network rather than straight-line distance. `TailUp` and `TailDown`, with
+`RootedTree` and `TreeSites`, are on the [Graphs](graph.md#rooted-trees)
+page.
+
 ## Anisotropy
 
 `LinearTransform` evaluates a stationary kernel on a linearly mapped lag,
