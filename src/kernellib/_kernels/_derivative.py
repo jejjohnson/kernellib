@@ -125,6 +125,10 @@ class Derivative(AbstractPointwiseKernel):
         return f(x, y)
 
     @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
+
+    @property
     def is_stationary(self) -> bool:
         return self.kernel.is_stationary
 
@@ -180,6 +184,10 @@ class DerivativeIndexed(AbstractPointwiseKernel):
         i = jnp.round(x[-1]).astype(jnp.int32) + 1
         j = jnp.round(y[-1]).astype(jnp.int32) + 1
         return block[i, j]
+
+    @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
 
 
 def _value_gradient_block(f, x: Float[Array, " D"], y: Float[Array, " D"]):

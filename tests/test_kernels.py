@@ -31,7 +31,8 @@ def _matern_reference(A, B, nu):
 
 
 # (kernel, functional reference, is PSD). Periodic and Cosine act on the
-# Euclidean distance and are only PSD for 1-D inputs; see test_psd_in_one_dimension.
+# Euclidean distance and are only PSD for 1-D inputs (see test_psd_in_one_dimension);
+# Tanh is indefinite in general (see test_bridge.py, test_kernel_derivative_tables.py).
 ZOO = [
     pytest.param(
         kl.RBF(lengthscale=0.7, variance=1.3),
@@ -89,6 +90,14 @@ ZOO = [
         id="polynomial",
     ),
     pytest.param(
+        kl.Tanh(variance=0.8, scale=0.5, bias=-0.3),
+        lambda A, B: F.tanh_kernel(
+            A, B, jnp.array(0.8), jnp.array(0.5), jnp.array(-0.3)
+        ),
+        False,
+        id="tanh",
+    ),
+    pytest.param(
         kl.Distance(variance=0.8, exponent=1.3),
         lambda A, B: F.distance_kernel(A, B, jnp.array(0.8), 1.3),
         True,
@@ -119,7 +128,9 @@ class TestZoo:
 
     def test_psd(self, kernel, reference, psd):
         if not psd:
-            pytest.skip("only PSD for 1-D inputs")
+            pytest.skip(
+                "not PSD in general (Periodic, Cosine: 1-D only; Tanh: indefinite)"
+            )
         eigs = jnp.linalg.eigvalsh(kernel.gram(X1))
         assert float(eigs.min()) > -1e-9
 

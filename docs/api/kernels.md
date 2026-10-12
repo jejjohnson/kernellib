@@ -56,6 +56,57 @@ page.
 
 ::: kernellib.Polynomial
 
+::: kernellib.Tanh
+
+!!! warning "Tanh is not positive semidefinite in general"
+    `is_psd` is `False`: `to_operator` warns and tags the operator symmetric
+    only. Add a ridge larger than $-\lambda_{\min}(K)$ before a Cholesky-type
+    solve (`KRR` with a large enough `regularization` does this).
+
+References: Smola, Ovari & Williamson (2001), *Regularization with dot-product
+kernels* (positive-definite dot-product kernels need non-negative Taylor
+coefficients, which `tanh` lacks); Lin & Lin (2003), *A study on sigmoid
+kernels for SVM and the training of non-PSD kernels by SMO-type methods*.
+
+### Paper and scikit-learn parameter mapping
+
+Johnson, Laparra, Piles & Camps-Valls (2020), *Kernel methods and their
+derivatives*, PLOS ONE 15(10): e0235885 ([arXiv:2007.14706](https://arxiv.org/abs/2007.14706)),
+write the kernels in the parameterisation on the left.
+
+| Paper (Table 1) | kernellib | Notes |
+|---|---|---|
+| Linear $x^\top y$ | `Linear(variance=1, bias=0)` | kernellib: $\sigma^2 x^\top y + b$ |
+| Poly $(\gamma x^\top y + c_0)^p$ | `Polynomial(variance=γ**p, bias=c0/γ, degree=p)` | exact for $\gamma > 0$ |
+| RBF $\exp(-\gamma\lVert x - y\rVert^2)$ | `RBF(lengthscale=1/sqrt(2γ), variance=1)` | $\gamma = 1/(2\ell^2)$ |
+| Tanh $\tanh(\gamma x^\top y + c_0)$ | `Tanh(variance=1, scale=γ, bias=c0)` | scikit-learn `"sigmoid"` |
+| ARD $\nu^2 e^{-\frac12\sum_d (h^d/\lambda_d)^2}$ | `RBF(lengthscale=λ, variance=ν²)` | $h = x - y$ |
+
+### Kernel derivative tables
+
+Derivatives of $k(x, y)$ with respect to the first argument, with
+$u = \gamma x^\top y + c_0$, $h = x - y$ and $j \ne k$. Every entry is
+pinned against `jax.grad` / `jax.hessian` of `pairwise` in
+`tests/test_kernel_derivative_tables.py`.
+
+| Kernel | $\partial k/\partial x^j$ | $\partial^2k/\partial (x^j)^2$ | $\partial^2k/\partial x^j\partial x^k$ |
+|---|---|---|---|
+| Linear | $\sigma^2 y^j$ | $0$ | $0$ |
+| Poly $(\gamma x^\top y + c_0)^p$ | $\gamma p\,y^j u^{p-1}$ | $p(p-1)(\gamma y^j)^2u^{p-2}$ | $p(p-1)\gamma^2y^jy^ku^{p-2}$ |
+| RBF $e^{-\gamma\lVert h\rVert^2}$ | $-2\gamma h^j k$ | $2\gamma(2\gamma (h^j)^2 - 1)k$ | $4\gamma^2h^jh^kk$ |
+| Tanh $\tanh u$ | $\gamma y^j\operatorname{sech}^2u$ | $-2(\gamma y^j)^2\operatorname{sech}^2(u)\,k$ | $-2\gamma^2y^jy^k\operatorname{sech}^2(u)\,k$ |
+| ARD | $-\dfrac{h^j}{\lambda_j^2}k$ | $\Big(\dfrac{(h^j)^2}{\lambda_j^4} - \dfrac1{\lambda_j^2}\Big)k$ | $\dfrac{h^j}{\lambda_j^2}\dfrac{h^k}{\lambda_k^2}k$ |
+
+!!! note "Errata in the paper's ARD row"
+    The ARD entries above are the corrected ones. Table 1 of the paper prints
+    $+(h^j/\lambda_j^2)\,k$ (sign error) and Table 2 prints
+    $(1/\lambda_j^2 + (h^j/\lambda_j^2)^2)\,k$ (sign of the $1/\lambda_j^2$
+    term). Both disagree with autodiff and with the paper's own RBF row
+    ($\gamma = 1/(2\lambda^2)$ gives $(h^2/\lambda^4 - 1/\lambda^2)k$). Checked
+    against the arXiv e-print LaTeX (2020-10-06); confirm against the version
+    of record before citing the errata publicly. The tests assert the corrected
+    forms and that the printed ones fail.
+
 ## Distance-induced
 
 `Distance` turns HSIC and MMD into the distance-based statistics of Székely

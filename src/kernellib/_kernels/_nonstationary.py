@@ -1,6 +1,6 @@
-"""Non-stationary kernels: linear, polynomial and distance-induced.
+"""Non-stationary kernels: linear, polynomial, tanh and distance-induced.
 
-Linear and polynomial defaults match pyrox-gp.
+Linear and polynomial defaults match pyrox-gp; pyrox-gp has no tanh kernel.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ __all__ = [
     "Distance",
     "Linear",
     "Polynomial",
+    "Tanh",
 ]
 
 
@@ -69,7 +70,10 @@ class Linear(AbstractPointwiseKernel):
 class Polynomial(AbstractPointwiseKernel):
     r"""Polynomial kernel, ``k(x, x') = sigma^2 (x^T x' + b)^d``.
 
-    ``degree`` is static.
+    ``degree`` is static. The form ``(gamma x^T x' + c0)^p`` (Johnson et
+    al., 2020; scikit-learn's ``polynomial``) is
+    ``Polynomial(variance=gamma**p, bias=c0 / gamma, degree=p)`` for
+    ``gamma > 0``.
 
     Attributes:
         variance: Scalar multiplier.
@@ -103,6 +107,67 @@ class Polynomial(AbstractPointwiseKernel):
             self.variance
             * (reduce(X * X, "n d -> n", "sum") + self.bias) ** self.degree
         )
+
+
+class Tanh(AbstractPointwiseKernel):
+    r"""Hyperbolic-tangent kernel, ``k(x, x') = sigma^2 tanh(gamma x^T x' + c0)``.
+
+    **Not positive semidefinite in general**: for most ``(scale, bias)``
+    there are inputs whose Gram has a negative eigenvalue (``scale=1``,
+    ``bias=0``, ``X = [[1], [2]]`` has eigenvalues ``-0.091`` and ``1.852``,
+    since ``tanh(1) tanh(4) < tanh(2)^2``). Smola, Ovari & Williamson (2001)
+    characterise positive-definite dot-product kernels by non-negative Taylor
+    coefficients, and ``tanh`` has coefficients of both signs; Lin & Lin
+    (2003) study which ``(gamma, c0)`` regions are still usable in SVMs.
+    Hence ``is_psd`` is ``False``: `to_operator` warns and tags the operator
+    symmetric only, never positive semidefinite. A kernel ridge system
+    ``K + lambda n I`` is positive definite once ``lambda n > -lambda_min(K)``,
+    so a large enough ridge makes the Gram usable in `KRR`.
+
+    scikit-learn's ``kernel="sigmoid"`` is
+    ``Tanh(scale=gamma, bias=coef0)``; the defaults follow its ``coef0=0``
+    with ``scale=1`` instead of ``1 / n_features``. pyrox-gp has no tanh
+    kernel. The kernel is smooth, so `Derivative` and `DerivativeIndexed`
+    accept it (the result inherits ``is_psd = False``).
+
+    Attributes:
+        variance: Scalar multiplier ``sigma^2``.
+        scale: Slope ``gamma`` on the dot product.
+        bias: Offset ``c0`` inside the ``tanh``.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> k = kl.Tanh()
+        >>> X = jnp.array([[1.0], [2.0]])
+        >>> round(float(jnp.linalg.eigvalsh(k.gram(X))[0]), 3)  # indefinite
+        -0.091
+        >>> k.is_psd
+        False
+    """
+
+    variance: Float[Array, ""] = eqx.field(default=1.0, converter=jnp.asarray)
+    scale: Float[Array, ""] = eqx.field(default=1.0, converter=jnp.asarray)
+    bias: Float[Array, ""] = eqx.field(default=0.0, converter=jnp.asarray)
+
+    def pairwise(
+        self, x: Float[Array, " D"], y: Float[Array, " D"]
+    ) -> Float[Array, ""]:
+        return self.variance * jnp.tanh(self.scale * jnp.dot(x, y) + self.bias)
+
+    def __call__(
+        self, X1: Float[Array, "N1 D"], X2: Float[Array, "N2 D"]
+    ) -> Float[Array, "N1 N2"]:
+        return _f.tanh_kernel(X1, X2, self.variance, self.scale, self.bias)
+
+    def diag(self, X: Float[Array, "N D"]) -> Float[Array, " N"]:
+        return self.variance * jnp.tanh(
+            self.scale * reduce(X * X, "n d -> n", "sum") + self.bias
+        )
+
+    @property
+    def is_psd(self) -> bool:
+        return False
 
 
 class Distance(AbstractPointwiseKernel):

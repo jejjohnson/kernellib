@@ -117,6 +117,23 @@ class AbstractKernel(eqx.Module):
         return False
 
     @property
+    def is_psd(self) -> bool:
+        """Whether the kernel is positive semidefinite on its documented domain.
+
+        ``True`` by default. `Tanh` returns ``False`` (its Gram can be
+        indefinite for any hyperparameters), and composites answer from their
+        parts: a `Sum` or `Product` is PSD iff all parts are, a `Scaled` kernel
+        iff its kernel is and the scale is not negative, and wrappers
+        (`ActiveDims`, `Warped`, `Derivative`, ...) follow their kernel.
+        `Periodic` and `Cosine` stay ``True``: their caveat (PSD for 1-D inputs
+        only) depends on the input dimension and is documented on the class.
+
+        `to_operator` tags the operator positive semidefinite only when this
+        is ``True``, and warns otherwise.
+        """
+        return True
+
+    @property
     def is_stationary(self) -> bool:
         """Whether ``k(x, x')`` depends on ``x - x'`` only.
 

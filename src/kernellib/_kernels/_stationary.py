@@ -78,6 +78,11 @@ class RBF(AbstractStationaryKernel):
     k(x, x') = \sigma^2 \exp\!\left(-\tfrac12 \|(x - x')/\ell\|^2\right)
     $$
 
+    The form ``exp(-gamma ||x - x'||^2)`` (Johnson et al., 2020;
+    scikit-learn's ``rbf``) is ``RBF(lengthscale=1 / sqrt(2 * gamma))``; the
+    paper's ARD form ``nu^2 exp(-sum_d ((x_d - x'_d) / lambda_d)^2 / 2)`` is
+    ``RBF(lengthscale=lambda, variance=nu**2)``.
+
     Attributes:
         lengthscale: Scalar (isotropic) or ``(D,)`` (ARD) lengthscale.
         variance: Scalar signal variance.

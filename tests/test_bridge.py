@@ -196,3 +196,52 @@ def test_structured_white_is_observation_noise_on_repeated_rows():
 def test_unknown_structure_raises():
     with pytest.raises(ValueError, match="structure"):
         kl.to_operator(kl.RBF(), X, structure="sparse")
+
+
+# -- non-PSD kernels (Tanh): symmetric tag only, with a warning ---------------
+
+
+def _tags_of(op):
+    return lx.is_symmetric(op), lx.is_positive_semidefinite(op)
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+def test_tanh_operator_warns_and_drops_psd_tag(implicit):
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(kl.Tanh(), X, noise=NOISE, implicit=implicit)
+    assert _tags_of(op) == (True, False)
+
+
+def test_tanh_in_a_sum_also_warns():
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(kl.RBF() + kl.Tanh(), X)
+    assert _tags_of(op) == (True, False)
+
+
+@pytest.mark.parametrize("implicit", [False, True])
+def test_psd_kernel_does_not_warn_and_keeps_both_tags(implicit, recwarn):
+    op = kl.to_operator(kl.RBF(), X, noise=NOISE, implicit=implicit)
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+    assert _tags_of(op) == (True, True)
+
+
+def test_structured_non_psd_kernel_keeps_symmetric_tag_only():
+    # A negative Scaled Linear is low-rank structured and not PSD.
+    k = -1.0 * kl.Linear()
+    assert not k.is_psd
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        op = kl.to_operator(k, X, noise=NOISE)
+    assert _tags_of(op) == (True, False)
+
+
+def test_krr_with_tanh_and_large_ridge_matches_dense_solve():
+    n = X.shape[0]
+    k = kl.Tanh()
+    K = k(X, X)
+    lam_min = float(jnp.linalg.eigvalsh(K)[0])
+    assert lam_min < 0  # indefinite on this sample
+    ridge = (-lam_min + 0.1) / n * 1.05
+    with pytest.warns(UserWarning, match="not positive semidefinite"):
+        model = kl.KRR(k, regularization=ridge).fit(X, Y)
+    expected = jnp.linalg.solve(K + ridge * n * jnp.eye(n), Y)
+    assert jnp.allclose(model.alpha, expected, atol=1e-10, rtol=1e-10)

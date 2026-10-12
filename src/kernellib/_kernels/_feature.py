@@ -129,5 +129,9 @@ class Modulated(AbstractKernel):
         )
 
     @property
+    def is_psd(self) -> bool:
+        return self.kernel.is_psd
+
+    @property
     def is_pointwise(self) -> bool:
         return self.kernel.is_pointwise

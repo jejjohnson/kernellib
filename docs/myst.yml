@@ -27,6 +27,7 @@ project:
     - bib/graphs.bib
     - bib/regression_at_scale.bib
     - bib/geo.bib
+    - bib/derivatives.bib
   toc:
     - file: index.md
     - title: Guide

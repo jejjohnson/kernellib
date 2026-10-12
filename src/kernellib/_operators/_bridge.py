@@ -6,6 +6,7 @@ lineax / gaussx (``gaussx.solve``, ``gaussx.logdet``, the solver strategies).
 
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import equinox as eqx
@@ -26,6 +27,26 @@ __all__ = [
 ]
 
 _PSD_TAGS = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+_SYM_TAGS = frozenset({lx.symmetric_tag})
+
+
+def _tags(kernel: AbstractKernel, stacklevel: int = 3) -> frozenset:
+    """The operator tags for ``kernel``'s Gram; warns if it is not PSD.
+
+    A positive-semidefinite tag is a claim gaussx trusts (Cholesky paths), so
+    a kernel with ``is_psd == False`` (`Tanh`, or a composite containing it)
+    gets the symmetric tag only.
+    """
+    if kernel.is_psd:
+        return _PSD_TAGS
+    warnings.warn(
+        f"{type(kernel).__name__} is not positive semidefinite in general; "
+        "the operator is tagged symmetric only. Add a ridge larger than "
+        "-lambda_min(K) before a Cholesky-type solve.",
+        UserWarning,
+        stacklevel=stacklevel,
+    )
+    return _SYM_TAGS
 
 
 def _split(kernel: AbstractKernel):
@@ -56,6 +77,11 @@ def to_operator(
     structure: Literal["auto", "dense"] = "auto",
 ) -> lx.AbstractLinearOperator:
     r"""``K(X, X) (+ noise * I)`` as a symmetric, PSD-tagged linear operator.
+
+    A kernel with ``is_psd == False`` (`Tanh`, or a `Sum` / `Product`
+    containing it) emits a `UserWarning` and gets the symmetric tag only: a
+    false PSD tag would send gaussx down Cholesky paths that fail or
+    silently mis-solve.
 
     With ``structure="auto"`` (default), a kernel whose Gram is diagonal
     and/or low-rank keeps that structure: `White` becomes a
@@ -103,16 +129,17 @@ def to_operator(
         >>> gx.solve(K, jnp.ones(5)).shape
         (5,)
     """
+    tags = _tags(kernel)
     if not implicit:
         if structure not in ("auto", "dense"):
             raise ValueError(f"structure must be 'auto' or 'dense', got {structure!r}.")
         parts = kernel._gram_structure(X) if structure == "auto" else None
         if parts is not None:
-            return _structured_operator(parts, X, noise)
+            return _structured_operator(parts, X, noise, tags)
         K = kernel(X, X)
         if noise is not None:
             K = K + noise * jnp.eye(X.shape[0], dtype=K.dtype)
-        return lx.MatrixLinearOperator(K, _PSD_TAGS)
+        return lx.MatrixLinearOperator(K, tags)
     kernel_fn, params = _split(kernel)
     try:
         noise_var = 0.0 if noise is None else float(noise)
@@ -122,15 +149,14 @@ def to_operator(
             "stores noise_var as a static float. Use implicit=False to trace "
             "or differentiate the noise."
         ) from err
-    return ImplicitKernelOperator(
-        kernel_fn, X, noise_var, params=params, tags=_PSD_TAGS
-    )
+    return ImplicitKernelOperator(kernel_fn, X, noise_var, params=params, tags=tags)
 
 
 def _structured_operator(
     parts: GramParts,
     X: Float[Array, "N D"],
     noise: float | Float[Array, ""] | None,
+    tags: frozenset = _PSD_TAGS,
 ) -> lx.AbstractLinearOperator:
     """``diag(δ) + U diag(w) Uᵀ (+ noise I)`` as a diagonal or low-rank operator."""
     n = X.shape[0]
@@ -145,7 +171,7 @@ def _structured_operator(
         diagonal = diagonal + noise
     base = lx.DiagonalLinearOperator(diagonal)
     if parts.factors is None:
-        return lx.TaggedLinearOperator(base, _PSD_TAGS)
+        return lx.TaggedLinearOperator(base, tags)
     assert parts.weights is not None
     U = parts.factors.astype(dtype)
     # The weights go on V with d = 1: gaussx's Woodbury capacitance inverts
@@ -153,7 +179,7 @@ def _structured_operator(
     # while folding sqrt(w) into both factors has an infinite gradient at 0.
     V = U * parts.weights.astype(dtype)
     return gx.LowRankUpdate(
-        base=base, U=U, d=jnp.ones(U.shape[1], dtype=dtype), V=V, tags=_PSD_TAGS
+        base=base, U=U, d=jnp.ones(U.shape[1], dtype=dtype), V=V, tags=tags
     )
 
 
