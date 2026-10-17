@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.22](https://github.com/jejjohnson/kernellib/compare/v0.0.21...v0.0.22) (2026-10-17)
+
+
+### Features
+
+* **derivatives:** add gradient, jacobian, hessian, laplacian, divergence and curl operators ([#278](https://github.com/jejjohnson/kernellib/issues/278)) ([3eac194](https://github.com/jejjohnson/kernellib/commit/3eac194a6330b0efa9f2b00f460f63fe955ba3a9)), closes [#268](https://github.com/jejjohnson/kernellib/issues/268)
+* **kernels:** tanh (sigmoid) kernel and closed-form derivative tests ([#277](https://github.com/jejjohnson/kernellib/issues/277)) ([98fbbc7](https://github.com/jejjohnson/kernellib/commit/98fbbc71aeb33ae3a42fc0fa518eb0e1948a9b4a))
+
 ## [0.0.21](https://github.com/jejjohnson/kernellib/compare/v0.0.20...v0.0.21) (2026-10-12)
 
 
