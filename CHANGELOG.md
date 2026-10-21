@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.22](https://github.com/jejjohnson/kernellib/compare/v0.0.21...v0.0.22) (2026-10-21)
+
+
+### Features
+
+* **density:** add KernelDensity, a weighted Parzen estimator with score, Hessian and bandwidth selection ([#281](https://github.com/jejjohnson/kernellib/issues/281)) ([49d2b5f](https://github.com/jejjohnson/kernellib/commit/49d2b5fc0e556ffcf20d7a85aa6eed133744258f))
+* **derivatives:** add gradient, jacobian, hessian, laplacian, divergence and curl operators ([#278](https://github.com/jejjohnson/kernellib/issues/278)) ([3eac194](https://github.com/jejjohnson/kernellib/commit/3eac194a6330b0efa9f2b00f460f63fe955ba3a9)), closes [#268](https://github.com/jejjohnson/kernellib/issues/268)
+* **derivatives:** add sensitivity and point_sensitivity maps (KD3) ([#280](https://github.com/jejjohnson/kernellib/issues/280)) ([a50ad0c](https://github.com/jejjohnson/kernellib/commit/a50ad0ce22616eb064ddba35471cbeeaa6e38805))
+* **kernels:** tanh (sigmoid) kernel and closed-form derivative tests ([#277](https://github.com/jejjohnson/kernellib/issues/277)) ([98fbbc7](https://github.com/jejjohnson/kernellib/commit/98fbbc71aeb33ae3a42fc0fa518eb0e1948a9b4a))
+
 ## [0.0.21](https://github.com/jejjohnson/kernellib/compare/v0.0.20...v0.0.21) (2026-10-12)
 
 
