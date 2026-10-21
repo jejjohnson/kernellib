@@ -41,6 +41,7 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._geo._mesh.MeshMatern",
         "kernellib._spectral._mesh.MeshLaplaceFeatures",
         "kernellib._decomposition._kpca.KernelPCA",
+        "kernellib._density._kde.KernelDensity",
         "kernellib._spectral._slepian.SlepianFeatures",
         "kernellib._spectral._graph.GraphEigenFeatures",
         "kernellib._dependence._distance.distance_correlation_squared",

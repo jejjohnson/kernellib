@@ -286,6 +286,14 @@ class AbstractStationaryKernel(AbstractPointwiseKernel):
         """Unit-variance profile as a function of scaled squared distance."""
         raise NotImplementedError
 
+    def _log_shape(self, r2: Float[Array, ...]) -> Float[Array, ...]:
+        r"""``log(shape(r2))``; subclasses override it with an exact log form.
+
+        `KernelDensity` evaluates $\log k$ through this hook, so a kernel that
+        underflows to 0 far from its centre still has a finite log.
+        """
+        return jnp.log(self.shape(r2))
+
     def pairwise(
         self, x: Float[Array, " D"], y: Float[Array, " D"]
     ) -> Float[Array, ""]:

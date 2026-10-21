@@ -34,6 +34,7 @@ from kernellib._decomposition import (
     spatial_spectral_graph,
     spatial_spectral_potential,
 )
+from kernellib._density import KernelDensity
 from kernellib._dependence import (
     CKAAccumulator,
     PermutationTestResult,
@@ -299,6 +300,7 @@ __all__ = [
     "ImplicitKernelOperator",
     "JunStein",
     "KNNGraph",
+    "KernelDensity",
     "KernelLocalityPreservingProjections",
     "KernelOperator",
     "KernelPCA",

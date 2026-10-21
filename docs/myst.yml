@@ -28,6 +28,7 @@ project:
     - bib/regression_at_scale.bib
     - bib/geo.bib
     - bib/derivatives.bib
+    - bib/density.bib
   toc:
     - file: index.md
     - title: Guide

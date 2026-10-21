@@ -39,7 +39,7 @@ Conventions:
 - **Precision.** Arrays are converted to JAX arrays; enable
   `jax_enable_x64` for float64 computation.
 
-The regressors, transformers and decomposition adapters pass scikit-learn's
+The regressors, transformers, decomposition adapters and `KernelDensity` pass scikit-learn's
 `check_estimator` suite.
 `HSIC` and `MMD` follow the same conventions but are not predictors.
 
@@ -84,6 +84,17 @@ unlabelled.
 ::: kernellib.sklearn.LaplacianEigenmaps
 
 ::: kernellib.sklearn.SchrodingerEigenmaps
+
+## Density
+
+`KernelDensity` follows `sklearn.neighbors.KernelDensity`:
+`fit(X, sample_weight=...)`, `score_samples` (the log-density), `score` (the
+total log-likelihood, so `GridSearchCV` over `kernel__lengthscale` selects a
+bandwidth by held-out likelihood) and `sample(n_samples, random_state)`. The
+fitted `kernellib.KernelDensity` is `model_`, whose own `score` is the
+gradient of the log-density.
+
+::: kernellib.sklearn.KernelDensity
 
 ## Dependence
 
