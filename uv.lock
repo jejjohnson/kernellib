@@ -1242,7 +1242,7 @@ docs = [
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.6" },
     { name = "nbconvert", specifier = ">=7.16.6" },
     { name = "optax", specifier = ">=0.2.4" },
-    { name = "pipekit-train", extras = ["equinox"], git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit-train&tag=pipekit-train-v0.0.2" },
+    { name = "pipekit-train", extras = ["equinox"], git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit-train&tag=pipekit-ops-v0.2.1" },
     { name = "pygments", specifier = ">=2.20.0,<2.22" },
     { name = "scikit-learn", specifier = ">=1.6" },
     { name = "watermark", specifier = ">=2.6.0" },
@@ -2244,16 +2244,16 @@ wheels = [
 ]
 
 [[package]]
-name = "pipekit"
-version = "0.0.2"
-source = { git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit&tag=pipekit-train-v0.0.2#ef3c17f85678dbcdd739f27ef75a0eaab6d5163f" }
+name = "pipekit-ops"
+version = "0.2.1"
+source = { git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit-ops&tag=pipekit-ops-v0.2.1#8e357a1f3eb82b15e15bf18be4de04d4d9535855" }
 
 [[package]]
 name = "pipekit-train"
-version = "0.0.2"
-source = { git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit-train&tag=pipekit-train-v0.0.2#ef3c17f85678dbcdd739f27ef75a0eaab6d5163f" }
+version = "0.2.0"
+source = { git = "https://github.com/jejjohnson/pipekit.git?subdirectory=packages%2Fpipekit-train&tag=pipekit-ops-v0.2.1#8e357a1f3eb82b15e15bf18be4de04d4d9535855" }
 dependencies = [
-    { name = "pipekit" },
+    { name = "pipekit-ops" },
 ]
 
 [package.optional-dependencies]
