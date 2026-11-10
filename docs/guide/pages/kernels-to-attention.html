@@ -1,0 +1,1244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Kriging, Nadaraya–Watson and attention as kernel smoothers: operator cards, units checks and a live weight-map lab on a cloudy TROPOMI methane scene.">
+<title>Kernels to Attention</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']], tags: 'none',
+    macros: { vect: ['\\mathbf{#1}', 1], mat: ['\\mathbf{#1}', 1], gvect: ['\\boldsymbol{#1}', 1], gmat: ['\\boldsymbol{#1}', 1], op: ['\\mathrm{#1}', 1] } },
+  svg: { fontCache: 'global' },
+  options: { skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'] }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg-full.js" defer></script>
+<style>
+/* Standalone page for the kernellib docs (docs/guide/kernels_to_attention.md links here).
+   Layout: one 46rem reading column, GeoStack hydrographic palette (explainer kit draft 4).
+   Page addition: .lab, the interactive weight-map comparison, built from the same tokens. */
+:root {
+  --paper: #F1F5F6; --panel: #E4ECEF; --ink: #0E1E28; --muted: #4E616C; --rule: #C6D3D9;
+  --sea: #0A6B68; --sea-soft: #D3E7E5; --oracle: #985710; --oracle-soft: #F3E4CF;
+  --code-bg: #E9EFF1; --unit: #5B4A9A; --unit-soft: #E6E2F3; --ex: #2F5E8C; --ex-soft: #DCE7F2;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --step: clamp(15.5px, 1.05vw + 12px, 17.5px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0A141A; --panel: #12212A; --ink: #DAE5EA; --muted: #8DA1AB; --rule: #23353F;
+    --sea: #52B9B1; --sea-soft: #12302F; --oracle: #E2A65C; --oracle-soft: #33240F; --code-bg: #0F1C23;
+    --unit: #B3A6EC; --unit-soft: #221D3A; --ex: #86B4E2; --ex-soft: #132536; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0A141A; --panel: #12212A; --ink: #DAE5EA; --muted: #8DA1AB; --rule: #23353F;
+  --sea: #52B9B1; --sea-soft: #12302F; --oracle: #E2A65C; --oracle-soft: #33240F; --code-bg: #0F1C23;
+  --unit: #B3A6EC; --unit-soft: #221D3A; --ex: #86B4E2; --ex-soft: #132536; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: var(--step); line-height: 1.62;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 46rem; margin: 0 auto; padding-block: 2.5rem 5rem; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2rem, 4vw + 1rem, 2.9rem); font-weight: 700; letter-spacing: -0.015em; }
+h2 { font-size: 1.5rem; font-weight: 700; margin-top: 3.2rem; margin-bottom: 0.9rem; }
+h3 { font-size: 1.08rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.5rem; }
+p { margin: 0 0 1rem; }
+ul { margin: 0 0 1rem; padding-left: 1.2rem; display: grid; gap: 0.35rem; }
+a { color: var(--sea); text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--sea); outline-offset: 3px; border-radius: 4px; }
+.eyebrow { font-family: var(--display); font-size: 0.74rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--sea); }
+.lede { font-size: 1.12rem; color: var(--muted); margin-top: 0.9rem; }
+.tag { font-family: var(--display); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding-block: 0.25rem; margin: 0.8rem 0 !important; }
+mjx-container { color: var(--ink); }
+code { font-family: var(--mono); font-size: 0.86em; }
+
+/* C1 TL;DR */
+.tldr { border-top: 2px solid var(--ink); padding-top: 1rem; margin-top: 2rem; }
+.tldr h2 { margin-top: 0.3rem; }
+.tldr ul { margin: 0.6rem 0 1rem; }
+
+/* C2 pipeline chart */
+.chart { display: grid; }
+.box { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); gap: 0 0.9rem; border: 1px solid var(--rule); background: var(--paper); border-radius: 6px; padding: 0.85rem 1rem; color: inherit; text-decoration: none; }
+.box:hover { border-color: var(--sea); }
+.box .num { font-family: var(--display); font-weight: 700; font-size: 1.15rem; color: var(--sea); line-height: 1.25; }
+.box .name { font-family: var(--display); font-weight: 600; font-size: 1rem; }
+.box.focus { background: var(--oracle-soft); border-color: var(--oracle); }
+.box.focus .num { color: var(--oracle); }
+.box .sig { grid-column: 1 / -1; display: grid; grid-template-columns: 2.4rem 1.15rem max-content minmax(0, 1fr); column-gap: 0.55rem; row-gap: 0.2rem; align-items: center; margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--rule); font-size: 0.86rem; }
+.box .sig .d { font-family: var(--display); font-weight: 600; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.box .sig .n { white-space: nowrap; }
+.box .sig .s { display: flex; flex-wrap: wrap; gap: 0.2rem 0.4rem; align-items: center; min-width: 0; }
+.box .sig code { font-size: 0.78rem; color: var(--muted); overflow-wrap: anywhere; }
+.link { display: grid; grid-template-columns: 2.4rem 1fr; gap: 0 0.9rem; padding: 0.15rem 1rem; }
+.link span:first-child { justify-self: center; width: 1px; background: var(--rule); min-height: 1.6rem; }
+.link span:last-child { font-family: var(--display); font-size: 0.76rem; color: var(--muted); align-self: center; }
+svg.g { width: 1.15rem; height: 1.15rem; color: var(--sea); flex: none; }
+
+/* units chip */
+.u { display: inline-block; font-family: var(--mono); font-size: 0.74rem; line-height: 1.5; padding: 0 0.4rem; border-radius: 4px; background: var(--unit-soft); color: var(--unit); white-space: nowrap; }
+
+/* tables */
+.tbl { overflow-x: auto; margin: 1rem 0 1.4rem; border-top: 1px solid var(--rule); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.55rem 0.7rem 0.55rem 0; border-bottom: 1px solid var(--rule); }
+th { font-family: var(--display); font-weight: 600; font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+td.num, th.num { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+td.gl { width: 1.6rem; }
+td.gl svg.g { width: 1.3rem; height: 1.3rem; display: block; }
+td.k { font-family: var(--display); font-weight: 600; white-space: nowrap; }
+td code { font-size: 0.8rem; white-space: nowrap; }
+
+/* C4 running-example card */
+.ex { border: 1px solid var(--ex); border-radius: 6px; overflow: hidden; margin: 1rem 0 1.4rem; }
+.ex-h { background: var(--ex-soft); padding: 0.6rem 1rem; display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; align-items: baseline; border-bottom: 1px solid var(--ex); }
+.ex-h .tag { color: var(--ex); }
+.ex-h strong { font-family: var(--display); font-weight: 600; }
+.ex-b { padding: 0.7rem 1rem 0.3rem; font-size: 0.95rem; }
+.ex-b .tbl { margin: 0.4rem 0 0.6rem; border-top: 0; }
+.ex.mini { border-left: 3px solid var(--ex); border-top: 0; border-right: 0; border-bottom: 0; border-radius: 0 6px 6px 0; background: var(--ex-soft); padding: 0.7rem 1rem; font-size: 0.96rem; }
+.ex.mini .tag { color: var(--ex); display: block; margin-bottom: 0.25rem; }
+.ex.mini p:last-child { margin-bottom: 0; }
+
+/* C6 model / concept box */
+.def { background: var(--panel); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 1.4rem; font-size: 0.97rem; }
+.def .tag { color: var(--sea); display: block; margin-bottom: 0.3rem; }
+.def h3 { margin: 0 0 0.6rem; }
+.def p:last-child { margin-bottom: 0; }
+.def ul { margin-bottom: 0.6rem; }
+.where { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 0.8rem; row-gap: 0.45rem; align-items: baseline; margin: 0.6rem 0 0.4rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); font-size: 0.92rem; }
+.where .wl { grid-column: 1 / -1; font-family: var(--display); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.where .me { min-width: 0; }
+.where .meta { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.45rem; align-items: baseline; margin-left: 0.5rem; }
+.where .meta .sh { font-size: 0.86rem; color: var(--muted); }
+.mstep { display: flex; align-items: baseline; gap: 0.5rem; margin: 1.3rem 0 0.4rem; padding-top: 0.6rem; border-top: 1px solid var(--rule); }
+.mstep:first-of-type { border-top: 0; padding-top: 0; margin-top: 0.6rem; }
+.mstep .mn { font-family: var(--display); font-weight: 700; color: var(--sea); font-size: 0.95rem; }
+.mstep .ml { font-family: var(--display); font-weight: 600; font-size: 0.95rem; }
+.mstep .mu { font-family: var(--mono); font-size: 0.72rem; color: var(--oracle); }
+.asm { display: grid; gap: 0.55rem; margin: 0.4rem 0 0.6rem; }
+.asm .a { display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: 0.5rem; align-items: start; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 0.55rem 0.75rem; }
+.asm .a > div { min-width: 0; }
+.asm .aid { font-family: var(--mono); font-weight: 500; font-size: 0.82rem; color: var(--oracle); padding-top: 0.15rem; }
+.asm small { display: block; color: var(--muted); font-size: 0.84rem; line-height: 1.45; margin-top: 0.2rem; }
+.asm mjx-container[display="true"] { margin: 0.35rem 0 !important; }
+
+/* C7 operator card */
+.op { border: 1px solid var(--rule); border-radius: 6px; margin: 0.4rem 0 1.6rem; overflow: hidden; }
+.op-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; padding: 0.6rem 1rem; background: var(--panel); border-bottom: 1px solid var(--rule); }
+.phase { font-family: var(--display); font-size: 0.68rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--sea-soft); color: var(--sea); }
+.phase.train { background: var(--oracle-soft); color: var(--oracle); }
+.op-h .opname { font-family: var(--mono); font-size: 0.9rem; font-weight: 500; }
+.op-h .when { font-size: 0.88rem; color: var(--muted); }
+.io-group { display: grid; gap: 0.45rem; padding: 0.7rem 1rem; }
+.io-l { font-family: var(--display); font-size: 0.7rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.io { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) minmax(0, max-content); gap: 0.6rem; align-items: start; font-size: 0.93rem; }
+.io .nm { min-width: 0; }
+.io .nm small { display: block; color: var(--muted); font-size: 0.82rem; line-height: 1.4; }
+.io .sh { display: grid; justify-items: end; gap: 0.15rem; padding-top: 0.15rem; }
+.io .sh code { font-size: 0.8rem; text-align: right; }
+.op-arrow { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.6rem; padding: 0.55rem 1rem; border-block: 1px dashed var(--rule); font-size: 0.92rem; background: var(--sea-soft); }
+.op-arrow .ar { font-family: var(--display); font-weight: 700; color: var(--sea); text-align: center; }
+.op-arrow > div { min-width: 0; overflow-x: auto; }
+.op-foot { padding: 0.55rem 1rem 0.7rem; font-size: 0.88rem; color: var(--muted); border-top: 1px solid var(--rule); }
+.box .sig .d.par, .io-l.par { color: var(--oracle); }
+.box .sig .d.exo, .io-l.exo { color: var(--ex); }
+.box .sig .d.est, .io-l.est { color: var(--muted); font-style: italic; }
+.box .sig .none, .io .none { color: var(--muted); font-style: italic; font-size: 0.86rem; }
+.box .sig .s .none { font-size: 0.78rem; }
+.io-group.par { background: var(--oracle-soft); }
+.io-group.exo { background: var(--ex-soft); }
+.io-group.est { border-top: 1px dotted var(--rule); }
+.io-group + .io-group { border-top: 1px solid var(--rule); }
+.eqs { display: grid; gap: 0.2rem; margin-top: 0.35rem; font-size: 0.95rem; min-width: 0; }
+.eqs > div { display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); align-items: baseline; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.eqs .ln { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.op-arrow .eqs { margin-top: 0; }
+.box .sig .d.cst, .io-l.cst { color: var(--muted); }
+@media (max-width: 560px) {
+  .box .sig { grid-template-columns: 2.4rem 1.15rem minmax(0, max-content) minmax(0, 1fr); }
+  .box .sig .n { white-space: normal; min-width: 0; }
+  .io { grid-template-columns: 1.6rem minmax(0, 1fr); }
+  .io .sh { grid-column: 2; justify-items: start; padding-top: 0; }
+  .where .meta { display: flex; margin-left: 0; margin-top: 0.1rem; }
+}
+
+/* C8 units check */
+.uc { border: 1px solid var(--unit); border-radius: 6px; margin: 1rem 0 1.4rem; overflow: hidden; }
+.uc-h { background: var(--unit-soft); padding: 0.55rem 1rem; border-bottom: 1px solid var(--unit); display: flex; flex-wrap: wrap; gap: 0.2rem 0.7rem; align-items: baseline; }
+.uc-h .tag { color: var(--unit); }
+.uc-h strong { font-family: var(--display); font-weight: 600; font-size: 0.95rem; }
+.uc-rows { padding: 0.4rem 1rem 0.6rem; display: grid; }
+.uc-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.2rem 1rem; align-items: center; padding: 0.35rem 0; border-bottom: 1px dashed var(--rule); font-size: 0.93rem; }
+.uc-row:last-child { border-bottom: 0; }
+.uc-row > div { min-width: 0; overflow-x: auto; }
+.uc-row .r { color: var(--muted); }
+.uc-row.ok .r { color: var(--sea); font-weight: 600; font-family: var(--display); font-size: 0.86rem; }
+@media (max-width: 560px) { .uc-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* C9 code sketch */
+pre { font-family: var(--mono); font-size: 0.8rem; line-height: 1.55; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; overflow-x: auto; margin: 1rem 0 1.4rem; }
+pre .c { color: var(--sea); }
+pre .mk { color: var(--oracle); }
+pre .un { color: var(--unit); }
+pre.diagram { background: var(--paper); }
+
+/* C10 two cases */
+.case { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.8rem; margin: 1rem 0 1.4rem; }
+.case > div { border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1rem; font-size: 0.94rem; min-width: 0; overflow-x: auto; }
+.case .lin { border-top: 3px solid var(--sea); }
+.case .non { border-top: 3px solid var(--oracle); }
+.case .tag { display: block; margin-bottom: 0.2rem; }
+
+/* C11 watch out */
+.note { border-left: 3px solid var(--oracle); background: var(--oracle-soft); padding: 0.85rem 1rem; border-radius: 0 6px 6px 0; margin: 1.2rem 0 1.4rem; font-size: 0.97rem; }
+.note .tag { color: var(--oracle); display: block; margin-bottom: 0.3rem; }
+.note p:last-child { margin-bottom: 0; }
+
+/* series nav, footer */
+.series { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-family: var(--display); font-size: 0.82rem; color: var(--muted); margin-bottom: 1.4rem; }
+.series a { text-decoration: none; }
+footer { margin-top: 3rem; font-size: 0.88rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 1rem; }
+footer ul { font-size: 0.86rem; }
+
+/* Lab */
+.lab { border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); padding: 1rem; margin: 1rem 0 1.4rem; display: grid; gap: 1rem; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.9rem 1.2rem; }
+.cgroup { display: grid; gap: 0.5rem; align-content: start; min-width: 0; }
+.cgroup .tag { color: var(--sea); }
+.ctl { display: grid; gap: 0.15rem; }
+.ctl label { display: flex; justify-content: space-between; gap: 0.5rem; font-family: var(--display); font-size: 0.86rem; }
+.ctl output { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--oracle); }
+input[type=range] { width: 100%; accent-color: var(--oracle); }
+.presets { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.presets button, .head { font-family: var(--display); font-size: 0.8rem; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); border-radius: 4px; padding: 0.3rem 0.6rem; cursor: pointer; }
+.presets button:hover, .head:hover { border-color: var(--sea); }
+.presets button:focus-visible, .head:focus-visible, canvas:focus-visible { outline: 2px solid var(--sea); outline-offset: 2px; }
+.hint { font-size: 0.84rem; color: var(--muted); margin: 0; }
+.qinfo { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; font-family: var(--mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.qinfo b { color: var(--ink); font-weight: 500; }
+.maps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
+figure { margin: 0; display: grid; gap: 0.3rem; min-width: 0; }
+figcaption { font-family: var(--display); font-weight: 600; font-size: 0.86rem; display: flex; justify-content: space-between; gap: 0.4rem; }
+figcaption span { font-family: var(--mono); font-weight: 400; font-size: 0.72rem; color: var(--muted); }
+canvas.map { width: 100%; max-width: 100%; aspect-ratio: 1; display: block; border-radius: 3px; cursor: crosshair; touch-action: manipulation; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1rem; font-family: var(--mono); font-size: 0.74rem; color: var(--muted); align-items: center; }
+.swatch { display: inline-block; width: 4rem; height: 0.55rem; vertical-align: middle; margin-inline: 0.3rem; border-radius: 2px; }
+.sw-field { background: linear-gradient(90deg, #440154, #3b528b, #21918c, #5ec962, #fde725); }
+.sw-krig { background: linear-gradient(90deg, var(--ex), var(--paper), var(--oracle)); }
+.sw-cloud { width: 0.9rem; border: 1px solid var(--muted); background: repeating-linear-gradient(45deg, var(--muted) 0 1px, transparent 1px 4px); }
+.heads { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+.head { display: grid; gap: 0.25rem; padding: 0.3rem; }
+.head[aria-pressed="true"] { border-color: var(--oracle); background: var(--oracle-soft); }
+.head canvas { width: 100%; aspect-ratio: 1; display: block; border-radius: 2px; }
+.head span { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.lab .tbl { margin: 0; background: var(--paper); border-radius: 4px; padding-inline: 0.6rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* series navigation, top and bottom (links back into the docs site) */
+.series-nav { max-width: 46rem; margin: 0 auto; padding: 0.9rem 0 0; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.4rem 1rem; font-family: var(--display); font-size: 0.82rem; color: var(--muted); }
+.series-nav.bottom { padding: 1.2rem 0 2.5rem; border-top: 1px solid var(--rule); }
+.series-nav a { color: var(--sea); text-decoration: none; }
+.series-nav a:hover { text-decoration: underline; }
+.series-nav .crumbs { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+</style>
+</head>
+<body>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="g-scalar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/></symbol>
+    <symbol id="g-vector" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="9" width="6" height="6"/><rect x="9" y="9" width="6" height="6"/><rect x="15" y="9" width="6" height="6"/></g></symbol>
+    <symbol id="g-field" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16"/><path d="M4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16" stroke-width="0.8"/></g></symbol>
+    <symbol id="g-mask" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 4h8v8H4zM12 12h8v8h-8z" fill="currentColor" opacity="0.55"/></symbol>
+    <symbol id="g-matrix" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16"/><path d="M4 4l16 16" stroke-width="1"/></g></symbol>
+    <symbol id="g-dataset" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" stroke-width="1"/></g></symbol>
+    <symbol id="g-weights" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="1"><path d="M5 6l7 6M5 18l7-6M12 5l7 7M12 12l7 0M12 19l7-7" fill="none"/></g><g fill="currentColor"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="12" r="2"/></g></symbol>
+  </defs>
+</svg>
+
+<nav class="series-nav top" aria-label="Series navigation"><span class="crumbs"><a href="../">kernellib</a><span>›</span><span>Guide</span><span>›</span><a href="../kernels-to-attention">Kernels to attention</a></span><span><a href="https://jejjohnson.github.io/kernellib/reference/">API reference →</a></span></nav>
+<main>
+
+<!-- C0 -->
+<div class="eyebrow">kernellib · guide · L3 → L4 gap-filling row</div>
+<h1>Attention is a kernel smoother that never solves</h1>
+<p class="lede">A cloud mask has punched holes in a day of TROPOMI methane. Kriging, Nadaraya–Watson and one attention head each fill a hole with a weighted sum of the cells they can see. Written as operators with fixed signatures, they show exactly what attention keeps from kriging and what it drops.</p>
+
+<!-- C1 -->
+<section class="tldr" aria-label="TL;DR">
+  <span class="tag">TL;DR</span>
+  <h2>Four operators, one gap</h2>
+  <ul>
+    <li><strong>Kriging</strong> gets its weights from a solve, \(\vect{w}_* = (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top\). The solve declusters redundant cells, so weights can be negative and need not sum to one.</li>
+    <li><strong>Nadaraya–Watson</strong> drops the solve and normalises the kernel row instead: weights are non-negative and sum to one. With an RBF kernel on equal-norm inputs it is exactly a softmax of dot products.</li>
+    <li><strong>An attention head</strong> is Nadaraya–Watson on learned features, \(P_{mn} = \op{softmax}_n(\vect{q}_m^\top \vect{k}_n / \sqrt{D_q})\). Its kernel is asymmetric and indefinite, a smoothing kernel rather than a Mercer kernel.</li>
+    <li><strong>Tile tokens</strong>, a ViT's "patches", make the kernel act between regions, which is learned non-local means. <strong>Multi-scale</strong> behaviour comes from heads with different lengthscales \(\ell_h\), from depth and from hierarchy, not from the softmax.</li>
+    <li><strong>The test</strong>: under the plume cloud the truth is 1,930.0 ppb. Kriging gives 1,924.0 ± 7.8 ppb, Nadaraya–Watson 1,915.9 ppb, and the 20 km head 1,922.3 ppb. Only kriging says how far to trust its number.</li>
+  </ul>
+</section>
+
+<!-- C2 -->
+<h2>Every gap-filler is an operator</h2>
+<div class="chart">
+  <a class="box" href="#s-krig"><span class="num">GP</span><div><div class="name">Kriging: the GP posterior mean</div>
+    <div class="eqs">
+      <div><span class="ln">1</span>\(\bar{y} = \frac{1}{N_{\Omega_y}} \sum_{n=1}^{N_{\Omega_y}} y_n\)</div>
+      <div><span class="ln">2</span>\([\mat{K}_{SS}]_{nn'} = \sigma_k^2 \exp(-\Vert \vect{s}_n - \vect{s}_{n'} \Vert^2 / 2 \ell^2)\)</div>
+      <div><span class="ln">3</span>\([\mat{K}_{*S}]_{n} = \sigma_k^2 \exp(-\Vert \vect{s}_* - \vect{s}_n \Vert^2 / 2 \ell^2)\)</div>
+      <div><span class="ln">4</span>\(\vect{w}_* = (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top\)</div>
+      <div><span class="ln">5</span>\(\hat{f}_* = \bar{y} + \vect{w}_*^\top (\vect{y} - \bar{y} \vect{1})\)</div>
+    </div></div>
+    <div class="sig">
+      <span class="d">in</span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\vect{y}\)</span><span class="s"><code>(obs,)</code><span class="u">ppb</span></span>
+      <span class="d"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\mat{S}_y\)</span><span class="s"><code>(obs, 2)</code><span class="u">km</span><span class="none">rows \(\vect{s}_n\)</span></span>
+      <span class="d"></span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\vect{s}_*\)</span><span class="s"><code>(2,)</code><span class="u">km</span></span>
+      <span class="d exo">u</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">none</span><span class="s"><span class="none">no per-scene inputs</span></span>
+      <span class="d par">θ</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\ell\)</span><span class="s"><code>()</code><span class="u">km</span></span>
+      <span class="d par"></span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\sigma_k, \sigma_\varepsilon\)</span><span class="s"><code>(), ()</code><span class="u">ppb</span><span class="u">ppb</span></span>
+      <span class="d est">est</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\bar{y}\)</span><span class="s"><code>()</code><span class="u">ppb</span><span class="none">eq. 1</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\mat{K}_{SS}\)</span><span class="s"><code>(obs, obs)</code><span class="u">ppb²</span><span class="none">eq. 2</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\mat{K}_{*S}\)</span><span class="s"><code>(1, obs)</code><span class="u">ppb²</span><span class="none">eq. 3</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\vect{w}_*\)</span><span class="s"><code>(obs,)</code><span class="u">—</span><span class="none">eq. 4</span></span>
+      <span class="d">out</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\hat{f}_*\)</span><span class="s"><code>()</code><span class="u">ppb</span><span class="none">eq. 5</span></span>
+    </div></a>
+  <div class="link"><span></span><span>drop the solve, normalise each row of the kernel</span></div>
+  <a class="box" href="#s-nw"><span class="num">NW</span><div><div class="name">Nadaraya–Watson smoother</div>
+    <div class="eqs">
+      <div><span class="ln">1</span>\(a_{*n} = -\Vert \vect{s}_* - \vect{s}_n \Vert^2 / 2 \ell^2\)</div>
+      <div><span class="ln">2</span>\(w_{*n} = \exp(a_{*n}) / \sum_{n'} \exp(a_{*n'})\)</div>
+      <div><span class="ln">3</span>\(\hat{f}_* = \sum_{n} w_{*n} y_n\)</div>
+    </div></div>
+    <div class="sig">
+      <span class="d">in</span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\vect{y}\)</span><span class="s"><code>(obs,)</code><span class="u">ppb</span></span>
+      <span class="d"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\mat{S}_y, \vect{s}_*\)</span><span class="s"><code>(obs, 2), (2,)</code><span class="u">km</span></span>
+      <span class="d exo">u</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">none</span><span class="s"><span class="none">no per-scene inputs</span></span>
+      <span class="d par">θ</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\ell\)</span><span class="s"><code>()</code><span class="u">km</span><span class="none">the bandwidth</span></span>
+      <span class="d est">est</span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\vect{a}_*\)</span><span class="s"><code>(obs,)</code><span class="u">—</span><span class="none">eq. 1, logits</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\vect{w}_*\)</span><span class="s"><code>(obs,)</code><span class="u">—</span><span class="none">eq. 2</span></span>
+      <span class="d">out</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(\hat{f}_*\)</span><span class="s"><code>()</code><span class="u">ppb</span><span class="none">eq. 3</span></span>
+    </div></a>
+  <div class="link"><span></span><span>learn the features the kernel compares</span></div>
+  <a class="box focus" href="#s-att"><span class="num">A</span><div><div class="name">One attention head</div>
+    <div class="eqs">
+      <div><span class="ln">1</span>\(\vect{q}_m = \mat{W}_Q^\top \vect{z}_m\)</div>
+      <div><span class="ln">2</span>\(\vect{k}_n = \mat{W}_K^\top \vect{z}_n\)</div>
+      <div><span class="ln">3</span>\(\vect{v}_n = \mat{W}_V^\top \vect{z}_n\)</div>
+      <div><span class="ln">4</span>\(a_{mn} = \vect{q}_m^\top \vect{k}_n / \sqrt{D_q}\)</div>
+      <div><span class="ln">5</span>\(P_{mn} = o_n \exp(a_{mn}) / \sum_{n'} o_{n'} \exp(a_{mn'})\)</div>
+      <div><span class="ln">6</span>\(\bar{\vect{v}}_m = \sum_{n} P_{mn} \vect{v}_n\)</div>
+    </div></div>
+    <div class="sig">
+      <span class="d">in</span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\mat{Z}\)</span><span class="s"><code>(token, feat)</code><span class="u">—</span><span class="none">rows \(\vect{z}_n\)</span></span>
+      <span class="d"></span><svg class="g"><use href="#g-mask"/></svg><span class="n">\(\vect{o}\)</span><span class="s"><code>(token,)</code><span class="u">bool</span><span class="none">observed</span></span>
+      <span class="d exo">u</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">none</span><span class="s"><span class="none">no per-scene inputs</span></span>
+      <span class="d par">θ</span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\mat{W}_Q, \mat{W}_K, \mat{W}_V\)</span><span class="s"><code>(feat, head_feat)</code><span class="u">—</span></span>
+      <span class="d cst">const</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(D_q\)</span><span class="s"><code>()</code><span class="u">—</span><span class="none">head width</span></span>
+      <span class="d est">est</span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\vect{q}_m, \vect{k}_n, \vect{v}_n\)</span><span class="s"><code>(token, head_feat)</code><span class="u">—</span><span class="none">eqs. 1–3</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(a_{mn}\)</span><span class="s"><code>(token, token)</code><span class="u">—</span><span class="none">eq. 4</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\mat{P}\)</span><span class="s"><code>(token, token)</code><span class="u">—</span><span class="none">eq. 5, rows sum to 1</span></span>
+      <span class="d">out</span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\bar{\vect{v}}_m\)</span><span class="s"><code>(token, head_feat)</code><span class="u">[v]</span><span class="none">eq. 6</span></span>
+    </div></a>
+  <div class="link"><span></span><span>tile the scene into tokens, stack heads with different lengthscales</span></div>
+  <a class="box" href="#s-patch"><span class="num">MH</span><div><div class="name">Tiled, multi-head attention</div>
+    <div class="eqs">
+      <div><span class="ln">1</span>\(\vect{z}_r = \mat{W}_E^\top \op{vec}(\vect{y}^{(r)}, \vect{o}^{(r)}) + \gvect{\psi}_r\)</div>
+      <div><span class="ln">2</span>\(a^{(h)}_{rr'} = \vect{z}_r^\top \mat{W}_Q^{(h)} \mat{W}_K^{(h)\top} \vect{z}_{r'} / \sqrt{D_q} - \Vert \vect{s}_r - \vect{s}_{r'} \Vert / \ell_h\)</div>
+      <div><span class="ln">3</span>\(P^{(h)}_{rr'} = \exp(a^{(h)}_{rr'}) / \sum_{r''} \exp(a^{(h)}_{rr''})\)</div>
+      <div><span class="ln">4</span>\(\bar{\vect{v}}^{(h)}_r = \sum_{r'} P^{(h)}_{rr'} \mat{W}_V^{(h)\top} \vect{z}_{r'}\)</div>
+      <div><span class="ln">5</span>\(\vect{z}^\text{out}_r = \sum_{h=1}^{N_{\mathcal{H}}} \mat{W}_O^{(h)\top} \bar{\vect{v}}^{(h)}_r\)</div>
+    </div></div>
+    <div class="sig">
+      <span class="d">in</span><svg class="g"><use href="#g-field"/></svg><span class="n">\(\vect{y}^{(r)}, \vect{o}^{(r)}\)</span><span class="s"><code>(tile, row, col)</code><span class="u">ppb</span><span class="u">bool</span></span>
+      <span class="d"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\vect{s}_r\)</span><span class="s"><code>(tile, 2)</code><span class="u">km</span><span class="none">tile centres</span></span>
+      <span class="d exo">u</span><svg class="g"><use href="#g-scalar"/></svg><span class="n">none</span><span class="s"><span class="none">no per-scene inputs</span></span>
+      <span class="d par">θ</span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\mat{W}_E, \gvect{\psi}\)</span><span class="s"><code>(pix, feat), (tile, feat)</code><span class="u">ppb⁻¹</span><span class="u">—</span></span>
+      <span class="d par"></span><svg class="g"><use href="#g-weights"/></svg><span class="n">\(\mat{W}_{Q,K,V,O}^{(h)}\)</span><span class="s"><code>(head, feat, head_feat)</code><span class="u">—</span></span>
+      <span class="d cst">const</span><svg class="g"><use href="#g-vector"/></svg><span class="n">\(\ell_h\)</span><span class="s"><code>(head,)</code><span class="u">km</span><span class="none">fixed ladder</span></span>
+      <span class="d cst"></span><svg class="g"><use href="#g-scalar"/></svg><span class="n">\(D_q, N_{\mathcal{H}}\)</span><span class="s"><code>(), ()</code><span class="u">—</span></span>
+      <span class="d est">est</span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\vect{z}_r\)</span><span class="s"><code>(tile, feat)</code><span class="u">—</span><span class="none">eq. 1</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(a^{(h)}, \mat{P}^{(h)}\)</span><span class="s"><code>(head, tile, tile)</code><span class="u">—</span><span class="none">eqs. 2–3</span></span>
+      <span class="d est"></span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\bar{\vect{v}}^{(h)}_r\)</span><span class="s"><code>(head, tile, head_feat)</code><span class="u">—</span><span class="none">eq. 4</span></span>
+      <span class="d">out</span><svg class="g"><use href="#g-matrix"/></svg><span class="n">\(\vect{z}^\text{out}_r\)</span><span class="s"><code>(tile, feat)</code><span class="u">—</span><span class="none">eq. 5</span></span>
+    </div></a>
+</div>
+
+<!-- C3 -->
+<h3>Kinds used on this page</h3>
+<div class="tbl"><table>
+  <thead><tr><th></th><th>Kind</th><th>Dimensions</th><th>Example here</th></tr></thead>
+  <tbody>
+    <tr><td class="gl"><svg class="g"><use href="#g-scalar"/></svg></td><td class="k">scalar</td><td><code>()</code></td><td>\(\hat{f}_*\), \(\ell\), \(\sigma_\varepsilon\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-vector"/></svg></td><td class="k">vector</td><td><code>(obs,)</code></td><td>observations \(\vect{y}\), a query location \(\vect{s}_*\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-matrix"/></svg></td><td class="k">matrix / operator</td><td><code>(obs, obs)</code></td><td>Gram matrix \(\mat{K}_{SS}\), token features \(\mat{Z}\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-weights"/></svg></td><td class="k">weights</td><td><code>(obs,)</code>, <code>(token, token)</code></td><td>smoother weights \(\vect{w}_*\), attention matrix \(\mat{P}\), learned \(\mat{W}_Q\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-field"/></svg></td><td class="k">field</td><td><code>(row, col)</code></td><td>the XCH₄ map, one tile \(\vect{y}^{(r)}\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-mask"/></svg></td><td class="k">mask</td><td><code>(row, col)</code></td><td>cloud mask \(\vect{o}\)</td></tr>
+    <tr><td class="gl"><svg class="g"><use href="#g-dataset"/></svg></td><td class="k">dataset</td><td><code>(scene, …)</code></td><td>many scenes, to fit \(\gvect{\theta}\)</td></tr>
+  </tbody>
+</table></div>
+
+<!-- C4 -->
+<div class="ex" id="example">
+  <div class="ex-h"><span class="tag">Running example</span><strong>A cloud over a Permian methane plume</strong></div>
+  <div class="ex-b">
+    <p>One day of TROPOMI XCH₄ regridded to 5 km over a 160 × 160 km box. A point source emits a plume carried east-north-east; one cloud sits on the plume and seven more are scattered across the scene. The scene is synthetic, so the true value under every cloud is known. It is used in every section to the end.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Quantity</th><th>Symbol</th><th>Role</th><th class="num">Value</th><th>Unit</th></tr></thead>
+      <tbody>
+        <tr><td>Grid cells (32 × 32)</td><td>\(N_{\Omega_x}\)</td><td>size</td><td class="num">1,024</td><td>—</td></tr>
+        <tr><td>Grid spacing</td><td>\(\Delta s\)</td><td>size</td><td class="num">5</td><td>km</td></tr>
+        <tr><td>Observed cells</td><td>\(N_{\Omega_y}\)</td><td>in</td><td class="num">763</td><td>—</td></tr>
+        <tr><td>Cloud-flagged cells</td><td>\(N_{\Omega_x} - N_{\Omega_y}\)</td><td>in</td><td class="num">261</td><td>—</td></tr>
+        <tr><td>Background XCH₄</td><td>—</td><td>truth</td><td class="num">1,901–1,919</td><td>ppb</td></tr>
+        <tr><td>Peak plume enhancement</td><td>—</td><td>truth</td><td class="num">38</td><td>ppb</td></tr>
+        <tr><td>Source location</td><td>—</td><td>truth</td><td class="num">(35, 60)</td><td>km</td></tr>
+        <tr><td>Wind direction, north of east</td><td>\(\vect{u}\)</td><td>u</td><td class="num">25</td><td>°</td></tr>
+        <tr><td>Scene mean of observed cells</td><td>\(\bar{y}\)</td><td>est</td><td class="num">1,910.9</td><td>ppb</td></tr>
+        <tr><td>Retrieval noise</td><td>\(\sigma_\varepsilon\)</td><td>θ</td><td class="num">2.5</td><td>ppb</td></tr>
+        <tr><td>Kernel amplitude</td><td>\(\sigma_k\)</td><td>θ</td><td class="num">12</td><td>ppb</td></tr>
+        <tr><td>Lengthscale</td><td>\(\ell\)</td><td>θ</td><td class="num">15</td><td>km</td></tr>
+        <tr><td>Head lengthscales</td><td>\(\ell_h\)</td><td>const</td><td class="num">10, 20, 40, 80</td><td>km</td></tr>
+        <tr><td>Query cell, under the plume cloud</td><td>\(\vect{s}_*\)</td><td>in</td><td class="num">(77.5, 77.5)</td><td>km</td></tr>
+        <tr><td>True XCH₄ at the query</td><td>\(f(\vect{s}_*)\)</td><td>truth</td><td class="num">1,930.0</td><td>ppb</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- C5 -->
+<h2>Symbols</h2>
+<p>\(n, n' = 1, \ldots, N_{\Omega_y}\) index observed cells; \(*\) marks the query cell under a cloud. In attention, \(m\) indexes the query token and \(n\) the key token, over all cells; \(r, r'\) index tiles and \(h = 1, \ldots, N_{\mathcal{H}}\) heads. [v] is the unit of the values, ppb when \(\vect{v}_n = y_n\). Bold \(\vect{k}_n\) is always a key; the kernel function is \(k(\cdot, \cdot)\) with two arguments, and \(\mat{K}\) with two subscripts is a kernel matrix.</p>
+<div class="tbl"><table>
+  <thead><tr><th>Symbol</th><th>Role</th><th>Shape</th><th>Unit</th></tr></thead>
+  <tbody>
+    <tr><td>\(\vect{s}_n\), \(\mat{S}_y\)</td><td>in · centre of observed cell \(n\); all of them stacked</td><td>\(\mathbb{R}^2\); \(\mathbb{R}^{N_{\Omega_y} \times 2}\) <code>(obs, 2)</code></td><td><span class="u">km</span></td></tr>
+    <tr><td>\(\vect{s}_*\)</td><td>in · centre of the query cell</td><td>\(\mathbb{R}^2\) <code>(2,)</code></td><td><span class="u">km</span></td></tr>
+    <tr><td>\(\vect{y}\), \(y_n\)</td><td>in · observed XCH₄</td><td>\(\mathbb{R}^{N_{\Omega_y}}\) <code>(obs,)</code></td><td><span class="u">ppb</span></td></tr>
+    <tr><td>\(f\), \(\vect{f}\), \(f_*\)</td><td>latent field; at observed cells; at the query</td><td>\(\Omega \to \mathbb{R}\); \(\mathbb{R}^{N_{\Omega_y}}\); \(\mathbb{R}\)</td><td><span class="u">ppb</span></td></tr>
+    <tr><td>\(\vect{u}\)</td><td>u · wind vector, used by the lab head only</td><td>\(\mathbb{R}^2\) <code>(2,)</code></td><td><span class="u">m s⁻¹</span></td></tr>
+    <tr><td>\(\ell, \sigma_k, \sigma_\varepsilon\)</td><td>θ · lengthscale, kernel amplitude, noise standard deviation</td><td>\(\mathbb{R}_{>0}\) each</td><td><span class="u">km</span> <span class="u">ppb</span> <span class="u">ppb</span></td></tr>
+    <tr><td>\(\mat{K}_{SS}\), \(\mat{K}_{*S}\)</td><td>est · kernel matrices: observed × observed, query × observed</td><td>\(\mathbb{R}^{N_{\Omega_y} \times N_{\Omega_y}}\), \(\mathbb{R}^{1 \times N_{\Omega_y}}\)</td><td><span class="u">ppb²</span></td></tr>
+    <tr><td>\(\vect{w}_*\)</td><td>est · weights on the observed cells</td><td>\(\mathbb{R}^{N_{\Omega_y}}\) <code>(obs,)</code></td><td><span class="u">—</span></td></tr>
+    <tr><td>\(\hat{f}_*\), \(\sigma_*\)</td><td>out · predicted XCH₄ at the query; its posterior standard deviation</td><td>\(\mathbb{R}\)</td><td><span class="u">ppb</span></td></tr>
+    <tr><td>\(\vect{z}_n\), \(\mat{Z}\)</td><td>in · token features (latent)</td><td>\(\mathbb{R}^{D_z}\); \(\mathbb{R}^{N_{\Omega_x} \times D_z}\) <code>(token, feat)</code></td><td><span class="u">—</span></td></tr>
+    <tr><td>\(\vect{o}\)</td><td>in · observed mask, 1 for clear cells</td><td>\(\{0, 1\}^{N_{\Omega_x}}\) <code>(token,)</code></td><td><span class="u">bool</span></td></tr>
+    <tr><td>\(\mat{W}_Q, \mat{W}_K, \mat{W}_V\)</td><td>θ · query, key and value maps</td><td>\(\mathbb{R}^{D_z \times D_q}\) <code>(feat, head_feat)</code></td><td><span class="u">—</span></td></tr>
+    <tr><td>\(\vect{q}_m, \vect{k}_n, \vect{v}_n\)</td><td>est · query, key, value</td><td>\(\mathbb{R}^{D_q}\) <code>(head_feat,)</code></td><td><span class="u">—</span></td></tr>
+    <tr><td>\(a_{mn}\), \(\mat{P}\)</td><td>est · logits; attention matrix, row-stochastic</td><td>\(\mathbb{R}^{N_{\Omega_x} \times N_{\Omega_x}}\) <code>(token, token)</code></td><td><span class="u">—</span></td></tr>
+    <tr><td>\(\bar{\vect{v}}_m\)</td><td>out · attention output, a weighted average of values</td><td>\(\mathbb{R}^{D_q}\)</td><td><span class="u">[v]</span></td></tr>
+    <tr><td>\(\gamma, \beta, \ell_h\)</td><td>θ · lab head: content gain, upwind gain, lengthscale of head \(h\)</td><td>\(\mathbb{R}_{\ge 0}\), \(\mathbb{R}_{\ge 0}\), \(\mathbb{R}_{>0}\)</td><td><span class="u">—</span> <span class="u">—</span> <span class="u">km</span></td></tr>
+    <tr><td>\(c_n\)</td><td>est · lab content score: standardised XCH₄ of the patch around \(n\)</td><td>\(\mathbb{R}\)</td><td><span class="u">—</span></td></tr>
+  </tbody>
+</table></div>
+
+<!-- Lab -->
+<h2 id="lab">The lab: tap a cell</h2>
+<p>The four maps show the same scene. The first is the observed field with clouds hatched. The other three show the weight each method puts on every observed cell to predict the ringed query cell. Each weight map is scaled to its own largest \(\vert w \vert\). Every section below refers back to this panel.</p>
+<section class="lab" aria-label="Interactive comparison of weights">
+  <div class="controls">
+    <div class="cgroup">
+      <span class="tag">Query cell</span>
+      <div class="presets">
+        <button type="button" id="p-plume">Under the plume cloud</button>
+        <button type="button" id="p-edge">Beside a cloud edge</button>
+        <button type="button" id="p-bg">Background</button>
+      </div>
+      <p class="hint">Or tap any cell. Arrow keys move the query when the field map has focus.</p>
+    </div>
+    <div class="cgroup">
+      <span class="tag">GP and NW · θ</span>
+      <div class="ctl"><label for="ell">Lengthscale ℓ <output id="ell-o"></output></label><input id="ell" type="range" min="5" max="60" step="1" value="15"></div>
+      <div class="ctl"><label for="sn"><span>Noise σ<sub>ε</sub> (kriging)</span> <output id="sn-o"></output></label><input id="sn" type="range" min="0.5" max="10" step="0.5" value="2.5"></div>
+    </div>
+    <div class="cgroup">
+      <span class="tag">Lab head · θ</span>
+      <div class="ctl"><label for="gam">Content gain γ <output id="gam-o"></output></label><input id="gam" type="range" min="0" max="4" step="0.1" value="1.5"></div>
+      <div class="ctl"><label for="alp">Upwind gain β <output id="alp-o"></output></label><input id="alp" type="range" min="0" max="3" step="0.1" value="0"></div>
+      <p class="hint">γ = β = 0 turns the head into Nadaraya–Watson with a Matérn-½ kernel.</p>
+    </div>
+  </div>
+  <div class="qinfo" id="qinfo"></div>
+  <div class="maps">
+    <figure><figcaption>Observed field <span>\(\vect{y}\), ppb</span></figcaption><canvas class="map" id="c-field" width="320" height="320" tabindex="0" aria-label="XCH4 field with cloud mask"></canvas></figure>
+    <figure><figcaption>Kriging <span>\(\vect{w}_* \in \mathbb{R}\)</span></figcaption><canvas class="map" id="c-krig" width="320" height="320" aria-label="Kriging weights"></canvas></figure>
+    <figure><figcaption>Nadaraya–Watson <span>\(\vect{w}_* \ge 0\)</span></figcaption><canvas class="map" id="c-nw" width="320" height="320" aria-label="Nadaraya-Watson weights"></canvas></figure>
+    <figure><figcaption>Attention <span id="head-lab">head</span></figcaption><canvas class="map" id="c-att" width="320" height="320" aria-label="Attention weights"></canvas></figure>
+  </div>
+  <div class="legend">
+    <span>field 1,895<i class="swatch sw-field"></i>1,945 ppb</span>
+    <span>weight −<i class="swatch sw-krig"></i>+</span>
+    <span><i class="swatch sw-cloud"></i> cloud-flagged</span>
+    <span>▲ source</span>
+  </div>
+  <div>
+    <span class="tag">Heads · pick one · \(\ell_h\) ladder</span>
+    <div class="heads" id="heads" style="margin-top:0.4rem"></div>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Operator</th><th class="num">\(\hat{f}_*\) ppb</th><th class="num">error ppb</th><th class="num">\(\sigma_*\) ppb</th><th class="num">\(\sum w\)</th><th class="num">min \(w\)</th><th class="num">\(N_\text{eff}\)</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <p class="hint">\(N_\text{eff} = (\sum_n w_{*n})^2 / \sum_n w_{*n}^2\) counts how many cells effectively vote. When kriging's weights cancel each other it can fall below one.</p>
+</section>
+
+<!-- §1 Kriging -->
+<h2 id="s-krig">1 · Kriging solves for its weights</h2>
+<p>Under the plume cloud there is no measurement, only 763 clear cells around it. Kriging treats the XCH₄ field as a draw from a Gaussian process, conditions on those cells, and reports the posterior mean and variance at the query. The weights it puts on each cell come out of a linear solve against the Gram matrix of the observed cells. That solve is the step every later operator on this page drops.</p>
+
+<div class="def model">
+  <span class="tag">Model</span>
+  <h3>Kriging is the GP posterior mean under four assumptions</h3>
+  <div class="mstep"><span class="mn">1</span><span class="ml">Joint</span></div>
+  <p>Everything in the scene: the observations \(\vect{y}\), the latent field at the observed cells \(\vect{f}\), and the value we want under the cloud \(f_*\), with the hyperparameters fixed after the semicolon.</p>
+  \[ p(\vect{y}, \vect{f}, f_*; \gvect{\theta}) = p(\vect{f}, f_*; \gvect{\theta}) p(\vect{y} \mid \vect{f}, f_*; \gvect{\theta}) \]
+  <div class="mstep"><span class="mn">2</span><span class="ml">Factorisation</span><span class="mu">uses A1</span></div>
+  <p>Each retrieval depends only on the field at its own cell, so the likelihood splits per cell and does not involve \(f_*\):</p>
+  \[ p(\vect{y}, \vect{f}, f_*; \gvect{\theta}) = p(\vect{f}, f_*; \gvect{\theta}) \prod_{n=1}^{N_{\Omega_y}} p(y_n \mid f_n; \gvect{\theta}) \]
+  <div class="mstep"><span class="mn">3</span><span class="ml">Objective</span></div>
+  <p>The prediction is the mode of the posterior of \(f_*\). Integrate out \(\vect{f}\) and write it as a cost to minimise:</p>
+  \[ \mathcal{J}(f_*) = -\log \int p(\vect{y}, \vect{f}, f_*; \gvect{\theta}) \mathrm{d}\vect{f} \]
+  \[ \hat{f}_* = \mathrm{argmin}_{f_*} \mathcal{J}(f_*) \]
+  <p>Nothing so far is Gaussian. The assumptions say what makes the integral closed-form.</p>
+  <div class="mstep"><span class="mn">4</span><span class="ml">Assumptions</span></div>
+  <div class="asm">
+    <div class="a"><span class="aid">A1</span><div><b>Independent Gaussian noise.</b>
+      \[ p(y_n \mid f_n; \gvect{\theta}) = \mathcal{N}(y_n; f_n, \sigma_\varepsilon^2) \]
+      <small>Breaks when retrieval errors are correlated along track (albedo, aerosol); a full \(\gmat{\Sigma}_\varepsilon\) fixes it.</small></div></div>
+    <div class="a"><span class="aid">A2</span><div><b>Gaussian-process prior.</b>
+      \[ f \sim \mathcal{GP}(\mu_f, k) \]
+      <small>Breaks for plumes: XCH₄ has a heavy right tail and the plume is a non-stationary feature. Warped or non-stationary GPs fix it.</small></div></div>
+    <div class="a"><span class="aid">A3</span><div><b>Stationary RBF kernel.</b>
+      \[ k(\vect{s}, \vect{s}') = \sigma_k^2 \exp(-\frac{\Vert \vect{s} - \vect{s}' \Vert^2}{2 \ell^2}) \]
+      <small>Breaks at plume edges, which are sharper than any single \(\ell\) allows; a Matérn or non-stationary kernel helps.</small></div></div>
+    <div class="a"><span class="aid">A4</span><div><b>Plug-in mean.</b> Replace \(\mu_f\) by the scene mean \(\bar{y}\) of the observed cells.<small>This is simple kriging. Ordinary kriging estimates the mean jointly by forcing \(\sum_n w_{*n} = 1\).</small></div></div>
+  </div>
+  <div class="mstep"><span class="mn">5</span><span class="ml">Result</span><span class="mu">uses A1–A4</span></div>
+  <p>The posterior of \(f_*\) is Gaussian, so its mode is its mean:</p>
+  \[ \hat{f}_* = \bar{y} + \mat{K}_{*S} (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} (\vect{y} - \bar{y} \vect{1}) \]
+  \[ \sigma_*^2 = \sigma_k^2 - \mat{K}_{*S} (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top \]
+  <p>Naming \(\vect{w}_* = (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top\) gives lines 4 and 5 of the GP box.</p>
+  <div class="where">
+    <span class="wl">Where</span>
+    <span class="sy">\(\vect{f}\)</span><span class="me">latent field at the observed cells<span class="meta"><span class="sh">\(\mathbb{R}^{N_{\Omega_y}}\)</span><span class="u">ppb</span></span></span>
+    <span class="sy">\(\mu_f\)</span><span class="me">prior mean of the field<span class="meta"><span class="sh">\(\mathbb{R}\)</span><span class="u">ppb</span></span></span>
+    <span class="sy">\(k\)</span><span class="me">kernel: prior covariance between two cells<span class="meta"><span class="sh">\(\mathbb{R}^2 \times \mathbb{R}^2 \to \mathbb{R}\)</span><span class="u">ppb²</span></span></span>
+    <span class="sy">\(\mat{K}_{SS}\)</span><span class="me">\(k\) on all pairs of observed cells<span class="meta"><span class="sh">\(\mathbb{R}^{N_{\Omega_y} \times N_{\Omega_y}}\)</span><span class="u">ppb²</span></span></span>
+    <span class="sy">\(\mat{K}_{*S}\)</span><span class="me">\(k\) between the query and each observed cell<span class="meta"><span class="sh">\(\mathbb{R}^{1 \times N_{\Omega_y}}\)</span><span class="u">ppb²</span></span></span>
+    <span class="sy">\(\sigma_*^2\)</span><span class="me">posterior variance at the query<span class="meta"><span class="sh">\(\mathbb{R}_{\ge 0}\)</span><span class="u">ppb²</span></span></span>
+    <span class="sy">\(\mathcal{J}\)</span><span class="me">cost: negative log posterior of \(f_*\), up to a constant<span class="meta"><span class="sh">\(\mathbb{R}\)</span><span class="u">—</span></span></span>
+  </div>
+</div>
+
+<div class="op">
+  <div class="op-h"><span class="phase">Use</span><span class="opname">gp_posterior_mean</span><span class="when">L3 → L4 · one Cholesky per scene, one solve per gap cell</span></div>
+  <div class="io-group"><div class="io-l">In · per scene and per query</div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\vect{y}\) observed XCH₄<small>clear cells only</small></div><div class="sh"><code>(obs,)</code><span class="u">ppb</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\mat{S}_y\) observed cell centres</div><div class="sh"><code>(obs, 2)</code><span class="u">km</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\vect{s}_*\) query cell centre</div><div class="sh"><code>(2,)</code><span class="u">km</span></div></div>
+  </div>
+  <div class="io-group exo"><div class="io-l exo">Exogenous \(\vect{u}\) · per scene, given</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm"><span class="none">none</span><small>wind and geometry play no part</small></div><div class="sh"><code>—</code></div></div>
+  </div>
+  <div class="io-group par"><div class="io-l par">Parameters \(\gvect{\theta}\) · fixed across scenes</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\ell\) lengthscale<small>from the Train card</small></div><div class="sh"><code>()</code><span class="u">km</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\sigma_k\), \(\sigma_\varepsilon\) amplitude and noise</div><div class="sh"><code>(), ()</code><span class="u">ppb</span></div></div>
+  </div>
+  <div class="io-group est"><div class="io-l est">Estimated in each call</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\bar{y}\) scene mean<small>eq. 1</small></div><div class="sh"><code>()</code><span class="u">ppb</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\mat{K}_{SS}\), \(\mat{K}_{*S}\) kernel matrices<small>eqs. 2–3</small></div><div class="sh"><code>(obs, obs), (1, obs)</code><span class="u">ppb²</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\vect{w}_*\) weights<small>eq. 4, a Cholesky solve</small></div><div class="sh"><code>(obs,)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(\bar{y} = \frac{1}{N_{\Omega_y}} \sum_{n=1}^{N_{\Omega_y}} y_n\)</div>
+    <div><span class="ln">2</span>\([\mat{K}_{SS}]_{nn'} = \sigma_k^2 \exp(-\Vert \vect{s}_n - \vect{s}_{n'} \Vert^2 / 2 \ell^2)\)</div>
+    <div><span class="ln">3</span>\([\mat{K}_{*S}]_{n} = \sigma_k^2 \exp(-\Vert \vect{s}_* - \vect{s}_n \Vert^2 / 2 \ell^2)\)</div>
+    <div><span class="ln">4</span>\(\vect{w}_* = (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top\)</div>
+    <div><span class="ln">5</span>\(\hat{f}_* = \bar{y} + \vect{w}_*^\top (\vect{y} - \bar{y} \vect{1})\)</div>
+    <div><span class="ln">6</span>\(\sigma_*^2 = \sigma_k^2 - \mat{K}_{*S} \vect{w}_*\)</div>
+  </div></div>
+  <div class="io-group"><div class="io-l">Out</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\hat{f}_*\) predicted XCH₄<small>eq. 5</small></div><div class="sh"><code>()</code><span class="u">ppb</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\sigma_*\) posterior standard deviation<small>eq. 6</small></div><div class="sh"><code>()</code><span class="u">ppb</span></div></div>
+  </div>
+  <div class="op-foot">The Cholesky of \(\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I}\) costs about \(N_{\Omega_y}^3 / 3 = 1.5 \times 10^8\) flops here and is shared by every gap cell. The kernel is swappable; the solve is not.</div>
+</div>
+<div class="op">
+  <div class="op-h"><span class="phase train">Train</span><span class="opname">fit_gp_hyperparameters</span><span class="when">offline · once per region or season, on clear-sky scenes</span></div>
+  <div class="io-group"><div class="io-l">In · per scene</div>
+    <div class="io"><svg class="g"><use href="#g-dataset"/></svg><div class="nm">\((\vect{y}, \mat{S}_y)\) clear cells of past scenes</div><div class="sh"><code>(scene, obs), (scene, obs, 2)</code><span class="u">ppb, km</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(\mathcal{L}_\text{NLL}(\gvect{\theta}) = \frac{1}{2} \Vert \vect{y} - \bar{y} \vect{1} \Vert^2_{(\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1}} + \frac{1}{2} \log \vert \mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I} \vert + \frac{N_{\Omega_y}}{2} \log 2 \pi\)</div>
+    <div><span class="ln">2</span>\(\gvect{\theta}^\star = \mathrm{argmin}_{\gvect{\theta}} \mathcal{L}_\text{NLL}(\gvect{\theta})\)</div>
+  </div></div>
+  <div class="io-group par"><div class="io-l par">Out · parameters for every later call</div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\gvect{\theta}^\star = (\ell, \sigma_k, \sigma_\varepsilon)\)<small>eq. 2; summed over scenes in practice</small></div><div class="sh"><code>(3,)</code><span class="u">km, ppb, ppb</span></div></div>
+  </div>
+</div>
+
+<div class="uc">
+  <div class="uc-h"><span class="tag">Units check</span><strong>The kriging weights are dimensionless</strong></div>
+  <div class="uc-rows">
+    <div class="uc-row"><div>\(\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I}\), \(\mat{K}_{*S}\)</div><div class="r">\(\mathrm{ppb^2}\)</div></div>
+    <div class="uc-row"><div>\(\vect{w}_* = (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1} \mat{K}_{*S}^\top\)</div><div class="r">\(\mathrm{ppb^{-2}} \cdot \mathrm{ppb^2} = 1\) → \(\sum_n w_{*n} = 0.78\)</div></div>
+    <div class="uc-row"><div>\(\hat{f}_* = \bar{y} + \vect{w}_*^\top (\vect{y} - \bar{y} \vect{1})\)</div><div class="r">\(\mathrm{ppb} + 1 \cdot \mathrm{ppb} = \mathrm{ppb}\) → 1,924.0 ppb</div></div>
+    <div class="uc-row"><div>\(\sigma_*^2 = \sigma_k^2 - \mat{K}_{*S} \vect{w}_*\)</div><div class="r">\(\mathrm{ppb^2} - \mathrm{ppb^2} \cdot 1\) → \(\sigma_* = 7.8\) ppb</div></div>
+    <div class="uc-row ok"><div>\(\hat{f}_* - f(\vect{s}_*)\)</div><div class="r">✓ −6.0 ppb, inside \(\pm \sigma_*\)</div></div>
+  </div>
+</div>
+
+<div class="note"><span class="tag">Watch out</span><p>Simple kriging weights need not sum to one: under the plume cloud \(\sum_n w_{*n} = 0.78\), so 22% of the local anomaly is pulled back towards \(\bar{y} = 1{,}910.9\) ppb. Far from any clear cell the prediction reverts to the scene mean, not to the nearest observation.</p></div>
+
+<div class="ex mini"><span class="tag">Running example · kriging</span><p>At \(\vect{s}_* = (77.5, 77.5)\) km the solve concentrates weight on the ring of clear cells at the cloud edge, with the smallest weight −0.23. The prediction is 1,924.0 ± 7.8 ppb against a truth of 1,930.0 ppb.</p></div>
+
+<!-- §2 NW -->
+<h2 id="s-nw">2 · Nadaraya–Watson normalises instead</h2>
+<p>Drop the Gram matrix and keep only the kernel row between the query and each clear cell. Divide by its sum and you have weights that are non-negative and sum to one: a local weighted average. That is the Nadaraya–Watson smoother. It has its own probabilistic reading, as a conditional mean under a kernel density estimate, and that reading shows exactly which assumption replaced the solve.</p>
+
+<div class="def model">
+  <span class="tag">Model</span>
+  <h3>Nadaraya–Watson is a conditional mean under a kernel density estimate</h3>
+  <div class="mstep"><span class="mn">1</span><span class="ml">Joint</span></div>
+  <p>The joint density of a cell's location and its XCH₄, which we never write down directly; we only have the clear-cell pairs \((\vect{s}_n, y_n)\).</p>
+  \[ p(\vect{s}, y) \]
+  <div class="mstep"><span class="mn">2</span><span class="ml">Factorisation</span></div>
+  <p>Condition on the query location:</p>
+  \[ p(y \mid \vect{s}_*) = \frac{p(\vect{s}_*, y)}{\int p(\vect{s}_*, y') \mathrm{d}y'} \]
+  <div class="mstep"><span class="mn">3</span><span class="ml">Objective</span></div>
+  <p>Under squared loss the best single number is the conditional mean:</p>
+  \[ \mathcal{J}(c) = \int (y - c)^2 p(y \mid \vect{s}_*) \mathrm{d}y \]
+  \[ \hat{f}_* = \mathrm{argmin}_c \mathcal{J}(c) = \mathbb{E}[y \mid \vect{s}_*] \]
+  <div class="mstep"><span class="mn">4</span><span class="ml">Assumptions</span></div>
+  <div class="asm">
+    <div class="a"><span class="aid">A1</span><div><b>Independent pairs.</b> The \((\vect{s}_n, y_n)\) are i.i.d. draws from \(p(\vect{s}, y)\).<small>Breaks for any spatial field: neighbouring cells are correlated, which is exactly what kriging's solve accounts for. NW therefore double-counts clustered cells.</small></div></div>
+    <div class="a"><span class="aid">A2</span><div><b>Product kernel density estimate.</b>
+      \[ \hat{p}(\vect{s}, y) = \frac{1}{N_{\Omega_y}} \sum_{n=1}^{N_{\Omega_y}} \kappa_\ell(\vect{s} - \vect{s}_n) \kappa_b(y - y_n) \]
+      <small>Breaks when \(N_{\Omega_y}\) is small relative to the dimension of \(\vect{s}\), the curse of dimensionality.</small></div></div>
+    <div class="a"><span class="aid">A3</span><div><b>Symmetric \(y\)-kernel.</b>
+      \[ \int y \kappa_b(y - y_n) \mathrm{d}y = y_n \]
+      <small>Holds for any symmetric \(\kappa_b\) that integrates to one; its bandwidth \(b\) then drops out.</small></div></div>
+    <div class="a"><span class="aid">A4</span><div><b>RBF space kernel.</b>
+      \[ \kappa_\ell(\Delta \vect{s}) \propto \exp(-\frac{\Vert \Delta \vect{s} \Vert^2}{2 \ell^2}) \]
+      <small>The normalising constant cancels in the ratio, so only the shape matters.</small></div></div>
+  </div>
+  <div class="mstep"><span class="mn">5</span><span class="ml">Result</span><span class="mu">uses A1–A4</span></div>
+  \[ \hat{f}_* = \frac{\sum_{n} \kappa_\ell(\vect{s}_* - \vect{s}_n) y_n}{\sum_{n'} \kappa_\ell(\vect{s}_* - \vect{s}_{n'})} \]
+  <p>Writing the kernel as \(\exp(a_{*n})\) gives lines 1–3 of the NW box.</p>
+  <div class="where">
+    <span class="wl">Where</span>
+    <span class="sy">\(\hat{p}\)</span><span class="me">kernel density estimate of the joint<span class="meta"><span class="sh">\(\mathbb{R}^2 \times \mathbb{R} \to \mathbb{R}_{\ge 0}\)</span><span class="u">km⁻² ppb⁻¹</span></span></span>
+    <span class="sy">\(\kappa_\ell\)</span><span class="me">smoothing kernel in space, bandwidth \(\ell\)<span class="meta"><span class="sh">\(\mathbb{R}^2 \to \mathbb{R}_{\ge 0}\)</span><span class="u">km⁻²</span></span></span>
+    <span class="sy">\(\kappa_b\)</span><span class="me">smoothing kernel in XCH₄, bandwidth \(b\)<span class="meta"><span class="sh">\(\mathbb{R} \to \mathbb{R}_{\ge 0}\)</span><span class="u">ppb⁻¹</span></span></span>
+    <span class="sy">\(c\)</span><span class="me">a candidate prediction<span class="meta"><span class="sh">\(\mathbb{R}\)</span><span class="u">ppb</span></span></span>
+    <span class="sy">\(\mathcal{J}\)</span><span class="me">expected squared error<span class="meta"><span class="sh">\(\mathbb{R}_{\ge 0}\)</span><span class="u">ppb²</span></span></span>
+  </div>
+</div>
+
+<div class="def">
+  <span class="tag">Concept</span>
+  <h3>An RBF kernel is already a softmax</h3>
+  <p>Expand the exponent of the RBF:</p>
+  \[ -\frac{\Vert \vect{s}_* - \vect{s}_n \Vert^2}{2 \ell^2} = \frac{\vect{s}_*^\top \vect{s}_n}{\ell^2} - \frac{\Vert \vect{s}_* \Vert^2}{2 \ell^2} - \frac{\Vert \vect{s}_n \Vert^2}{2 \ell^2} \]
+  <p>The \(\Vert \vect{s}_* \Vert^2\) term is the same for every \(n\) and cancels in the normalisation. If every \(\Vert \vect{s}_n \Vert\) is equal too, the NW weights are exactly a softmax of dot products:</p>
+  \[ w_{*n} = \op{softmax}_n(\frac{\vect{s}_*^\top \vect{s}_n}{\ell^2}) \]
+  <p>On Earth this holds exactly. Take the coordinates as unit vectors \(\vect{s}_n \in S^2\). Then \(\Vert \vect{s}_n - \vect{s}_{n'} \Vert^2 = 2 - 2 \vect{s}_n^\top \vect{s}_{n'}\), and an RBF on chord distance is the von Mises–Fisher kernel \(\exp(\vect{s}_n^\top \vect{s}_{n'} / \ell^2)\). In a transformer, LayerNorm holds token norms nearly constant, so the dot-product logit behaves like a negative squared distance, and \(\sqrt{D_q}\) plays the part of \(\ell^2\).</p>
+  <div class="where">
+    <span class="wl">Where</span>
+    <span class="sy">\(S^2\)</span><span class="me">the unit sphere; \(\ell\) is then measured in Earth radii<span class="meta"><span class="sh">\(\subset \mathbb{R}^3\)</span><span class="u">—</span></span></span>
+    <span class="sy">\(\op{softmax}_n\)</span><span class="me">\(\exp(a_n) / \sum_{n'} \exp(a_{n'})\), taken over \(n\)<span class="meta"><span class="sh">\(\mathbb{R}^{N} \to [0, 1]^{N}\)</span><span class="u">—</span></span></span>
+  </div>
+</div>
+
+<div class="op">
+  <div class="op-h"><span class="phase">Use</span><span class="opname">nadaraya_watson</span><span class="when">L3 → L4 · one call per gap cell, no solve</span></div>
+  <div class="io-group"><div class="io-l">In · per query</div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\vect{y}\) observed XCH₄</div><div class="sh"><code>(obs,)</code><span class="u">ppb</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\mat{S}_y\), \(\vect{s}_*\) cell centres</div><div class="sh"><code>(obs, 2), (2,)</code><span class="u">km</span></div></div>
+  </div>
+  <div class="io-group exo"><div class="io-l exo">Exogenous \(\vect{u}\) · per scene, given</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm"><span class="none">none</span></div><div class="sh"><code>—</code></div></div>
+  </div>
+  <div class="io-group par"><div class="io-l par">Parameters \(\gvect{\theta}\) · fixed across scenes</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\ell\) bandwidth<small>tuned by leave-one-out cross-validation</small></div><div class="sh"><code>()</code><span class="u">km</span></div></div>
+  </div>
+  <div class="io-group est"><div class="io-l est">Estimated in each call</div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\vect{a}_*\) logits<small>eq. 1</small></div><div class="sh"><code>(obs,)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\vect{w}_*\) weights<small>eq. 2; non-negative, sum to one</small></div><div class="sh"><code>(obs,)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(a_{*n} = -\Vert \vect{s}_* - \vect{s}_n \Vert^2 / 2 \ell^2\)</div>
+    <div><span class="ln">2</span>\(w_{*n} = \exp(a_{*n}) / \sum_{n'} \exp(a_{*n'})\)</div>
+    <div><span class="ln">3</span>\(\hat{f}_* = \sum_{n} w_{*n} y_n\)</div>
+  </div></div>
+  <div class="io-group"><div class="io-l">Out</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(\hat{f}_*\) predicted XCH₄<small>eq. 3; always inside \([\min_n y_n, \max_n y_n]\)</small></div><div class="sh"><code>()</code><span class="u">ppb</span></div></div>
+  </div>
+  <div class="op-foot">No uncertainty comes out. Replacing the RBF in line 1 with any other kernel keeps the operator a Nadaraya–Watson smoother.</div>
+</div>
+
+<div class="uc">
+  <div class="uc-h"><span class="tag">Units check</span><strong>The softmax sees only ratios of lengths</strong></div>
+  <div class="uc-rows">
+    <div class="uc-row"><div>\(a_{*n} = -\Vert \vect{s}_* - \vect{s}_n \Vert^2 / 2 \ell^2\)</div><div class="r">\(\mathrm{km^2} / \mathrm{km^2} = 1\)</div></div>
+    <div class="uc-row"><div>\(w_{*n} = \exp(a_{*n}) / \sum_{n'} \exp(a_{*n'})\)</div><div class="r">\(1\) → \(\sum_n w_{*n} = 1.00\), \(N_\text{eff} = 60\) cells</div></div>
+    <div class="uc-row"><div>\(\hat{f}_* = \sum_n w_{*n} y_n\)</div><div class="r">\(1 \cdot \mathrm{ppb}\) → 1,915.9 ppb</div></div>
+    <div class="uc-row"><div>sphere: \(\ell / R_\oplus\)</div><div class="r">\(50 \ \mathrm{km} / 6371 \ \mathrm{km}\) → 0.0078</div></div>
+    <div class="uc-row ok"><div>\(\hat{f}_* - f(\vect{s}_*)\)</div><div class="r">✓ −14.1 ppb, and no σ to flag it</div></div>
+  </div>
+</div>
+
+<div class="note"><span class="tag">Watch out</span><p>Every clear cell votes on its own (A1). Most clear cells within reach of the plume cloud are background, so most of the 60 effective voters are too, and Nadaraya–Watson lands 14.1 ppb low. Shrinking \(\ell\) narrows the disc but leaves fewer voters, so the estimate gets noisier.</p></div>
+
+<div class="ex mini"><span class="tag">Running example · Nadaraya–Watson</span><p>Same query, same \(\ell = 15\) km: a smooth, round footprint in the lab with no negative weights, and 1,915.9 ppb against a truth of 1,930.0 ppb.</p></div>
+
+<!-- §3 Attention -->
+<h2 id="s-att">3 · An attention head is Nadaraya–Watson on learned features</h2>
+<p>Give every cell a token: a feature vector \(\vect{z}_n\) that could hold the retrieved XCH₄, SWIR albedo, aerosol optical depth, surface pressure and a position encoding. Cloud-flagged cells get tokens too, built from what surrounds them, so they can ask questions even though they cannot answer them. An attention head maps each token to a query, a key and a value, scores every query against every key, and returns a softmax-weighted average of values. That is the NW box with \(\vect{s}\) replaced by learned features and a dot product in place of the distance.</p>
+
+<div class="def">
+  <span class="tag">Concept</span>
+  <h3>The attention weight is a bilinear-exponential kernel</h3>
+  <p>Substitute lines 1–2 of the A box into line 4. The logit is a bilinear form in the raw features:</p>
+  \[ a_{mn} = \frac{\vect{z}_m^\top \mat{A} \vect{z}_n}{\sqrt{D_q}} \]
+  \[ \mat{A} = \mat{W}_Q \mat{W}_K^\top \]
+  \[ P_{mn} = \frac{o_n \exp(a_{mn})}{\sum_{n'} o_{n'} \exp(a_{mn'})} \]
+  <ul>
+    <li>\(\mat{A}\) has rank at most \(D_q\) and is in general neither symmetric nor positive semi-definite. So \(\exp(a_{mn})\) is a smoothing kernel in the NW sense, a non-negative weight, but not a Mercer kernel with an RKHS.</li>
+    <li>Tying \(\mat{W}_Q = \mat{W}_K\) makes \(\mat{A}\) positive semi-definite; the exponential of a positive-definite kernel is positive definite, so the tied head is a Mercer kernel.</li>
+    <li>The asymmetry is useful. Whom a downwind plume cell should listen to (its source) is not who should listen to it.</li>
+    <li>\(\mat{P}\) is row-stochastic: it is the NW hat matrix, the counterpart of the GP's \(\mat{K}_{SS} (\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1}\).</li>
+    <li>When \(\vect{z}\) mixes position and content, the weight factors roughly into a spatial term times a content term. That is a bilateral filter: near and similar.</li>
+  </ul>
+  <div class="where">
+    <span class="wl">Where</span>
+    <span class="sy">\(\mat{A}\)</span><span class="me">the head's metric on feature space, rank \(\le D_q\)<span class="meta"><span class="sh">\(\mathbb{R}^{D_z \times D_z}\)</span><span class="u">—</span></span></span>
+    <span class="sy">\(D_z, D_q\)</span><span class="me">token width and head width<span class="meta"><span class="sh">\(\mathbb{N}\)</span><span class="u">—</span></span></span>
+    <span class="sy">\(o_n\)</span><span class="me">1 if cell \(n\) is clear, so only clear cells serve as keys<span class="meta"><span class="sh">\(\{0, 1\}\)</span><span class="u">bool</span></span></span>
+    <span class="sy">\(\mat{P}\)</span><span class="me">attention matrix, each row a weight vector like \(\vect{w}_*\)<span class="meta"><span class="sh">\(\mathbb{R}^{N_{\Omega_x} \times N_{\Omega_x}}\)</span><span class="u">—</span></span></span>
+  </div>
+</div>
+
+<p>The general statement is that a head scores each pair of tokens with some function of their features and positions, exponentiates and normalises. The lab cannot train a network, so it uses a head built by hand from three interpretable parts, which is the simple instance below. The general instance learns \(\mat{A}\).</p>
+
+<div class="case">
+  <div class="lin"><span class="tag">Simple instance · the lab head</span>
+    \[ a_{mn} = \gamma c_m c_n - \frac{\Vert \vect{s}_m - \vect{s}_n \Vert}{\ell_h} + \beta \frac{(\vect{s}_m - \vect{s}_n)^\top \vect{u}}{\Vert \vect{u} \Vert L_\beta} \]
+    \[ c_n = \frac{\bar{y}^{(p_n)} - \bar{y}}{\hat{\sigma}_y} \]
+    <p>The content term is a rank-one \(\mat{A}\): plume tokens pull towards plume tokens. Exponentiated, \(-\Vert \Delta \vect{s} \Vert / \ell_h\) is a Matérn-½ kernel. The β term rewards keys upwind of the query; it is antisymmetric in \(m, n\), so \(P_{mn} \ne P_{nm}\). Values are \(v_n = y_n\), in ppb.</p></div>
+  <div class="non"><span class="tag">General instance · a trained head</span>
+    \[ a_{mn} = \frac{\vect{z}_m^\top \mat{W}_Q \mat{W}_K^\top \vect{z}_n}{\sqrt{D_q}} \]
+    <p>\(\mat{W}_Q\), \(\mat{W}_K\) and \(\mat{W}_V\) are learned from many scenes (Train card below). Position enters through \(\vect{z}\) or through a bias added to \(a_{mn}\); the lab's three terms are one point in this family.</p></div>
+</div>
+<p>Here \(\bar{y}^{(p_n)}\) is the mean of the clear cells in patch \(\Omega_x^{(p_n)}\), the smallest square window around cell \(n\) that holds at least three of them. Patches overlap, so a token under a cloud still carries what its cloud edge saw. \(\hat{\sigma}_y = 6.3\) ppb is the sample standard deviation of the clear cells, and \(L_\beta = 20\) km is a fixed length.</p>
+
+<div class="op">
+  <div class="op-h"><span class="phase">Use</span><span class="opname">attention_head</span><span class="when">L3 → L4 · one call per scene, all gap cells at once</span></div>
+  <div class="io-group"><div class="io-l">In · per token</div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\mat{Z}\) token features<small>one row per cell, clear or cloudy</small></div><div class="sh"><code>(token, feat)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-mask"/></svg><div class="nm">\(\vect{o}\) observed mask<small>only clear cells may serve as keys</small></div><div class="sh"><code>(token,)</code><span class="u">bool</span></div></div>
+  </div>
+  <div class="io-group exo"><div class="io-l exo">Exogenous \(\vect{u}\) · per scene, given</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm"><span class="none">none</span><small>the lab head adds the wind \(\vect{u}\) here</small></div><div class="sh"><code>—</code></div></div>
+  </div>
+  <div class="io-group par"><div class="io-l par">Parameters \(\gvect{\theta}\) · fixed across scenes</div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\mat{W}_Q, \mat{W}_K, \mat{W}_V\)<small>from the Train card; the lab head uses \((\gamma, \beta, \ell_h)\) instead</small></div><div class="sh"><code>(feat, head_feat)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="io-group"><div class="io-l cst">Constants · never tuned</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(D_q\) head width<small>sets the temperature \(\sqrt{D_q}\)</small></div><div class="sh"><code>()</code><span class="u">—</span></div></div>
+  </div>
+  <div class="io-group est"><div class="io-l est">Estimated in each call</div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\vect{q}_m, \vect{k}_n, \vect{v}_n\)<small>eqs. 1–3</small></div><div class="sh"><code>(token, head_feat)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(a_{mn}\) logits<small>eq. 4</small></div><div class="sh"><code>(token, token)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\mat{P}\) attention matrix<small>eq. 5</small></div><div class="sh"><code>(token, token)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(\vect{q}_m = \mat{W}_Q^\top \vect{z}_m\)</div>
+    <div><span class="ln">2</span>\(\vect{k}_n = \mat{W}_K^\top \vect{z}_n\)</div>
+    <div><span class="ln">3</span>\(\vect{v}_n = \mat{W}_V^\top \vect{z}_n\)</div>
+    <div><span class="ln">4</span>\(a_{mn} = \vect{q}_m^\top \vect{k}_n / \sqrt{D_q}\)</div>
+    <div><span class="ln">5</span>\(P_{mn} = o_n \exp(a_{mn}) / \sum_{n'} o_{n'} \exp(a_{mn'})\)</div>
+    <div><span class="ln">6</span>\(\bar{\vect{v}}_m = \sum_{n} P_{mn} \vect{v}_n\)</div>
+  </div></div>
+  <div class="io-group"><div class="io-l">Out</div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\bar{\vect{v}}_m\) output per token<small>eq. 6; a convex combination of the clear cells' values</small></div><div class="sh"><code>(token, head_feat)</code><span class="u">[v]</span></div></div>
+  </div>
+  <div class="op-foot">Trained: the three maps. Swappable: the logit in line 4 (add a position bias, tie \(\mat{W}_Q = \mat{W}_K\), use the lab's three terms). Fixed: the softmax and the average, which make it a Nadaraya–Watson smoother.</div>
+</div>
+<div class="op">
+  <div class="op-h"><span class="phase train">Train</span><span class="opname">fit_attention_masked</span><span class="when">offline · many scenes, artificial clouds</span></div>
+  <div class="io-group"><div class="io-l">In · per scene</div>
+    <div class="io"><svg class="g"><use href="#g-dataset"/></svg><div class="nm">\((\mat{Z}, \vect{y}, \vect{o})\) past scenes<small>clear cells \(\mathcal{D}_\text{hold}\) are hidden at random and treated as cloud</small></div><div class="sh"><code>(scene, token, …)</code><span class="u">—, ppb, bool</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(\mathcal{L}_\text{MSE}(\gvect{\theta}) = \frac{1}{N_\text{hold}} \sum_{m \in \mathcal{D}_\text{hold}} (y_m - \bar{v}_m)^2\)</div>
+    <div><span class="ln">2</span>\(\gvect{\theta}^\star = \mathrm{argmin}_{\gvect{\theta}} \mathcal{L}_\text{MSE}(\gvect{\theta})\)</div>
+  </div></div>
+  <div class="io-group par"><div class="io-l par">Out · parameters for every later call</div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\gvect{\theta}^\star = (\mat{W}_Q, \mat{W}_K, \mat{W}_V)\)<small>eq. 2; here \(\mat{W}_V\) has one column, so \(\bar{v}_m\) is a scalar in ppb</small></div><div class="sh"><code>(3, feat, head_feat)</code><span class="u">—</span></div></div>
+  </div>
+</div>
+
+<div class="uc">
+  <div class="uc-h"><span class="tag">Units check</span><strong>Every logit is a pure number</strong></div>
+  <div class="uc-rows">
+    <div class="uc-row"><div>\(a_{mn} = \vect{q}_m^\top \vect{k}_n / \sqrt{D_q}\)</div><div class="r">\(1 \cdot 1 / 1\): features are standardised</div></div>
+    <div class="uc-row"><div>lab: \(\gamma c_m c_n\)</div><div class="r">\(1 \cdot 1 \cdot 1\)</div></div>
+    <div class="uc-row"><div>lab: \(\Vert \vect{s}_m - \vect{s}_n \Vert / \ell_h\)</div><div class="r">\(\mathrm{km} / \mathrm{km} = 1\)</div></div>
+    <div class="uc-row"><div>lab: \(\beta (\vect{s}_m - \vect{s}_n)^\top \vect{u} / (\Vert \vect{u} \Vert L_\beta)\)</div><div class="r">\(\mathrm{km} \cdot \mathrm{m\ s^{-1}} / (\mathrm{m\ s^{-1}} \cdot \mathrm{km}) = 1\)</div></div>
+    <div class="uc-row"><div>\(\bar{v}_m = \sum_n P_{mn} y_n\)</div><div class="r">\(1 \cdot \mathrm{ppb}\) → 1,922.3 ppb at \(\ell_h = 20\) km, \(\gamma = 1.5\)</div></div>
+    <div class="uc-row ok"><div>\(\bar{v}_m - f(\vect{s}_*)\)</div><div class="r">✓ −7.7 ppb</div></div>
+  </div>
+</div>
+
+<h3>Code sketch: three smoothers side by side</h3>
+<p>Every function here is defined on this page, so each is marked <code># user</code>. Read <code>nadaraya_watson</code> and <code>attention_head</code> line by line: only the logit and the values change. <code>kriging_mean</code> has the one line attention never has, the solve.</p>
+<pre><span class="c"># Shapes: N_Ωy observed cells (obs); N_Ωx = 1,024 cells = tokens (token);</span>
+<span class="c">#         D_z token width (feat); D_q head width (head_feat)</span>
+<span class="un"># Units:  [y] = ppb;  [s] = km;  [1] = dimensionless</span>
+import einx
+import jax.numpy as jnp
+import lineax as lx
+from jaxtyping import Array, Bool, Float
+
+<span class="mk"># user</span>
+def sq_dist(
+    a: Float[Array, "A 2"], b: Float[Array, "B 2"]
+) -&gt; Float[Array, "A B"]:
+<span class="c">    # Δs_ij = a_i − b_j</span>
+    delta = einx.subtract("a c, b c -&gt; a b c", a, b)          <span class="c"># → (A, B, 2)</span>      <span class="un">[s]</span>
+<span class="c">    # ‖Δs_ij‖²</span>
+    return einx.sum("a b [c]", delta**2)                        <span class="c"># → (A, B)</span>         <span class="un">[s]²</span>
+
+
+<span class="mk"># user</span>
+def kriging_mean(s_query, s_obs, y_obs, ell, sigma_k, sigma_eps):
+<span class="c">    # ȳ = (1/N_Ωy) ∑ₙ yₙ</span>
+    y_bar = einx.mean("[obs]", y_obs)                           <span class="c"># (obs,) → ()</span>     <span class="un">[y]</span>
+<span class="c">    # [K_SS]ₙₙ' = σₖ² exp(−‖sₙ − sₙ'‖² / 2ℓ²)</span>
+    gram = sigma_k**2 * jnp.exp(-sq_dist(s_obs, s_obs) / (2 * ell**2))   <span class="c"># (obs, obs)</span>  <span class="un">[y]²</span>
+<span class="c">    # K_SS + σ_ε² I</span>
+    gram = gram + sigma_eps**2 * jnp.eye(gram.shape[0])         <span class="c"># (obs, obs) PSD</span>   <span class="un">[y]²</span>
+<span class="c">    # [K_*S]ₙ = σₖ² exp(−‖s_* − sₙ‖² / 2ℓ²)</span>
+    cross = sigma_k**2 * jnp.exp(-sq_dist(s_query, s_obs) / (2 * ell**2))  <span class="c"># (Q, obs)</span>  <span class="un">[y]²</span>
+<span class="mk">    # not pinned (lineax)</span>
+<span class="c">    # α = (K_SS + σ_ε² I)⁻¹ (y − ȳ 1)</span>
+    op = lx.MatrixLinearOperator(gram, lx.positive_semidefinite_tag)
+    alpha = lx.linear_solve(op, y_obs - y_bar, solver=lx.Cholesky()).value  <span class="c"># (obs,)</span>  <span class="un">[y]⁻¹</span>
+<span class="c">    # f̂_* = ȳ + K_*S α  (= ȳ + w_*ᵀ(y − ȳ 1))</span>
+    return y_bar + einx.dot("q obs, obs -&gt; q", cross, alpha)   <span class="c"># → (Q,)</span>           <span class="un">[y]</span>
+
+
+<span class="mk"># user</span>
+def nadaraya_watson(s_query, s_obs, y_obs, ell):
+<span class="c">    # a_*ₙ = −‖s_* − sₙ‖² / 2ℓ²</span>
+    logits = -sq_dist(s_query, s_obs) / (2 * ell**2)            <span class="c"># → (Q, obs)</span>       <span class="un">[1]</span>
+<span class="c">    # w_*ₙ = softmaxₙ(a_*ₙ)</span>
+    weights = einx.softmax("q [obs]", logits)                   <span class="c"># (Q, obs) rows → 1</span> <span class="un">[1]</span>
+<span class="c">    # f̂_* = ∑ₙ w_*ₙ yₙ</span>
+    return einx.dot("q obs, obs -&gt; q", weights, y_obs)         <span class="c"># → (Q,)</span>           <span class="un">[y]</span>
+
+
+<span class="mk"># user</span>
+def attention_head(
+    z: Float[Array, "token feat"],
+    observed: Bool[Array, "token"],
+    w_q: Float[Array, "feat head_feat"],
+    w_k: Float[Array, "feat head_feat"],
+    w_v: Float[Array, "feat head_feat"],
+) -&gt; Float[Array, "token head_feat"]:
+<span class="c">    # q_m = W_Qᵀ z_m</span>
+    q = einx.dot("t f, f d -&gt; t d", z, w_q)                    <span class="c"># → (token, head_feat)</span> <span class="un">[1]</span>
+<span class="c">    # k_n = W_Kᵀ z_n</span>
+    k = einx.dot("t f, f d -&gt; t d", z, w_k)                    <span class="c"># → (token, head_feat)</span> <span class="un">[1]</span>
+<span class="c">    # v_n = W_Vᵀ z_n</span>
+    v = einx.dot("t f, f d -&gt; t d", z, w_v)                    <span class="c"># → (token, head_feat)</span> <span class="un">[v]</span>
+<span class="c">    # a_mn = q_mᵀ k_n / √D_q</span>
+    logits = einx.dot("m d, n d -&gt; m n", q, k) / jnp.sqrt(q.shape[-1])  <span class="c"># (token, token)</span> <span class="un">[1]</span>
+<span class="c">    # a_mn = −∞ where o_n = 0 (cloudy keys)</span>
+    logits = einx.where("n, m n, ", observed, logits, -jnp.inf) <span class="c"># (token, token)</span>   <span class="un">[1]</span>
+<span class="c">    # P_mn = softmaxₙ(a_mn)</span>
+    weights = einx.softmax("m [n]", logits)                     <span class="c"># (token, token) rows → 1</span> <span class="un">[1]</span>
+<span class="c">    # v̄_m = ∑ₙ P_mn v_n</span>
+    return einx.dot("m n, n d -&gt; m d", weights, v)             <span class="c"># → (token, head_feat)</span> <span class="un">[v]</span></pre>
+<h3>The same two smoothers in kernellib</h3>
+<p>The sketch above writes the Gram matrix and the solve by hand so every line maps to an equation. In kernellib the kernel is an object, <code>to_operator</code> adds the noise and tags the operator PSD, and gaussx picks the solve. This block runs as written and matches the dense formulas to 10⁻¹¹ ppb.</p>
+<pre><span class="c"># Shapes: N_Ωy observed cells (obs); Q query cells (q)</span>
+<span class="un"># Units:  [y] = ppb;  [s] = km;  [1] = dimensionless</span>
+import einx
+import gaussx as gx
+import kernellib as kl
+
+<span class="mk"># today (kernellib)</span>
+<span class="c"># k(s, s') = σₖ² exp(−‖s − s'‖² / 2ℓ²),  ℓ = 15 km, σₖ = 12 ppb</span>
+kernel = kl.RBF(lengthscale=15.0, variance=12.0**2)
+<span class="c"># ȳ = (1/N_Ωy) ∑ₙ yₙ</span>
+y_bar = einx.mean("[obs]", y_obs)                          <span class="c"># (obs,) → ()</span>        <span class="un">[y]</span>
+<span class="mk"># today (kernellib)</span>
+<span class="c"># K_SS + σ_ε² I,  σ_ε = 2.5 ppb</span>
+op = kl.to_operator(kernel, s_obs, noise=2.5**2)            <span class="c"># (obs, 2) → (obs, obs) PSD op</span> <span class="un">[y]²</span>
+<span class="mk"># today (gaussx)</span>
+<span class="c"># α = (K_SS + σ_ε² I)⁻¹ (y − ȳ 1)</span>
+alpha = gx.solve(op, y_obs - y_bar)                         <span class="c"># → (obs,)</span>          <span class="un">[y]⁻¹</span>
+<span class="mk"># today (kernellib)</span>
+<span class="c"># [K_*S]_qn = k(s_q, sₙ)</span>
+cross = kernel(s_query, s_obs)                              <span class="c"># → (Q, obs)</span>        <span class="un">[y]²</span>
+<span class="c"># f̂_q = ȳ + K_*S α                                     (kriging)</span>
+f_kriging = y_bar + einx.dot("q obs, obs -&gt; q", cross, alpha)   <span class="c"># → (Q,)</span>     <span class="un">[y]</span>
+<span class="c"># w_qn = k(s_q, sₙ) / ∑ₙ' k(s_q, sₙ')                    (no solve)</span>
+weights = einx.divide("q obs, q -&gt; q obs", cross, einx.sum("q [obs]", cross))  <span class="c"># (Q, obs)</span> <span class="un">[1]</span>
+<span class="c"># f̂_q = ∑ₙ w_qn yₙ                                     (Nadaraya–Watson)</span>
+f_nw = einx.dot("q obs, obs -&gt; q", weights, y_obs)       <span class="c"># → (Q,)</span>           <span class="un">[y]</span></pre>
+<pre class="diagram">  L3   y, o       (obs,), (token,)     ppb, bool
+        │
+        ├── GP   K_SS + σ_ε² I  ──solve──▶  w_*     (obs,)   —   may be &lt; 0
+        │
+        ├── NW   exp(−‖Δs‖²/2ℓ²) ──row-normalise──▶  w_*  (obs,)  —   ≥ 0, ∑ = 1
+        │
+        └── A    exp(qᵀk/√D_q)  ──row-normalise──▶  P    (token, token)  —
+        │
+        ▼
+  L4   f̂_*  = weighted sum of y    ()      ppb
+       σ_*  only from the GP       ()      ppb</pre>
+
+<div class="note"><span class="tag">Watch out</span><p>\(\mat{P}\) is not a posterior. One head has no notion of redundancy, so two duplicate keys get twice the weight, and it returns no \(\sigma_*\). A single layer cannot produce kriging's negative weights; stacks of layers can approximate the solve (von Oswald et al., 2023), but the uncertainty does not come back.</p></div>
+
+<div class="ex mini"><span class="tag">Running example · attention</span><p>The 20 km head at the plume query gives 1,912.3 ppb with γ = 0, 1,922.3 ppb at γ = 1.5 and 1,933.1 ppb at γ = 3. Raising γ stretches the footprint along the plume, because plume tokens now prefer plume keys. The same data-adaptive kernel that helps here would invent structure where the content score is noise.</p></div>
+
+<!-- §4 Patches and scales -->
+<h2 id="s-patch">4 · Tiles make it a kernel between regions; heads make it multi-scale</h2>
+<p>A vision transformer does not make one token per cell. It cuts the scene into square tiles of \(P \times P\) cells, flattens each tile and embeds it, so a token stands for a region. In the notation here those are tiles \(\Omega_x^{(r)}\), not patches, because they cover the scene without overlap; the lab's content windows overlap, so they are patches. With tile tokens the logit is a bilinear form on tile vectors, which makes tile attention a learned version of non-local means (Buades, Coll and Morel, 2005): weights from region similarity, values from the regions.</p>
+
+<div class="tbl"><table>
+  <thead><tr><th>Your hypothesis</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr><td>Tokens are groups of points</td><td>Yes: tiles of \(P \times P\) cells</td></tr>
+    <tr><td>The kernel acts between groups</td><td>Yes: bilinear-exponential on embedded tile vectors</td></tr>
+    <tr><td>Groups are treated as sets</td><td>No: \(\op{vec}\) keeps the position of each cell inside the tile. The set version would be a mean-embedding kernel, \(\frac{1}{\vert A \vert \vert B \vert} \sum_{a \in A} \sum_{b \in B} k(a, b)\)</td></tr>
+    <tr><td>Attention itself is multi-scale</td><td>Partly: one head in one layer has one bandwidth. Scale comes from heads, position biases, depth and hierarchy</td></tr>
+  </tbody>
+</table></div>
+
+<div class="op">
+  <div class="op-h"><span class="phase">Use</span><span class="opname">tiled_multihead_attention</span><span class="when">L3 → L4 · one call per scene per layer</span></div>
+  <div class="io-group"><div class="io-l">In · per tile</div>
+    <div class="io"><svg class="g"><use href="#g-field"/></svg><div class="nm">\(\vect{y}^{(r)}, \vect{o}^{(r)}\) XCH₄ and mask on tile \(r\)<small>cloudy cells set to 0, with the mask as a second channel</small></div><div class="sh"><code>(tile, row, col)</code><span class="u">ppb</span><span class="u">bool</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\vect{s}_r\) tile centres</div><div class="sh"><code>(tile, 2)</code><span class="u">km</span></div></div>
+  </div>
+  <div class="io-group exo"><div class="io-l exo">Exogenous \(\vect{u}\) · per scene, given</div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm"><span class="none">none</span></div><div class="sh"><code>—</code></div></div>
+  </div>
+  <div class="io-group par"><div class="io-l par">Parameters \(\gvect{\theta}\) · fixed across scenes</div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\mat{W}_E\), \(\gvect{\psi}\) tile embedding and position encoding</div><div class="sh"><code>(pix, feat), (tile, feat)</code><span class="u">ppb⁻¹</span><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(\mat{W}_Q^{(h)}, \mat{W}_K^{(h)}, \mat{W}_V^{(h)}, \mat{W}_O^{(h)}\) per head</div><div class="sh"><code>(head, feat, head_feat)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="io-group"><div class="io-l cst">Constants · never tuned</div>
+    <div class="io"><svg class="g"><use href="#g-vector"/></svg><div class="nm">\(\ell_h\) head lengthscales<small>a geometric ladder, as in ALiBi; here 10, 20, 40, 80 km</small></div><div class="sh"><code>(head,)</code><span class="u">km</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-scalar"/></svg><div class="nm">\(D_q\), \(N_{\mathcal{H}}\) head width and number of heads</div><div class="sh"><code>(), ()</code><span class="u">—</span></div></div>
+  </div>
+  <div class="io-group est"><div class="io-l est">Estimated in each call</div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\vect{z}_r\) tile tokens<small>eq. 1</small></div><div class="sh"><code>(tile, feat)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-weights"/></svg><div class="nm">\(a^{(h)}\), \(\mat{P}^{(h)}\) logits and attention per head<small>eqs. 2–3</small></div><div class="sh"><code>(head, tile, tile)</code><span class="u">—</span></div></div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\bar{\vect{v}}^{(h)}_r\) head outputs<small>eq. 4</small></div><div class="sh"><code>(head, tile, head_feat)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="op-arrow"><span class="ar">↓</span><div class="eqs">
+    <div><span class="ln">1</span>\(\vect{z}_r = \mat{W}_E^\top \op{vec}(\vect{y}^{(r)}, \vect{o}^{(r)}) + \gvect{\psi}_r\)</div>
+    <div><span class="ln">2</span>\(a^{(h)}_{rr'} = \vect{z}_r^\top \mat{W}_Q^{(h)} \mat{W}_K^{(h)\top} \vect{z}_{r'} / \sqrt{D_q} - \Vert \vect{s}_r - \vect{s}_{r'} \Vert / \ell_h\)</div>
+    <div><span class="ln">3</span>\(P^{(h)}_{rr'} = \exp(a^{(h)}_{rr'}) / \sum_{r''} \exp(a^{(h)}_{rr''})\)</div>
+    <div><span class="ln">4</span>\(\bar{\vect{v}}^{(h)}_r = \sum_{r'} P^{(h)}_{rr'} \mat{W}_V^{(h)\top} \vect{z}_{r'}\)</div>
+    <div><span class="ln">5</span>\(\vect{z}^\text{out}_r = \sum_{h=1}^{N_{\mathcal{H}}} \mat{W}_O^{(h)\top} \bar{\vect{v}}^{(h)}_r\)</div>
+  </div></div>
+  <div class="io-group"><div class="io-l">Out</div>
+    <div class="io"><svg class="g"><use href="#g-matrix"/></svg><div class="nm">\(\vect{z}^\text{out}_r\) updated tile tokens<small>eq. 5; the next layer's input</small></div><div class="sh"><code>(tile, feat)</code><span class="u">—</span></div></div>
+  </div>
+  <div class="op-foot">Each head is its own Nadaraya–Watson smoother with its own bandwidth \(\ell_h\). Line 5 sums smoothers, which is not a smoother with a summed kernel, because each head normalises separately.</div>
+</div>
+
+<p>Multi-scale behaviour enters in four places, each a familiar kernel construction:</p>
+<ul>
+  <li><strong>Heads.</strong> The bias \(-\Vert \Delta \vect{s} \Vert / \ell_h\) makes each head's spatial factor a Matérn-½ kernel. A geometric ladder of \(\ell_h\) is a bank of exponential kernels, the 2-D analogue of ALiBi's slopes \(2^{-h}\) (Press et al., 2022).</li>
+  <li><strong>Position bias times content.</strong> \(\exp(\text{content} + \text{bias})\) is a product kernel, so each head is local in space and selective in content at the same time.</li>
+  <li><strong>Depth.</strong> Layer \(l + 1\) smooths features already smoothed by layer \(l\). That is kernel composition, as in deep kernel learning and deep GPs, and the receptive field grows with depth.</li>
+  <li><strong>Hierarchy.</strong> Window attention plus 2 × 2 tile merging (Swin) builds an explicit resolution pyramid, like multigrid.</li>
+</ul>
+
+<div class="uc">
+  <div class="uc-h"><span class="tag">Units check</span><strong>What full attention costs on a Sentinel-2 tile</strong></div>
+  <div class="uc-rows">
+    <div class="uc-row"><div>tokens: \((2000 / 16)^2\)</div><div class="r">\((\mathrm{px} / \mathrm{px})^2\) → 15,625 tokens</div></div>
+    <div class="uc-row"><div>entries of \(\mat{P}\): \(15625^2\)</div><div class="r">→ \(2.44 \times 10^8\) per head per layer</div></div>
+    <div class="uc-row"><div>memory in fp32</div><div class="r">\(2.44 \times 10^8 \cdot 4 \ \mathrm{B}\) → 0.98 GB</div></div>
+    <div class="uc-row"><div>lab kriging Cholesky: \(N_{\Omega_y}^3 / 3\)</div><div class="r">\(763^3 / 3\) → \(1.5 \times 10^8\) flops</div></div>
+    <div class="uc-row ok"><div>both quadratic in memory</div><div class="r">✓ attention avoids the cubic solve, not the quadratic matrix</div></div>
+  </div>
+</div>
+
+<div class="note"><span class="tag">Watch out</span><p>Averaging heads with equal weights is not free accuracy. At the plume query the four-head average is 1,921.5 ppb, worse than the 10 km head alone at 1,924.4 ppb, because the 80 km head pulls towards the regional mean. A trained \(\mat{W}_O^{(h)}\) learns which scale to trust where.</p></div>
+
+<div class="ex mini"><span class="tag">Running example · heads</span><p>At the plume query with γ = 1.5, the heads give 1,924.4, 1,922.3, 1,920.2 and 1,919.1 ppb for \(\ell_h\) = 10, 20, 40 and 80 km, with 23, 42, 79 and 122 effective voters. Wider heads see more cells and more background.</p></div>
+
+<!-- C12 -->
+<h2>Worked numbers at the plume query</h2>
+<p>All rows use the default lab settings unless the setting column says otherwise: \(\ell = 15\) km, \(\sigma_\varepsilon = 2.5\) ppb, \(\gamma = 1.5\), \(\beta = 0\). The query is \(\vect{s}_* = (77.5, 77.5)\) km, where the truth is 1,930.0 ppb.</p>
+<div class="tbl"><table>
+  <thead><tr><th>Operator</th><th>Setting</th><th class="num">\(\hat{f}_*\)</th><th class="num">Error</th><th class="num">\(\sum w\)</th><th class="num">\(N_\text{eff}\)</th><th>Unit</th></tr></thead>
+  <tbody>
+    <tr><td>GP (kriging)</td><td>\(\sigma_* = 7.8\) ppb</td><td class="num">1,924.0</td><td class="num">−6.0</td><td class="num">0.78</td><td class="num">0.3</td><td>ppb</td></tr>
+    <tr><td>NW</td><td>RBF</td><td class="num">1,915.9</td><td class="num">−14.1</td><td class="num">1.00</td><td class="num">60</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 10\) km</td><td class="num">1,924.4</td><td class="num">−5.6</td><td class="num">1.00</td><td class="num">23</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 20\) km</td><td class="num">1,922.3</td><td class="num">−7.7</td><td class="num">1.00</td><td class="num">42</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 40\) km</td><td class="num">1,920.2</td><td class="num">−9.8</td><td class="num">1.00</td><td class="num">79</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 80\) km</td><td class="num">1,919.1</td><td class="num">−10.9</td><td class="num">1.00</td><td class="num">122</td><td>ppb</td></tr>
+    <tr><td>MH, equal weights</td><td>4 heads</td><td class="num">1,921.5</td><td class="num">−8.5</td><td class="num">—</td><td class="num">—</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 20\) km, γ = 0</td><td class="num">1,912.3</td><td class="num">−17.7</td><td class="num">1.00</td><td class="num">343</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 20\) km, γ = 3</td><td class="num">1,933.1</td><td class="num">+3.1</td><td class="num">1.00</td><td class="num">6</td><td>ppb</td></tr>
+    <tr><td>A, lab head</td><td>\(\ell_h = 20\) km, β = 2</td><td class="num">1,922.4</td><td class="num">−7.6</td><td class="num">1.00</td><td class="num">22</td><td>ppb</td></tr>
+  </tbody>
+</table></div>
+
+<!-- Bridge -->
+<h2 id="bridge">Next: random features</h2>
+<p>Every GP approximation has an attention twin, and the next page takes the first row: the Performer as random Fourier features for the softmax kernel, \(\exp(\vect{q}^\top \vect{k}) = \mathbb{E}_{\gvect{\omega}}[\phi_{\gvect{\omega}}(\vect{q}) \phi_{\gvect{\omega}}(\vect{k})]\) with \(\phi_{\gvect{\omega}}(\vect{x}) = \exp(\gvect{\omega}^\top \vect{x} - \Vert \vect{x} \Vert^2 / 2)\) and \(\gvect{\omega} \sim \mathcal{N}(\vect{0}, \mat{I})\).</p>
+<div class="tbl"><table>
+  <thead><tr><th>GP side</th><th>Attention side</th><th>Cost</th></tr></thead>
+  <tbody>
+    <tr><td>Random Fourier features (Rahimi and Recht)</td><td>Performer positive features</td><td>\(\mathcal{O}(N D_\omega)\)</td></tr>
+    <tr><td>Inducing points, \(\mat{K}_{S\mathcal{I}} \mat{K}_{\mathcal{I}\mathcal{I}}^{-1} \mat{K}_{\mathcal{I}S}\)</td><td>Nyströmformer landmarks</td><td>\(\mathcal{O}(N N_{\mathcal{I}})\)</td></tr>
+    <tr><td>Covariance tapering, Gaspari–Cohn localisation</td><td>Window attention</td><td>\(\mathcal{O}(N N_\text{window})\)</td></tr>
+    <tr><td>Infinite-width NNGP kernel</td><td>Infinite-width attention network (Hron et al., 2020)</td><td>exact GP</td></tr>
+    <tr><td>One solve, \((\mat{K}_{SS} + \sigma_\varepsilon^2 \mat{I})^{-1}\)</td><td>Many layers approximating gradient steps on it (von Oswald et al., 2023)</td><td>\(\mathcal{O}(N^2)\) per layer</td></tr>
+  </tbody>
+</table></div>
+
+<footer>
+  <p>The scene is synthetic, with a seeded generator: plume, clouds and noise are illustrative, not a TROPOMI retrieval. Lab heads are hand-built, not trained. The first code sketch is page-defined (<code># user</code>, the lineax call not pinned); the kernellib block uses names in the capability index at the version these docs build from.</p>
+  <ul>
+    <li>Rasmussen and Williams (2006), <a href="https://gaussianprocess.org/gpml/" target="_blank" rel="noopener">Gaussian Processes for Machine Learning</a>, ch. 2.</li>
+    <li>Tsai et al. (2019), <a href="https://arxiv.org/abs/1908.11775" target="_blank" rel="noopener">Transformer Dissection: a unified understanding of Transformer's attention via the lens of kernel</a>.</li>
+    <li>Buades, Coll and Morel (2005), A non-local algorithm for image denoising, CVPR.</li>
+    <li>Press et al. (2022), <a href="https://arxiv.org/abs/2108.12409" target="_blank" rel="noopener">Train short, test long: attention with linear biases</a> (ALiBi).</li>
+    <li>Choromanski et al. (2021), <a href="https://arxiv.org/abs/2009.14794" target="_blank" rel="noopener">Rethinking attention with Performers</a>.</li>
+    <li>Xiong et al. (2021), <a href="https://arxiv.org/abs/2102.03902" target="_blank" rel="noopener">Nyströmformer</a>.</li>
+    <li>Hron et al. (2020), <a href="https://arxiv.org/abs/2006.10540" target="_blank" rel="noopener">Infinite attention: NNGP and NTK for deep attention networks</a>.</li>
+    <li>von Oswald et al. (2023), <a href="https://arxiv.org/abs/2212.07677" target="_blank" rel="noopener">Transformers learn in-context by gradient descent</a>.</li>
+  </ul>
+</footer>
+</main>
+
+<nav class="series-nav bottom" aria-label="Series navigation"><span class="crumbs"><a href="../kernels-to-attention">← Back to the guide page</a></span><span><a href="../geo">Kernels on the Earth →</a></span></nav>
+
+<script>
+(() => {
+  const G = 32, DX = 5, N = G * G;
+  const SIGK = 12;
+  const HEADS = [10, 20, 40, 80];
+  const WIND = 25 * Math.PI / 180;
+  const U = [Math.cos(WIND), Math.sin(WIND)];
+
+  function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const R = mulberry(7);
+  const gauss = () => { const u = 1 - R(), v = R(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+
+  // Cell centres in km: east e, north n (row 0 is the northern edge)
+  const E = new Float64Array(N), Nn = new Float64Array(N);
+  for (let r = 0; r < G; r++) for (let c = 0; c < G; c++) { const i = r * G + c; E[i] = (c + 0.5) * DX; Nn[i] = (G - r - 0.5) * DX; }
+
+  // Clouds: one blob over the plume, seven random
+  const blobs = [[78, 82, 13]];
+  for (let k = 0; k < 7; k++) blobs.push([R() * 160, R() * 160, 7 + R() * 11]);
+  // Smooth background structure
+  const waves = [];
+  for (let k = 0; k < 6; k++) { const L = 40 + R() * 80, th = R() * Math.PI, ph = R() * 6.28; waves.push([Math.cos(th) * 2 * Math.PI / L, Math.sin(th) * 2 * Math.PI / L, ph]); }
+
+  const truth = new Float64Array(N), obs = new Float64Array(N), cloud = new Uint8Array(N);
+  const SRC = [35, 60];
+  for (let i = 0; i < N; i++) {
+    const e = E[i], n = Nn[i];
+    let v = 1903 + 0.06 * e + 0.03 * n;
+    for (const [a, b, p] of waves) v += 1.5 * Math.cos(a * e + b * n + p);
+    const de = e - SRC[0], dn = n - SRC[1];
+    const along = de * U[0] + dn * U[1], cross = -de * U[1] + dn * U[0];
+    const al = Math.max(along, 0), sc = 3 + 0.22 * al;
+    let pl = 38 * Math.exp(-al / 60) * Math.exp(-cross * cross / (2 * sc * sc));
+    if (along < 0) pl *= Math.exp(-along * along / 18);
+    v += pl;
+    truth[i] = v;
+    let s = 0; for (const [bx, by, br] of blobs) s += Math.exp(-((e - bx) ** 2 + (n - by) ** 2) / (2 * br * br));
+    cloud[i] = s > 0.35 ? 1 : 0;
+  }
+  for (let i = 0; i < N; i++) obs[i] = truth[i] + 2.5 * gauss();
+  const O = []; for (let i = 0; i < N; i++) if (!cloud[i]) O.push(i);
+  const M = O.length;
+  let ybar = 0; for (const j of O) ybar += obs[j]; ybar /= M;
+  let ysd = 0; for (const j of O) ysd += (obs[j] - ybar) ** 2; ysd = Math.sqrt(ysd / M);
+
+  // Content score c_n: smallest square patch around n with >= 3 clear cells
+  const Z = new Float64Array(N);
+  for (let r = 0; r < G; r++) for (let c = 0; c < G; c++) {
+    let rad = 1, sum = 0, cnt = 0;
+    while (rad < G) {
+      sum = 0; cnt = 0;
+      for (let rr = Math.max(0, r - rad); rr <= Math.min(G - 1, r + rad); rr++)
+        for (let cc = Math.max(0, c - rad); cc <= Math.min(G - 1, c + rad); cc++) { const j = rr * G + cc; if (!cloud[j]) { sum += obs[j]; cnt++; } }
+      if (cnt >= 3) break; rad++;
+    }
+    Z[r * G + c] = (sum / cnt - ybar) / ysd;
+  }
+
+  // Kriging: Cholesky of K_SS + σ_ε² I over clear cells, cached per (ℓ, σ_ε)
+  let chol = null, cholKey = '';
+  function cholesky(ell, sn) {
+    const key = ell + '|' + sn; if (key === cholKey) return chol;
+    const L = new Float64Array(M * M), s2 = SIGK * SIGK, inv = 1 / (2 * ell * ell);
+    for (let a = 0; a < M; a++) {
+      const ia = O[a];
+      for (let b = 0; b <= a; b++) {
+        const ib = O[b];
+        let v = s2 * Math.exp(-((E[ia] - E[ib]) ** 2 + (Nn[ia] - Nn[ib]) ** 2) * inv);
+        if (a === b) v += sn * sn;
+        for (let k = 0; k < b; k++) v -= L[a * M + k] * L[b * M + k];
+        L[a * M + b] = a === b ? Math.sqrt(Math.max(v, 1e-12)) : v / L[b * M + b];
+      }
+    }
+    chol = L; cholKey = key; return L;
+  }
+  function krig(q, ell, sn) {
+    const L = cholesky(ell, sn), s2 = SIGK * SIGK, inv = 1 / (2 * ell * ell);
+    const cross = new Float64Array(M), b = new Float64Array(M);
+    for (let a = 0; a < M; a++) { const j = O[a]; cross[a] = s2 * Math.exp(-((E[q] - E[j]) ** 2 + (Nn[q] - Nn[j]) ** 2) * inv); b[a] = cross[a]; }
+    for (let a = 0; a < M; a++) { let v = b[a]; for (let k = 0; k < a; k++) v -= L[a * M + k] * b[k]; b[a] = v / L[a * M + a]; }
+    for (let a = M - 1; a >= 0; a--) { let v = b[a]; for (let k = a + 1; k < M; k++) v -= L[k * M + a] * b[k]; b[a] = v / L[a * M + a]; }
+    let kw = 0; for (let a = 0; a < M; a++) kw += cross[a] * b[a];
+    return { w: b, sd: Math.sqrt(Math.max(s2 - kw, 0)) };
+  }
+  function softmaxW(scores) { let mx = -Infinity; for (const s of scores) if (s > mx) mx = s; let tot = 0; const w = new Float64Array(M); for (let a = 0; a < M; a++) { w[a] = Math.exp(scores[a] - mx); tot += w[a]; } for (let a = 0; a < M; a++) w[a] /= tot; return w; }
+  function nwWeights(q, ell) { const s = new Float64Array(M), inv = 1 / (2 * ell * ell); for (let a = 0; a < M; a++) { const j = O[a]; s[a] = -((E[q] - E[j]) ** 2 + (Nn[q] - Nn[j]) ** 2) * inv; } return softmaxW(s); }
+  function attWeights(q, lam, gam, beta) {
+    const s = new Float64Array(M);
+    for (let a = 0; a < M; a++) {
+      const j = O[a], de = E[q] - E[j], dn = Nn[q] - Nn[j];
+      s[a] = gam * Z[q] * Z[j] - Math.hypot(de, dn) / lam + beta * (de * U[0] + dn * U[1]) / 20;
+    }
+    return softmaxW(s);
+  }
+  const predict = (w, centred) => { let v = 0; for (let a = 0; a < M; a++) v += w[a] * (centred ? obs[O[a]] - ybar : obs[O[a]]); return centred ? ybar + v : v; };
+  function stats(w) { let s = 0, s2 = 0, mn = Infinity; for (const v of w) { s += v; s2 += v * v; if (v < mn) mn = v; } return { sum: s, min: mn, neff: s * s / s2 }; }
+
+  // Theme-aware colours from the page tokens
+  const hex = h => { h = h.trim(); if (h[0] !== '#') return [128, 128, 128]; return [1, 3, 5].map(k => parseInt(h.slice(k, k + 2), 16)); };
+  let T = {};
+  function readTokens() { const cs = getComputedStyle(document.documentElement); for (const k of ['paper', 'panel', 'ink', 'muted', 'rule', 'oracle', 'ex', 'sea']) T[k] = hex(cs.getPropertyValue('--' + k)); }
+  const rgb = a => `rgb(${a.join(',')})`;
+  const mix = (a, b, t) => `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',')})`;
+  const VIR = ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'].map(hex);
+  function viridis(t) { t = Math.min(1, Math.max(0, t)) * 4; const k = Math.min(3, Math.floor(t)); return mix(VIR[k], VIR[k + 1], t - k); }
+
+  function drawCells(cv, colourOf) {
+    const ctx = cv.getContext('2d'), W = cv.width, s = W / G;
+    ctx.fillStyle = rgb(T.paper); ctx.fillRect(0, 0, W, W);
+    for (let i = 0; i < N; i++) { const r = Math.floor(i / G), c = i % G; ctx.fillStyle = colourOf(i); ctx.fillRect(c * s, r * s, s + 0.5, s + 0.5); }
+  }
+  function ring(cv, q) {
+    const ctx = cv.getContext('2d'), s = cv.width / G, r = Math.floor(q / G), c = q % G;
+    ctx.lineWidth = Math.max(2, s * 0.32); ctx.strokeStyle = rgb(T.ink); ctx.beginPath(); ctx.arc((c + 0.5) * s, (r + 0.5) * s, s * 1.3, 0, 7); ctx.stroke();
+    ctx.lineWidth = Math.max(1, s * 0.12); ctx.strokeStyle = rgb(T.paper); ctx.beginPath(); ctx.arc((c + 0.5) * s, (r + 0.5) * s, s * 1.3, 0, 7); ctx.stroke();
+  }
+  function drawField(cv, q) {
+    const ctx = cv.getContext('2d');
+    drawCells(cv, i => cloud[i] ? rgb(T.panel) : viridis((obs[i] - 1895) / 50));
+    const s = cv.width / G; ctx.save(); ctx.strokeStyle = rgb(T.muted); ctx.lineWidth = 1;
+    for (let i = 0; i < N; i++) if (cloud[i]) { const r = Math.floor(i / G), c = i % G; ctx.beginPath(); ctx.moveTo(c * s, (r + 1) * s); ctx.lineTo((c + 1) * s, r * s); ctx.stroke(); }
+    ctx.restore();
+    const sc = SRC[0] / DX, sr = G - SRC[1] / DX; ctx.fillStyle = rgb(T.ink);
+    ctx.beginPath(); ctx.moveTo(sc * s, (sr - 0.9) * s); ctx.lineTo((sc + 0.8) * s, (sr + 0.6) * s); ctx.lineTo((sc - 0.8) * s, (sr + 0.6) * s); ctx.fill();
+    ring(cv, q);
+  }
+  function drawWeights(cv, w, q, diverging) {
+    const full = new Float64Array(N); let mx = 0;
+    for (let a = 0; a < M; a++) { full[O[a]] = w[a]; mx = Math.max(mx, Math.abs(w[a])); }
+    drawCells(cv, i => {
+      if (cloud[i]) return mix(T.paper, T.rule, 0.8);
+      const t = Math.sqrt(Math.abs(full[i]) / mx);
+      if (!diverging) return mix(T.paper, T.oracle, t);
+      return mix(T.paper, full[i] >= 0 ? T.oracle : T.ex, t);
+    });
+    ring(cv, q);
+  }
+
+  // State and UI
+  const $ = id => document.getElementById(id);
+  const st = { q: 0, head: 1 };
+  const fmt = (v, d = 1) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const signed = (v, d = 1) => (v >= 0 ? '+' : '−') + fmt(Math.abs(v), d);
+  const headsEl = $('heads');
+  HEADS.forEach((lam, h) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'head'; b.setAttribute('aria-pressed', String(h === st.head));
+    b.innerHTML = `<canvas width="128" height="128" aria-hidden="true"></canvas><span>ℓ_h = ${lam} km</span>`;
+    b.addEventListener('click', () => { st.head = h; render(); });
+    headsEl.appendChild(b);
+  });
+
+  const cellAt = (r, c) => r * G + c;
+  function nearest(e, n, wantCloud) { let best = 0, bd = Infinity; for (let i = 0; i < N; i++) if (!!cloud[i] === wantCloud) { const d = (E[i] - e) ** 2 + (Nn[i] - n) ** 2; if (d < bd) { bd = d; best = i; } } return best; }
+  const P_PLUME = nearest(SRC[0] + 45 * U[0], SRC[1] + 45 * U[1], true);
+  let P_EDGE = P_PLUME;
+  for (let i = 0; i < N; i++) {
+    if (!cloud[i]) continue; const r = Math.floor(i / G), c = i % G;
+    const nb = [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].filter(([a, b]) => a >= 0 && b >= 0 && a < G && b < G && !cloud[cellAt(a, b)]).length;
+    if (nb >= 2 && Math.hypot(E[i] - E[P_PLUME], Nn[i] - Nn[P_PLUME]) > 50) { P_EDGE = i; break; }
+  }
+  const P_BG = nearest(140, 20, false);
+  st.q = P_PLUME;
+
+  const sliders = { ell: ['ell-o', v => v + ' km'], sn: ['sn-o', v => fmt(+v, 1) + ' ppb'], gam: ['gam-o', v => fmt(+v, 1)], alp: ['alp-o', v => fmt(+v, 1)] };
+  let pending = false; const schedule = () => { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; render(); }); } };
+  for (const [id, [oid, f]] of Object.entries(sliders)) { const el = $(id); const upd = () => { $(oid).textContent = f(el.value); }; upd(); el.addEventListener('input', () => { upd(); schedule(); }); }
+
+  function pick(ev) { const cv = ev.currentTarget, rect = cv.getBoundingClientRect(); const c = Math.floor((ev.clientX - rect.left) / rect.width * G), r = Math.floor((ev.clientY - rect.top) / rect.height * G); if (r >= 0 && c >= 0 && r < G && c < G) { st.q = cellAt(r, c); render(); } }
+  for (const id of ['c-field', 'c-krig', 'c-nw', 'c-att']) $(id).addEventListener('click', pick);
+  $('c-field').addEventListener('keydown', ev => {
+    const d = { ArrowUp: -G, ArrowDown: G, ArrowLeft: -1, ArrowRight: 1 }[ev.key]; if (d == null) return; ev.preventDefault();
+    const q = st.q + d; if (q >= 0 && q < N && !(Math.abs(d) === 1 && Math.floor(q / G) !== Math.floor(st.q / G))) { st.q = q; render(); }
+  });
+  $('p-plume').addEventListener('click', () => { st.q = P_PLUME; render(); });
+  $('p-edge').addEventListener('click', () => { st.q = P_EDGE; render(); });
+  $('p-bg').addEventListener('click', () => { st.q = P_BG; render(); });
+
+  function render() {
+    const q = st.q, ell = +$('ell').value, sn = +$('sn').value, gam = +$('gam').value, beta = +$('alp').value;
+    const kr = krig(q, ell, sn), wn = nwWeights(q, ell);
+    const wh = HEADS.map(l => attWeights(q, l, gam, beta));
+    drawField($('c-field'), q);
+    drawWeights($('c-krig'), kr.w, q, true);
+    drawWeights($('c-nw'), wn, q, false);
+    drawWeights($('c-att'), wh[st.head], q, false);
+    $('head-lab').textContent = 'ℓ_h = ' + HEADS[st.head] + ' km';
+    [...headsEl.children].forEach((b, h) => { b.setAttribute('aria-pressed', String(h === st.head)); drawWeights(b.querySelector('canvas'), wh[h], q, false); });
+
+    const t = truth[q];
+    $('qinfo').innerHTML = `<span>s<sub>*</sub> = <b>(${fmt(E[q], 1)}, ${fmt(Nn[q], 1)}) km</b></span><span>${cloud[q] ? 'cloud-flagged' : 'clear'}</span><span>truth <b>${fmt(t)} ppb</b></span><span>c<sub>*</sub> = <b>${fmt(Z[q], 2)}</b></span>`;
+    const rows = [['GP (kriging)', predict(kr.w, true), stats(kr.w), kr.sd], ['NW', predict(wn, false), stats(wn), null]];
+    HEADS.forEach((l, h) => rows.push([`A, ℓ_h = ${l} km`, predict(wh[h], false), stats(wh[h]), null]));
+    rows.push(['MH, 4 heads averaged', rows.slice(2).reduce((a, r) => a + r[1], 0) / 4, null, null]);
+    $('tbody').innerHTML = rows.map(([name, v, s, sd]) => `<tr><td>${name}</td><td class="num">${fmt(v)}</td><td class="num">${signed(v - t)}</td><td class="num">${sd != null ? fmt(sd) : '—'}</td><td class="num">${s ? fmt(s.sum, 2) : '—'}</td><td class="num">${s ? signed(s.min, 3) : '—'}</td><td class="num">${s ? fmt(s.neff, s.neff < 10 ? 1 : 0) : '—'}</td></tr>`).join('');
+  }
+
+  readTokens(); render();
+  const rerender = () => { readTokens(); render(); };
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rerender); } catch (e) {}
+  new MutationObserver(rerender).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+})();
+</script>
+</body>
+</html>
