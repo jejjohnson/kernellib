@@ -35,6 +35,7 @@ project:
       children:
         - file: guide/architecture.md
         - file: guide/geo.md
+        - file: guide/kernels_to_attention.md
         - file: agents.md
     - title: Tutorials
       children:
