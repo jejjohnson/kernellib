@@ -87,8 +87,12 @@ docs = [
 # `>=` floor in `dependencies` is what a PyPI release will satisfy later.
 gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.6.5" }
 # pipekit is a docs-only dependency, pinned by release tag (roadmap decision 7).
-pipekit-train = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit-train" }
-pipekit = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-train-v0.0.2", subdirectory = "packages/pipekit" }
+# Every pipekit source uses the one tag pipekit-ops-v0.2.1, which carries the
+# current release of each workspace package (train 0.2.0, ops 0.2.1): the
+# members point at each other at the same commit, so per-package tags make uv
+# report conflicting URLs for pipekit-ops. pipekit-train requires pipekit-ops.
+pipekit-train = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-ops-v0.2.1", subdirectory = "packages/pipekit-train" }
+pipekit-ops = { git = "https://github.com/jejjohnson/pipekit.git", tag = "pipekit-ops-v0.2.1", subdirectory = "packages/pipekit-ops" }
 
 [build-system]
 requires = ["hatchling"]
