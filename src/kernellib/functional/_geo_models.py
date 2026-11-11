@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import jax.numpy as jnp
-from geonnax.basis import wendland_c2, wendland_c4
+from functax.basis.local import wendland_c2, wendland_c4
 from jaxtyping import Array, Float
 
 from kernellib.functional._distances import _pairwise_sq_dist
@@ -427,7 +427,7 @@ def wendland_kernel(
 
     Wendland's $\phi_{3,1}$ and $\phi_{3,2}$ (Wendland 1995), normalised to
     $\psi(0) = 1$; positive definite for $D \le 3$. The profiles are
-    `geonnax.basis.wendland_c2` / ``wendland_c4``.
+    `functax.basis.local.wendland_c2` / ``wendland_c4``.
 
     Args:
         X1: ``(N1, D)`` inputs, ``D <= 3``.

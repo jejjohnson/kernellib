@@ -626,15 +626,6 @@ wheels = [
 ]
 
 [[package]]
-name = "einops"
-version = "0.8.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2c/77/850bef8d72ffb9219f0b1aac23fbc1bf7d038ee6ea666f331fa273031aa2/einops-0.8.2.tar.gz", hash = "sha256:609da665570e5e265e27283aab09e7f279ade90c4f01bcfca111f3d3e13f2827", size = 56261, upload-time = "2026-01-26T04:13:17.638Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/09/f8d8f8f31e4483c10a906437b4ce31bdf3d6d417b73fe33f1a8b59e34228/einops-0.8.2-py3-none-any.whl", hash = "sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193", size = 65638, upload-time = "2026-01-26T04:13:18.546Z" },
-]
-
-[[package]]
 name = "einx"
 version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
@@ -794,6 +785,23 @@ wheels = [
 ]
 
 [[package]]
+name = "functax"
+version = "0.0.6"
+source = { git = "https://github.com/jejjohnson/functax.git?rev=v0.0.6#7fdcd2729fe8d6a62de0ab2330ae6ae2da133ea2" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.optional-dependencies]
+jax = [
+    { name = "einx" },
+    { name = "equinox" },
+    { name = "jax" },
+    { name = "jaxtyping" },
+    { name = "lineax" },
+]
+
+[[package]]
 name = "gaussx"
 version = "0.6.5"
 source = { git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.5#12ff91a68da2886478e9b3a1d0d4c0745d74ca41" }
@@ -806,18 +814,6 @@ dependencies = [
     { name = "lineax" },
     { name = "matfree" },
     { name = "optimistix" },
-]
-
-[[package]]
-name = "geonnax"
-version = "0.0.8"
-source = { git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8#51555305c9b360fdd1a8f123d897c5d4dd8e95e5" }
-dependencies = [
-    { name = "einops" },
-    { name = "einx" },
-    { name = "equinox" },
-    { name = "jax" },
-    { name = "jaxtyping" },
 ]
 
 [[package]]
@@ -1161,8 +1157,8 @@ source = { editable = "." }
 dependencies = [
     { name = "einx" },
     { name = "equinox" },
+    { name = "functax", extra = ["jax"] },
     { name = "gaussx" },
-    { name = "geonnax" },
     { name = "jax" },
     { name = "jaxlib" },
     { name = "jaxtyping" },
@@ -1213,8 +1209,8 @@ typecheck = [
 requires-dist = [
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
+    { name = "functax", extras = ["jax"], git = "https://github.com/jejjohnson/functax.git?rev=v0.0.6" },
     { name = "gaussx", git = "https://github.com/jejjohnson/gaussx.git?tag=v0.6.5" },
-    { name = "geonnax", git = "https://github.com/jejjohnson/geonnax.git?rev=v0.0.8" },
     { name = "jax", specifier = ">=0.10" },
     { name = "jaxlib", specifier = ">=0.10" },
     { name = "jaxtyping", specifier = ">=0.3" },

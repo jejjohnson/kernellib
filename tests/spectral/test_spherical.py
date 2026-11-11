@@ -8,13 +8,13 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from geonnax.basis import real_spherical_harmonics
+from functax.basis.polynomial import legendre_series
+from functax.basis.sphere import real_spherical_harmonics
 
 import kernellib as kl
 from kernellib._einx import einsum
 from kernellib._spectral._spherical import _real_spherical_harmonics
 from kernellib._testing import fibonacci_lonlat
-from kernellib.functional import legendre_series
 from kernellib.functional._geo import lonlat_to_unit
 
 
@@ -45,7 +45,7 @@ def test_features_reproduce_the_series_gram(kernel):
 
 
 def test_unweighted_harmonics_are_orthonormal():
-    # Pins geonnax's normalisation: (4 pi / n) Y^T Y approximates the
+    # Pins functax's normalisation: (4 pi / n) Y^T Y approximates the
     # integral of Y_i Y_j over the sphere, which is the identity for
     # orthonormal harmonics. The only error is the equal-weight Fibonacci
     # quadrature, O(1/n) up to log factors for these degree <= 16
@@ -57,8 +57,8 @@ def test_unweighted_harmonics_are_orthonormal():
     assert float(jnp.max(jnp.abs(G - eye))) < 1e-3
 
 
-def test_harmonics_match_geonnax():
-    # Same functions, normalisation and column order as geonnax, including
+def test_harmonics_match_functax():
+    # Same functions, normalisation and column order as functax, including
     # at the poles, where the (x + iy)^m form avoids the 0 / 0.
     poles = jnp.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
     u = jnp.concatenate([lonlat_to_unit(fibonacci_lonlat(50)), poles])
@@ -68,7 +68,7 @@ def test_harmonics_match_geonnax():
 
 @pytest.mark.slow
 def test_harmonics_stay_orthonormal_at_high_degree():
-    # geonnax's unnormalised recursion overflows near L = 85; the normalised
+    # geonnax 0.0.8's unnormalised recursion overflowed near L = 85; the normalised
     # one does not. Fibonacci quadrature of these degree <= 2L polynomials
     # needs n >> L^2 points; at n = 20000, L = 40 the error measured 6e-4.
     n, L = 20000, 40

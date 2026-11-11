@@ -295,7 +295,7 @@ towards uniform.
 `LaplaceEigenfunctionFeatures` is the Hilbert-space approximation of Solin &
 Särkkä: on a box $[-L_1, L_1] \times \dots \times [-L_D, L_D]$,
 $k(x, x') \approx \sum_j S(\omega_j) \phi_j(x) \phi_j(x')$ with the
-Laplacian's Dirichlet eigenfunctions from `geonnax.basis.fourier_basis` and
+Laplacian's Dirichlet eigenfunctions from `functax.basis.fourier.fourier_basis` and
 $\omega_j$ their per-axis frequency vectors, so ARD lengthscales are exact. The
 basis does not depend on the kernel; only the weights $S(\omega_j)$ do. The box
 must be wide relative to the lengthscale; see the class docstring.

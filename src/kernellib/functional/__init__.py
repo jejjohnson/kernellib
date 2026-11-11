@@ -15,12 +15,14 @@ Examples:
 
 from __future__ import annotations
 
+import warnings
+from typing import Any
+
 from kernellib.functional._compose import kernel_add, kernel_mul
 from kernellib.functional._geo import (
     EARTH_RADIUS_KM,
     chordal_distance,
     great_circle_distance,
-    legendre_series,
     lonlat_to_unit,
 )
 from kernellib.functional._geo_models import (
@@ -78,7 +80,6 @@ __all__ = [
     "hsic",
     "kernel_add",
     "kernel_mul",
-    "legendre_series",
     "linear_kernel",
     "lonlat_to_unit",
     "matern_kernel",
@@ -95,3 +96,19 @@ __all__ = [
     "wendland_kernel",
     "white_kernel",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    # legendre_series moved to functax (kernellib#301); the old path warns for
+    # one release and hands back functax's function itself.
+    if name == "legendre_series":
+        warnings.warn(
+            "kernellib.functional.legendre_series is deprecated: import "
+            "legendre_series from functax.basis.polynomial instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from functax.basis.polynomial import legendre_series
+
+        return legendre_series
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -277,3 +277,42 @@ def test_double_centring_keeps_only_the_input_psd_claim():
         indefinite = kl.to_operator(kl.Tanh(), X)
     assert _tags_of(_doubly_centred(indefinite, n)) == (True, False)
     assert _tags_of(_doubly_centred(kl.to_operator(kl.RBF(), X), n)) == (True, True)
+
+
+# --- to_functax_kernel -------------------------------------------------------
+
+
+@pytest.mark.slow
+def test_functax_rbf_matches_the_cross_operator():
+    # f(X*) = K(X*, X) K(X, X)^{-1} y: functax's RBF plan (no tail, no
+    # smoothing) against to_cross_operator applied to the RBF weights.
+    from functax.geometry import Points
+    from functax.interp import RBF
+
+    # lengthscale 0.3 keeps cond K(X, X) near 5e2, so the two solves agree
+    kernel = kl.RBF(lengthscale=0.3, variance=1.2)
+    plan = RBF(kl.to_functax_kernel(kernel)).plan(Points(X), Points(Z))
+    weights = jnp.linalg.solve(kernel(X, X), Y)
+    expected = kl.to_cross_operator(kernel, Z, X).mv(weights)
+    assert jnp.allclose(plan(Y), expected, rtol=0.0, atol=1e-10)
+
+
+# functax 0.0.6 keeps Kriging's posterior kernel as a static field, which warns
+# for a kernel with array leaves; the mean plan checked here is unaffected.
+@pytest.mark.slow
+@pytest.mark.filterwarnings("ignore:A JAX array is being set as static")
+def test_functax_kernel_is_any_kernel_with_differentiable_hyperparameters():
+    from functax.geometry import Points
+    from functax.interp import Kriging
+
+    k = kl.to_functax_kernel(_GramOnly())
+    assert jnp.array_equal(k(Z, X), _GramOnly()(Z, X))
+
+    def predict(lengthscale):
+        kernel = kl.to_functax_kernel(kl.RBF(lengthscale=lengthscale))
+        return Kriging(kernel).plan(Points(X), Points(Z))(Y).sum()
+
+    grad = jax.grad(predict)(jnp.asarray(0.7))
+    step = 1e-6
+    fd = (predict(0.7 + step) - predict(0.7 - step)) / (2 * step)
+    assert jnp.isfinite(grad) and jnp.allclose(grad, fd, rtol=1e-5)

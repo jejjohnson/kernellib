@@ -17,7 +17,7 @@ k_u(x) = C^\top \mathrm{diag}(a)\, Y(Rx)^\top, \qquad
 $$
 
 with $L L^\top = K_{uu} + \epsilon I$. The maths is ported from pyrox-gp's
-``SlepianInducingFeatures``; the basis is geonnax's `SlepianCapBasis`.
+``SlepianInducingFeatures``; the basis is functax's `SlepianCapBasis`.
 """
 
 from __future__ import annotations
@@ -29,13 +29,8 @@ import einx
 import equinox as eqx
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
-from geonnax.basis import (
-    SlepianCapBasis,
-    harmonic_degrees,
-    real_spherical_harmonics,
-    shannon_number,
-    slepian_cap_basis,
-)
+from functax.basis.slepian import SlepianCapBasis, shannon_number, slepian_cap_basis
+from functax.basis.sphere import harmonic_degrees, real_spherical_harmonics
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange
@@ -115,7 +110,7 @@ class SlepianFeatures(AbstractFeatureMap):
             ``Chordal`` kernel, which carries its own.
         jitter: Relative diagonal jitter $\epsilon$ on $K_{uu}$, scaled by
             its mean diagonal.
-        basis: The fitted `geonnax.basis.SlepianCapBasis`, ``None`` before
+        basis: The fitted `functax.basis.slepian.SlepianCapBasis`, ``None`` before
             `fit`.
         kernel: The fitted kernel, ``None`` before `fit`.
 

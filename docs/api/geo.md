@@ -431,7 +431,7 @@ so $k(u, u) = \sigma^2$. Non-negative $a_l$ make it positive definite for
 every truncation $L$ (Schoenberg 1942): the truncated kernel is exactly
 valid. `degree_spectrum()` returns the $a_l$ (the spherical-harmonic prior
 variances, used by spherical-harmonic features), and the series is evaluated
-by the Legendre recurrence (`kernellib.functional.legendre_series`) in
+by the Legendre recurrence (`functax.basis.polynomial.legendre_series`) in
 $O(N_1 N_2 L)$ time and $O(N_1 N_2)$ memory. Inputs are ``(N, 2)``
 ``(lon, lat)``, or ``(N, 3)`` points in $\mathbb{R}^3$ (normalised to unit
 length), so `funk_hecke_coefficients` recovers the $a_l$ (in its
@@ -490,7 +490,8 @@ $L$, so a large $L$ is affordable for moderate $N$.
 
 ::: kernellib.SphereSeries
 
-::: kernellib.functional.legendre_series
+!!! warning "Deprecated: `kernellib.functional.legendre_series`"
+    The Legendre series moved to functax. `kernellib.functional.legendre_series` still returns `functax.basis.polynomial.legendre_series`, with a `DeprecationWarning`, for one release; import it from functax instead.
 
 ## Spherical-harmonic features
 
@@ -550,7 +551,7 @@ L L^\top = K_{uu} + \epsilon I,
 $$
 
 exact when all $(L+1)^2$ modes are kept and accurate inside the cap with the
-default Shannon-number truncation. The basis is geonnax's `SlepianCapBasis`,
+default Shannon-number truncation. The basis is functax's `SlepianCapBasis`,
 built once by `fit`; the spectrum is recomputed at call time, so gradients
 reach the kernel's hyperparameters. Inputs are `(lon, lat)`; `cap_radius` is
 in radians, `cap_centre` follows `degrees`.

@@ -8,7 +8,7 @@ specific to Claude Code.
 ## Claude Code specifics
 
 - **Reuse first.** Search `docs/api/capabilities.md` (every public kernellib
-  name, plus gaussx and geonnax's random features and bases) before writing a
+  name, plus gaussx and functax's bases, geometry and schemes) before writing a
   helper, a kernel, a feature map or any linear algebra; the "Reuse before
   you write" table in `AGENTS.md` maps the usual hand-rolled code to what
   already exists.
@@ -23,7 +23,7 @@ specific to Claude Code.
   `kernellib-review`; run them on any diff that adds code, before
   committing:
   - `reuse-reviewer`: does the diff re-implement something in
-    `docs/api/capabilities.md` (kernellib, gaussx, geonnax)?
+    `docs/api/capabilities.md` (kernellib, gaussx, functax)?
   - `numerics-reviewer`: gradients at coincident points, traced control
     flow, dtypes, densified matrix-free paths, false tags, PRNG misuse,
     silent non-convergence.

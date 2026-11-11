@@ -31,11 +31,12 @@ from collections.abc import Callable
 import einx
 import equinox as eqx
 import jax.numpy as jnp
+from functax.basis.polynomial import legendre_series
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange
 from kernellib._kernels._base import AbstractPointwiseKernel
-from kernellib.functional._geo import legendre_series, lonlat_to_unit
+from kernellib.functional._geo import lonlat_to_unit
 
 
 __all__ = [
@@ -63,7 +64,7 @@ class AbstractSphereSeriesKernel(AbstractPointwiseKernel):
     factor (it cancels in $a_l$).
 
     The series is evaluated by the Legendre recurrence
-    (`kernellib.functional.legendre_series`): a Gram matrix costs
+    (`functax.basis.polynomial.legendre_series`): a Gram matrix costs
     $O(N_1 N_2 L)$ time and $O(N_1 N_2)$ memory.
 
     **Inputs.** ``(N, 2)`` ``(lon, lat)`` points, in degrees unless

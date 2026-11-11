@@ -14,7 +14,11 @@ from kernellib._operators._batched import (
     batched_kernel_matvec,
     batched_kernel_rmatvec,
 )
-from kernellib._operators._bridge import to_cross_operator, to_operator
+from kernellib._operators._bridge import (
+    to_cross_operator,
+    to_functax_kernel,
+    to_operator,
+)
 from kernellib._operators._fastfood import (
     FastFoodParams,
     fastfood_features,
@@ -160,5 +164,6 @@ __all__ = [
     "nystrom_operator",
     "rff_operator",
     "to_cross_operator",
+    "to_functax_kernel",
     "to_operator",
 ]

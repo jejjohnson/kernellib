@@ -93,7 +93,7 @@ class PeriodicFeatures(AbstractFeatureMap):
     $z = 1/\ell^2$ and $\omega = 2\pi / p$ (Solin & Särkkä, 2014), so that
     $\phi(x)^\top\phi(x') = k(x, x')$ up to the dropped harmonics $k > K$.
     Columns are the constant, then the cosines, then the sines (the order of
-    ``geonnax.basis.seasonal_features``). There is no sampling: the error is
+    ``functax.basis.features.seasonal_features``). There is no sampling: the error is
     the truncation tail alone, at most
     $\sigma^2$ · `truncation_tail` in every entry of the Gram matrix. Cost
     $O(K)$ per input.

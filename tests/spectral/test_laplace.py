@@ -6,7 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import pytest
-from geonnax.basis import fourier_basis
+from functax.basis.fourier import fourier_basis
 
 import kernellib as kl
 
@@ -85,7 +85,7 @@ def test_matern_error_falls_with_basis_size():
 
 @pytest.mark.slow
 def test_frequencies_follow_the_basis_order():
-    # |omega_j|^2 is geonnax's summed eigenvalue, in the same row-major order.
+    # |omega_j|^2 is functax's summed eigenvalue, in the same row-major order.
     X = _X(n=3)
     lap = kl.LaplaceEigenfunctionFeatures((3, 4), L=(1.5, 2.0)).fit(kl.RBF(), X)
     _, lam = fourier_basis(X, (3, 4), (1.5, 2.0))

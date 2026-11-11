@@ -277,7 +277,7 @@ class MeshMatern(AbstractMeshKernel):
         >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> from geonnax.basis import icosphere
+        >>> from functax.geometry import icosphere
         >>> V, T = icosphere(2)  # 162 vertices on the unit sphere
         >>> k = kl.MeshMatern(V, T, lengthscale=0.5, nu=1.5, n_components=100)
         >>> [round(float(v), 1) for v in k.eigenvalues[:5]]  # l(l + 1), to O(h²)
@@ -350,7 +350,7 @@ class MeshHeat(AbstractMeshKernel):
     Examples:
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> from geonnax.basis import icosphere
+        >>> from functax.geometry import icosphere
         >>> V, T = icosphere(2)
         >>> k = kl.MeshHeat(V, T, lengthscale=0.5, n_components=64)
         >>> K = k(V[:3], V[:3])  # points on the mesh: barycentric interpolation

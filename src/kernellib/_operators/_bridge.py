@@ -7,6 +7,7 @@ lineax / gaussx (``gaussx.solve``, ``gaussx.logdet``, the solver strategies).
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from typing import Literal
 
 import equinox as eqx
@@ -23,6 +24,7 @@ from kernellib._operators._implicit_cross import ImplicitCrossKernelOperator
 
 __all__ = [
     "to_cross_operator",
+    "to_functax_kernel",
     "to_operator",
 ]
 
@@ -221,3 +223,55 @@ def to_cross_operator(
         return lx.MatrixLinearOperator(kernel(X1, X2))
     kernel_fn, params = _split(kernel)
     return ImplicitCrossKernelOperator(kernel_fn, X1, X2, batch_size, params=params)
+
+
+class _FunctaxKernel(eqx.Module):
+    """A kernellib kernel as functax's ``k(targets, sources) -> (M, N)``.
+
+    The kernel is a field, so its array hyperparameters stay pytree leaves of
+    the functax scheme (differentiable, as in `_split`) and the rest is static.
+    """
+
+    kernel: AbstractKernel
+
+    def __call__(
+        self, targets: Float[Array, "M D"], sources: Float[Array, "N D"]
+    ) -> Float[Array, "M N"]:
+        return self.kernel(targets, sources)
+
+
+def to_functax_kernel(
+    kernel: AbstractKernel,
+) -> Callable[[Float[Array, "M D"], Float[Array, "N D"]], Float[Array, "M N"]]:
+    r"""``kernel`` as the callable functax's kernel schemes take.
+
+    functax's `functax.interp.RBF` and `functax.interp.Kriging` accept any
+    ``k(targets, sources)`` returning the ``(M, N)`` cross-kernel
+    $K_{ij} = k(x^*_i, x_j)$ (functax's ``Kernel`` protocol); functax cannot
+    import kernellib, so the adapter lives here. The result is an
+    `equinox.Module` holding ``kernel``: its array hyperparameters are leaves,
+    so gradients reach them through a functax plan, and any kernel works,
+    pointwise or Gram-only.
+
+    Args:
+        kernel: Any kernel.
+
+    Returns:
+        A callable ``(X1, X2) -> kernel(X1, X2)``, shapes ``(M, D), (N, D)
+        -> (M, N)``.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import kernellib as kl
+        >>> from functax.geometry import Points
+        >>> from functax.interp import RBF
+        >>> X = jnp.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+        >>> k = kl.to_functax_kernel(kl.RBF(lengthscale=0.5))
+        >>> k(X, X[:2]).shape
+        (4, 2)
+        >>> plan = RBF(k).plan(Points(X), Points(X))
+        >>> y = jnp.array([1.0, 2.0, 3.0, 5.0])
+        >>> bool(jnp.allclose(plan(y), y, atol=1e-5))  # interpolates the data
+        True
+    """
+    return _FunctaxKernel(kernel)

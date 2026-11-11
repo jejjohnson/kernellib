@@ -1,7 +1,7 @@
 r"""Distances on the sphere for ``(lon, lat)`` inputs.
 
 Geographic inputs are ``(N, 2)`` arrays of ``(lon, lat)``, longitude first
-(the order of `geonnax.geo.lonlat_to_cartesian3d`), in degrees by default.
+(the order of `functax.geometry.lonlat_to_unit`), in degrees by default.
 Distances come back in units of ``radius``: ``radius=1.0`` gives the
 great-circle angle in radians, ``radius=EARTH_RADIUS_KM`` kilometres.
 
@@ -16,9 +16,8 @@ coincident points, the diagonal of a Gram matrix.
 from __future__ import annotations
 
 import einx
-import jax
+import functax.geometry as fxg
 import jax.numpy as jnp
-from geonnax.geo import lonlat_to_cartesian3d
 from jaxtyping import Array, Float
 
 
@@ -37,6 +36,9 @@ def lonlat_to_unit(
 ) -> Float[Array, "N 3"]:
     """Unit vectors in R³ for ``(lon, lat)`` points.
 
+    `functax.geometry.lonlat_to_unit` with kernellib's ``(N, 2)`` check, its
+    default of degrees, and integer inputs promoted to the default float.
+
     Args:
         X: ``(N, 2)`` longitude/latitude.
         degrees: Whether ``X`` is in degrees (else radians).
@@ -54,7 +56,9 @@ def lonlat_to_unit(
     X = jnp.asarray(X)
     if X.ndim != 2 or X.shape[-1] != 2:
         raise ValueError(f"X must be (N, 2) (lon, lat); got shape {X.shape}.")
-    return lonlat_to_cartesian3d(X, input_unit="degrees" if degrees else "radians")
+    if not jnp.issubdtype(X.dtype, jnp.floating):
+        X = X.astype(jnp.result_type(float))
+    return fxg.lonlat_to_unit(X, unit="degrees" if degrees else "radians")
 
 
 def _chord_and_sum(
@@ -142,72 +146,9 @@ def chordal_distance(
     return radius * _safe_sqrt(chord2)
 
 
-def legendre_series(
-    x: Float[Array, ...], coeffs: Float[Array, " L"]
-) -> Float[Array, ...]:
-    r"""Legendre series $\sum_{l=0}^{L} c_l\,P_l(x)$, evaluated elementwise.
-
-    The polynomials come from the three-term recurrence
-    $P_0 = 1,\ P_1 = x,\ (l+1)P_{l+1} = (2l+1)\,x\,P_l - l\,P_{l-1}$, run as
-    a `jax.lax.scan` over $l$ that accumulates the sum as it goes. That is
-    $O(\text{size}(x)\,L)$ time and $O(\text{size}(x))$ memory: the
-    ``(..., L + 1)`` table of `geonnax.basis.legendre_polynomials` is never
-    formed, which matters for a Gram matrix of $u \cdot v$. The value of ``x`` is
-    clipped to $[-1, 1]$ first, so rounding in a dot product of unit vectors is
-    harmless; the gradient passes straight through the clip, so derivatives at
-    coincident points ($u \cdot u = 1$ up to rounding) are exact.
-
-    Args:
-        x: Points, any shape; typically cosines $u \cdot v$ of unit vectors.
-        coeffs: ``(L + 1,)`` coefficients $c_0, \ldots, c_L$, by degree.
-
-    Returns:
-        The series at every point, with the shape of ``x``.
-
-    Raises:
-        ValueError: If ``coeffs`` is not 1-D and non-empty.
-
-    Examples:
-        >>> import jax.numpy as jnp
-        >>> from kernellib.functional import legendre_series
-        >>> # P_2(x) = (3x^2 - 1) / 2
-        >>> legendre_series(
-        ...     jnp.array([0.0, 0.5, 1.0]), jnp.array([0.0, 0.0, 1.0])
-        ... ).tolist()
-        [-0.5, -0.125, 1.0]
-    """
-    coeffs = jnp.asarray(coeffs)
-    if coeffs.ndim != 1 or coeffs.shape[0] == 0:
-        raise ValueError(f"coeffs must be 1-D and non-empty; got shape {coeffs.shape}.")
-    x = jnp.asarray(x)
-    dtype = jnp.result_type(x, coeffs, 1.0)
-    x = x.astype(dtype)
-    # Clip the value only: ``jnp.clip`` has a zero (or half) gradient at the
-    # boundary, which would corrupt the derivatives of a kernel on coincident
-    # points, where ``u . u`` is 1 up to rounding.
-    x = x + jax.lax.stop_gradient(jnp.clip(x, -1.0, 1.0) - x)
-    coeffs = coeffs.astype(dtype)
-    p0 = jnp.ones_like(x)
-    total = coeffs[0] * p0
-    if coeffs.shape[0] == 1:
-        return total
-    total = total + coeffs[1] * x
-
-    def step(carry, inputs):
-        p_prev, p_curr, acc = carry
-        ell, c = inputs
-        p_next = ((2.0 * ell + 1.0) * x * p_curr - ell * p_prev) / (ell + 1.0)
-        return (p_curr, p_next, acc + c * p_next), None
-
-    ells = jnp.arange(1, coeffs.shape[0] - 1, dtype=dtype)
-    (_, _, total), _ = jax.lax.scan(step, (p0, x, total), (ells, coeffs[2:]))
-    return total
-
-
 __all__ = [
     "EARTH_RADIUS_KM",
     "chordal_distance",
     "great_circle_distance",
-    "legendre_series",
     "lonlat_to_unit",
 ]

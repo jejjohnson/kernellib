@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from geonnax.basis import legendre_polynomials
+from functax.basis.polynomial import legendre_polynomials
 from scipy.special import spherical_in
 
 import kernellib as kl

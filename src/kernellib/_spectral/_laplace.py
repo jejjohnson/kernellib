@@ -10,7 +10,7 @@ k(x, x') \approx \sum_j S(\omega_j)\, \phi_j(x)\, \phi_j(x'),
 $$
 
 with $S$ the kernel's spectral density. The basis is kernel-independent (it
-is ``geonnax.basis.fourier_basis``); only the weights $S(\omega_j)$ carry the
+is ``functax.basis.fourier.fourier_basis``); only the weights $S(\omega_j)$ carry the
 hyperparameters, so they are cheap to differentiate.
 """
 
@@ -22,7 +22,7 @@ import einx
 import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
-from geonnax.basis import fourier_basis, fourier_eigenvalues_1d
+from functax.basis.fourier import fourier_basis, fourier_eigenvalues_1d
 from jaxtyping import Array, Float
 
 from kernellib._einx import rearrange

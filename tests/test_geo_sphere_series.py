@@ -10,12 +10,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from functax.basis.polynomial import legendre_series
 from scipy.special import eval_legendre
 
 import kernellib as kl
 from kernellib._einx import einsum, rearrange
 from kernellib._testing import fibonacci_lonlat
-from kernellib.functional import legendre_series, lonlat_to_unit
+from kernellib.functional import lonlat_to_unit
 
 
 def _kernels(lengthscale: float = 0.5) -> list[kl.AbstractSphereSeriesKernel]:
@@ -62,6 +63,30 @@ def test_legendre_series_low_degrees_and_shapes() -> None:
         legendre_series(x, jnp.ones((2, 2)))
     with pytest.raises(ValueError, match="1-D"):
         legendre_series(x, jnp.ones((0,)))
+
+
+def test_legendre_series_gradient_at_the_ends_is_exact() -> None:
+    # P_l'(1) = l (l + 1) / 2 and P_l'(-1) = (-1)^(l + 1) l (l + 1) / 2: the
+    # clip passes the gradient straight through at coincident points.
+    coeffs = np.random.default_rng(0).standard_normal(31)
+    ell = np.arange(31)
+    slope = ell * (ell + 1) / 2
+    grad = jax.grad(lambda t: legendre_series(t, jnp.asarray(coeffs)))
+    np.testing.assert_allclose(grad(1.0), coeffs @ slope, rtol=1e-12)
+    np.testing.assert_allclose(
+        grad(-1.0), coeffs @ ((-1.0) ** (ell + 1) * slope), rtol=1e-12
+    )
+
+
+def test_kernellib_legendre_series_is_functax_behind_a_deprecation() -> None:
+    import kernellib.functional
+
+    with pytest.warns(DeprecationWarning, match=r"functax\.basis\.polynomial"):
+        from kernellib.functional import legendre_series as old
+    assert old is legendre_series
+    assert "legendre_series" not in kernellib.functional.__all__
+    with pytest.raises(AttributeError):
+        kernellib.functional.no_such_name  # noqa: B018
 
 
 # --- the kernels ------------------------------------------------------------

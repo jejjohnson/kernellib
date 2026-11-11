@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import pytest
-from geonnax.randfeat import rff_cosine_forward
+from functax.basis.features import rff_cosine_forward
 
 import kernellib as kl
 
@@ -83,8 +83,8 @@ def test_frequencies_are_unit_lengthscale():
 
 
 @pytest.mark.slow
-def test_matches_geonnax_cosine_forward():
-    # One path is sqrt(variance) * phi(x) . w with phi geonnax's single-cosine
+def test_matches_functax_cosine_forward():
+    # One path is sqrt(variance) * phi(x) . w with phi functax's single-cosine
     # map; the ARD lengthscale is folded into the frequency matrix.
     ell = jnp.array([0.5, 2.0])
     v, ell, omega, phase, w = kl.draw_rff_cosine_basis(
