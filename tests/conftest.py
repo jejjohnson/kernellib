@@ -56,6 +56,7 @@ _SLOW_DOCTESTS = frozenset(
         "kernellib._operators._fastfood.fastfood_frequencies",
         "kernellib._operators._fastfood.fastfood_operator",
         "kernellib._operators._fastfood.hadamard_transform",
+        "kernellib._operators._bridge.to_functax_kernel",
         "kernellib._regression._estimators.EigenPro",
         "kernellib._regression._estimators.Falkon",
         "kernellib._spectral._feature_maps.FastFoodFeatures",

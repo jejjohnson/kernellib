@@ -195,3 +195,18 @@ alpha = gx.solve(K, jnp.concatenate([y, dy.T.ravel()]))
 ::: kernellib.to_operator
 
 ::: kernellib.to_cross_operator
+
+## Bridge to functax
+
+`to_functax_kernel(kernel)` hands any kernel to functax's kernel interpolation schemes, `functax.interp.RBF` and `functax.interp.Kriging`, which take a callable `k(targets, sources)` returning the `(M, N)` cross-kernel. functax sits below kernellib and never imports it, so the adapter lives here.
+
+```python
+from functax.geometry import Points
+from functax.interp import RBF
+
+k = kl.to_functax_kernel(kl.RBF(lengthscale=0.3))
+plan = RBF(k).plan(Points(X), Points(X_star))  # (M, N) read-out
+f_star = plan(y)
+```
+
+::: kernellib.to_functax_kernel

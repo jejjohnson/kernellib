@@ -61,8 +61,10 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
   only — copy a small private helper rather than import a gaussx `_` module.
 - **functax** supplies bases, sphere geometry, quadrature and interpolation
   schemes (`functax.basis.<family>`, `functax.geometry`, `functax.quad`,
-  `functax.interp`); don't duplicate them. Drawing random frequencies stays
-  here: it is sampling from a kernel's spectral law.
+  `functax.interp`); don't duplicate them. functax never imports kernellib:
+  `to_functax_kernel` hands a kernel to `functax.interp.RBF` / `Kriging`.
+  Drawing random frequencies stays here: it is sampling from a kernel's
+  spectral law.
 - **pyrox owns priors, guides and NumPyro.** Hyperparameters here are plain
   array fields with no transforms, priors or constraints; kernel defaults
   match pyrox-gp's (`tests/test_kernels.py::test_defaults_match_pyrox_gp`),
@@ -106,6 +108,7 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | A trace of a product, a Hadamard transform, an RP-Cholesky | gaussx (`trace_product`, `hadamard_transform`, `rp_cholesky`) |
 | RFF arithmetic, Fourier / Wendland / spherical-harmonic / Slepian bases, a Legendre series | `functax.basis.features`, `.fourier`, `.local`, `.sphere`, `.slepian`, `.polynomial` |
 | lon/lat to unit vectors, sphere point sets, an icosphere, Gauss–Legendre nodes | `functax.geometry`, `functax.quad` |
+| Interpolating or kriging with a kernellib kernel | `functax.interp.RBF` / `Kriging` with `to_functax_kernel(kernel)` |
 | A transpose, reshape, axis reduction or inserted-axis broadcast | `kernellib._einx` (`einsum`, `rearrange`, `reduce`, `repeat`) and `einx.<op>` |
 
 ## The contracts

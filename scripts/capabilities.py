@@ -71,6 +71,8 @@ UPSTREAM_BLURB = {
     "functax": (
         "Bases, sphere geometry, quadrature rules and interpolation schemes the"
         " feature maps and sphere kernels build on; don't duplicate them."
+        " functax never imports kernellib: `to_functax_kernel` hands a kernel"
+        " to `functax.interp.RBF` / `Kriging`."
     ),
 }
 

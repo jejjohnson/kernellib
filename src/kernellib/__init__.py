@@ -160,6 +160,7 @@ from kernellib._operators import (
     nystrom_operator,
     rff_operator,
     to_cross_operator,
+    to_functax_kernel,
     to_operator,
 )
 from kernellib._regression import (
@@ -439,6 +440,7 @@ __all__ = [
     "tapered_operator",
     "taylor_statistics",
     "to_cross_operator",
+    "to_functax_kernel",
     "to_operator",
     "vector_inputs",
 ]
