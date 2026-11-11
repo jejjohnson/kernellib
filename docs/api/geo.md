@@ -551,7 +551,7 @@ L L^\top = K_{uu} + \epsilon I,
 $$
 
 exact when all $(L+1)^2$ modes are kept and accurate inside the cap with the
-default Shannon-number truncation. The basis is geonnax's `SlepianCapBasis`,
+default Shannon-number truncation. The basis is functax's `SlepianCapBasis`,
 built once by `fit`; the spectrum is recomputed at call time, so gradients
 reach the kernel's hyperparameters. Inputs are `(lon, lat)`; `cap_radius` is
 in radians, `cap_centre` follows `degrees`.
