@@ -22,7 +22,7 @@ import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from geonnax.randfeat import orthogonal_blocks, rff_forward
+from geonnax.randfeat import rff_forward
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._einx import rearrange, reduce
@@ -86,6 +86,26 @@ def _require_radial(components: SpectralComponents, name: str) -> None:
                 f"unit spectral density; {type(k).__name__} is anisotropic. "
                 "Use RandomFourierFeatures."
             )
+
+
+def _orthogonal_blocks(
+    d: int, n_blocks: int, *, key: PRNGKeyArray
+) -> Float[Array, "D BD"]:
+    """``[Q_1 S_1, ..., Q_B S_B]``: Haar ``(D, D)`` blocks with chi-scaled columns.
+
+    Each block is the Q of a Gaussian matrix with its columns scaled by
+    independent chi(D) magnitudes. Drawing frequencies is sampling, which stays
+    with the library that owns the kernel's spectral law, so this lives here
+    rather than in functax (functax#21); it is geonnax 0.0.8's
+    ``randfeat.orthogonal_blocks``, draw for draw.
+    """
+    blocks = []
+    for _ in range(n_blocks):
+        key, k_qr, k_chi = jax.random.split(key, 3)
+        Q, _ = jnp.linalg.qr(jax.random.normal(k_qr, (d, d)))
+        chi = jnp.sqrt(reduce(jax.random.normal(k_chi, (d, d)) ** 2, "i j -> i", "sum"))
+        blocks.append(einx.multiply("d k, k -> d k", Q, chi))
+    return jnp.concatenate(blocks, axis=-1)
 
 
 def _cos_sin_features(
@@ -188,11 +208,10 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
     r"""Orthogonal random features (Yu et al., 2016).
 
     Like `RandomFourierFeatures`, but the frequency directions within each
-    block of ``D`` are exactly orthogonal (Haar blocks from
-    ``geonnax.randfeat.orthogonal_blocks``). Their lengths are drawn from the
-    kernel's own radial distribution, the norms of its unit-lengthscale
-    spectral samples, so the construction holds for any isotropic unit
-    density, not just the Gaussian. The estimate stays unbiased and its
+    block of ``D`` are exactly orthogonal (Haar-distributed blocks). Their
+    lengths are drawn from the kernel's own radial distribution, the norms of
+    its unit-lengthscale spectral samples, so the construction holds for any
+    isotropic unit density, not just the Gaussian. The estimate stays unbiased and its
     variance is lower than plain RFF at the same feature count.
 
     Attributes:
@@ -244,7 +263,7 @@ class OrthogonalRandomFeatures(AbstractFeatureMap):
             k._lengthscale_vector(d)
             n_blocks = math.ceil(size / d)
             key_dir, key_len = jax.random.split(key)
-            Q = orthogonal_blocks(d, n_blocks, key=key_dir).astype(X.dtype)
+            Q = _orthogonal_blocks(d, n_blocks, key=key_dir).astype(X.dtype)
             norms = jnp.sqrt(reduce(Q**2, "d k -> k", "sum"))
             directions = einx.divide("d k, k -> d k", Q, norms)  # (D, B*D)
             freqs = k.sample_unit_frequencies(key_len, (n_blocks * d, d), X.dtype)
