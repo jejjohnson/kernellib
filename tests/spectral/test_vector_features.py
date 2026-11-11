@@ -1,6 +1,6 @@
 """Hilbert-space features for 2-D vector fields (GEO23, #223).
 
-Every column is exactly divergence- or curl-free (autodiff), the geonnax
+Every column is exactly divergence- or curl-free (autodiff), the functax
 ``divfree_basis`` convention is pinned, ΦΦᵀ converges to the GEO15 kernels,
 and gradients, ``jit`` and the error paths work.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import pytest
-from geonnax.basis import divfree_basis
+from functax.basis.vector import divfree_basis
 
 import kernellib as kl
 from kernellib._einx import einsum, rearrange
@@ -92,8 +92,8 @@ def test_row_order_is_point_major_and_matches_gradients():
     assert jnp.allclose(feat(X[3:4]), Phi[6:8])
 
 
-def test_matches_geonnax_divfree_basis_up_to_sign():
-    # geonnax's (u, v) = (-d_y psi, d_x psi) = -R grad(phi); ours is +R grad(phi).
+def test_matches_functax_divfree_basis_up_to_sign():
+    # functax's (u, v) = (-d_y psi, d_x psi) = -R grad(phi); ours is +R grad(phi).
     X = _points(7, key=4)
     feat = kl.DivergenceFreeFeatures((4, 5), L=(2.0, 3.0)).fit(K_RBF, X)
     ours = einsum(R, feat._gradients(X), "i a, n m a -> n m i")

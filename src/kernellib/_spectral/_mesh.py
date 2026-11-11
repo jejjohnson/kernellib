@@ -57,7 +57,7 @@ class MeshLaplaceFeatures(AbstractFeatureMap):
         >>> import einx
         >>> import jax.numpy as jnp
         >>> import kernellib as kl
-        >>> from geonnax.basis import icosphere
+        >>> from functax.geometry import icosphere
         >>> V, T = icosphere(2)
         >>> k = kl.MeshMatern(V, T, lengthscale=0.5, nu=1.5, n_components=100)
         >>> X = einx.id("n -> n 1", jnp.arange(162.0))

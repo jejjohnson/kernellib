@@ -13,7 +13,7 @@ $\sum_{l, m} \phi_{lm}(u)\, \phi_{lm}(v)$ with
 $\phi_{lm} = \sqrt{4\pi a_l / (2l+1)}\, Y_{lm}$. This is the sphere's
 analogue of the Laplace-eigenfunction (HSGP) features on a box: the basis is
 kernel-independent (the real harmonics of
-``geonnax.basis.real_spherical_harmonics``, in its column order) and only
+``functax.basis.sphere.real_spherical_harmonics``, in its column order) and only
 the per-degree weights carry the hyperparameters.
 
 References:
@@ -32,7 +32,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from geonnax.basis import harmonic_degrees
+from functax.basis.sphere import harmonic_degrees
 from jaxtyping import Array, Float
 
 from kernellib._einx import rearrange
@@ -262,12 +262,12 @@ class SphericalHarmonicFeatures(AbstractFeatureMap):
 def _real_spherical_harmonics(
     unit: Float[Array, "N 3"], l_max: int
 ) -> Float[Array, "N M"]:
-    r"""Orthonormal real spherical harmonics, as ``geonnax.basis``'s.
+    r"""Orthonormal real spherical harmonics, as ``functax.basis.sphere``'s.
 
     The same functions, normalisation and column order as
-    ``geonnax.basis.real_spherical_harmonics`` (tested to agree), evaluated
-    with fixed-shape scans instead of one array per harmonic: geonnax stacks
-    $(L+1)^2$ separate arrays, which XLA takes minutes to compile beyond
+    ``functax.basis.sphere.real_spherical_harmonics`` (tested to agree), evaluated
+    with fixed-shape scans instead of one array per harmonic: geonnax 0.0.8
+    stacked $(L+1)^2$ separate arrays, which XLA takes minutes to compile beyond
     $L \approx 20$, and its unnormalised $Q_l^m$ overflow beyond
     $L \approx 85$. Here the fully normalised recursion
 

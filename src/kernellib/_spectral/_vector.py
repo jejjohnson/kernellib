@@ -8,7 +8,7 @@ velocities costs $O(NDM^2)$ through Woodbury.
 
 **Construction.** On a box $[-L_1, L_1] \times [-L_2, L_2]$ let
 $(\lambda_j, \varphi_j)$ be the eigenpairs of the Laplacian with Dirichlet
-or Neumann boundary conditions (``geonnax.basis.fourier_basis``). For a
+or Neumann boundary conditions (``functax.basis.fourier.fourier_basis``). For a
 stationary scalar kernel $k$ with spectral density $S$, Solin & Särkkä
 (2020) approximate
 
@@ -41,7 +41,7 @@ feature matrix is component $i$ at location $n$ (``"n i m -> (n i) m"``)
 and $R$ is the rotation used by `DivergenceFree`, so
 $\Phi\Phi^\top \to$ ``DivergenceFree(k)(Xv, Xv)`` and
 $\Phi\Phi^\top \to$ ``CurlFree(k)(Xv, Xv)`` with ``Xv = vector_inputs(X)``.
-(``geonnax.basis.divfree_basis`` is the same basis with the opposite sign,
+(``functax.basis.vector.divfree_basis`` is the same basis with the opposite sign,
 $-R\nabla\varphi_j$, which leaves $\Phi\Phi^\top$ unchanged.)
 
 References:
@@ -65,7 +65,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from geonnax.basis import fourier_basis, fourier_eigenvalues_1d
+from functax.basis.fourier import fourier_basis, fourier_eigenvalues_1d
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange

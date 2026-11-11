@@ -59,8 +59,10 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 - **gaussx never imports kernellib.** gaussx is kernel-agnostic linear
   algebra; anything with a kernel in it lives here. Use gaussx's public API
   only — copy a small private helper rather than import a gaussx `_` module.
-- **geonnax** supplies random-feature arithmetic and basis functions
-  (`geonnax.randfeat`, `geonnax.basis`); don't duplicate them.
+- **functax** supplies bases, sphere geometry, quadrature and interpolation
+  schemes (`functax.basis.<family>`, `functax.geometry`, `functax.quad`,
+  `functax.interp`); don't duplicate them. Drawing random frequencies stays
+  here: it is sampling from a kernel's spectral law.
 - **pyrox owns priors, guides and NumPyro.** Hyperparameters here are plain
   array fields with no transforms, priors or constraints; kernel defaults
   match pyrox-gp's (`tests/test_kernels.py::test_defaults_match_pyrox_gp`),
@@ -72,7 +74,7 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 1. **Search the capability index.** [`docs/api/capabilities.md`](docs/api/capabilities.md)
    lists every public name in `kernellib`, `kernellib.functional` and
    `kernellib.sklearn`, grouped by defining module, with a one-line summary;
-   then gaussx and geonnax's random features and bases. It is generated
+   then gaussx and functax's bases, geometry, quadrature and interpolation. It is generated
    (`make capabilities`) and checked by `tests/test_capabilities.py`.
 2. **If it is missing, add it at its layer**, in the subpackage that owns the
    concept; a helper two modules need goes in the owning subpackage (or
@@ -102,7 +104,8 @@ in-function imports in `_kernels/_feature.py` and `_kernels/_residual.py`
 | `vmap(grad(lambda x: f(x[None])[0]))`, a Hessian / Laplacian / divergence / curl of a predictor or vector field | `gradient(f, X)`, `jacobian`, `hessian`, `laplacian`, `divergence`, `curl` |
 | `mean(grad(f)(X) ** 2, axis=0)`, a feature or sample relevance from gradients | `sensitivity(f, X)`, `point_sensitivity(f, X)` |
 | A trace of a product, a Hadamard transform, an RP-Cholesky | gaussx (`trace_product`, `hadamard_transform`, `rp_cholesky`) |
-| RFF arithmetic, Fourier bases | `geonnax.randfeat`, `geonnax.basis` |
+| RFF arithmetic, Fourier / Wendland / spherical-harmonic / Slepian bases, a Legendre series | `functax.basis.features`, `.fourier`, `.local`, `.sphere`, `.slepian`, `.polynomial` |
+| lon/lat to unit vectors, sphere point sets, an icosphere, Gauss–Legendre nodes | `functax.geometry`, `functax.quad` |
 | A transpose, reshape, axis reduction or inserted-axis broadcast | `kernellib._einx` (`einsum`, `rearrange`, `reduce`, `repeat`) and `einx.<op>` |
 
 ## The contracts
@@ -248,7 +251,7 @@ agent can read and follow them):
 | Add a dependence or two-sample statistic | `add-dependence-measure` |
 | Add a graph builder, weigher, graph kernel or embedding | `add-graph-component` |
 | Add or update an example notebook | `add-notebook` |
-| Bump gaussx / geonnax | `bump-upstream-pins` |
+| Bump gaussx / functax | `bump-upstream-pins` |
 | Verify before a PR | `pre-pr-check` |
 | Review a change | `kernellib-review` (+ the read-only `.claude/agents/reuse-reviewer.md` and `numerics-reviewer.md`) |
 | Write a squash commit message | `squash-commit` |

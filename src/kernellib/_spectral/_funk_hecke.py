@@ -26,7 +26,8 @@ from typing import Literal
 
 import equinox as eqx
 import jax.numpy as jnp
-from geonnax.basis import gauss_legendre, legendre_polynomials
+from functax.basis.polynomial import legendre_polynomials
+from functax.quad import gauss_legendre
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange

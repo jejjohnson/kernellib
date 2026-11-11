@@ -3,9 +3,9 @@
 ``docs/api/capabilities.md`` lists each public object of ``kernellib``,
 ``kernellib.functional`` and ``kernellib.sklearn`` once, grouped by the module
 that defines it, with the first sentence of its docstring. It then lists the
-public API of the libraries kernellib builds on (gaussx, geonnax's random
-features and bases). Agents and people search it before writing a helper
-("Reuse before you write" in ``AGENTS.md``).
+public API of the libraries kernellib builds on (gaussx, and functax's bases,
+sphere geometry, quadrature and interpolation schemes). Agents and people
+search it before writing a helper ("Reuse before you write" in ``AGENTS.md``).
 
 Usage::
 
@@ -47,7 +47,18 @@ PACKAGES: dict[str, list[str]] = {
 
 UPSTREAM: dict[str, list[str]] = {
     "gaussx": ["gaussx"],
-    "geonnax": ["geonnax.randfeat", "geonnax.basis"],
+    "functax": [
+        "functax.basis.features",
+        "functax.basis.fourier",
+        "functax.basis.local",
+        "functax.basis.polynomial",
+        "functax.basis.slepian",
+        "functax.basis.sphere",
+        "functax.basis.vector",
+        "functax.geometry",
+        "functax.quad",
+        "functax.interp",
+    ],
 }
 UPSTREAM_BLURB = {
     "gaussx": (
@@ -57,19 +68,34 @@ UPSTREAM_BLURB = {
         " `hadamard_transform`, CG / Nyström preconditioning) is used from"
         " here, never re-implemented."
     ),
-    "geonnax": (
-        "Random-feature arithmetic and basis functions the feature maps build"
-        " on; don't duplicate them."
+    "functax": (
+        "Bases, sphere geometry, quadrature rules and interpolation schemes the"
+        " feature maps and sphere kernels build on; don't duplicate them."
     ),
 }
 
 # Names two homes may share, and why. The two deliberate patterns
 # (``_allowed_by_layout``) need no entry here.
 ALLOWED_SHARED_NAMES: dict[str, str] = {
-    "OrthogonalRandomFeatures": (
-        "kernellib's is a feature map for any spectral kernel (directions from"
-        " geonnax.randfeat.orthogonal_blocks, lengths from the kernel's own"
-        " sampler); geonnax's is the Equinox network layer"
+    "Cubic": (
+        "kernellib's is the compact cubic covariance model; functax.interp's is"
+        " cubic-convolution interpolation"
+    ),
+    "Linear": (
+        "kernellib's is the dot-product kernel; functax.interp's is linear"
+        " interpolation"
+    ),
+    "RBF": (
+        "kernellib's is the squared-exponential kernel; functax.interp's is the"
+        " radial-basis-function interpolation scheme, which takes a kernel"
+    ),
+    "Wendland": (
+        "kernellib's is a stationary covariance with variance and lengthscale;"
+        " functax.interp's is the radial interpolation kernel with a support"
+    ),
+    "lonlat_to_unit": (
+        "kernellib.functional's wraps functax.geometry's with kernellib's"
+        " (N, 2) check and its default of degrees"
     ),
 }
 
@@ -259,7 +285,8 @@ def render() -> str:
         f"Every public name in kernellib ({total} of them), each listed once at",
         "its public home and grouped by the module that defines it, with the",
         "first sentence of its docstring; then the public API of gaussx and of",
-        "geonnax's random features and bases, which kernellib builds on. Search this",
+        "functax's bases, geometry, quadrature and interpolation, which kernellib",
+        "builds on. Search this",
         "page before writing a helper: if what you need is here, compose it; if",
         "it is almost here, extend it where it lives. Regenerate with",
         "`make capabilities` after changing a public API",

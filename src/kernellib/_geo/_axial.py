@@ -20,6 +20,7 @@ import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from functax.basis.polynomial import legendre_series
 from jaxtyping import Array, Float
 
 from kernellib._einx import einsum, rearrange
@@ -31,7 +32,6 @@ from kernellib._kernels._derivative import (
     _value_gradient_block,
 )
 from kernellib._kernels._stationary import Matern
-from kernellib.functional._geo import legendre_series
 
 
 __all__ = ["JunStein", "LatitudeScaled", "LegendreLatitudeFn"]
@@ -63,7 +63,7 @@ class LegendreLatitudeFn(eqx.Module):
         if cos_factor: f = cos(phi) * f
 
     **Numerics.** Evaluated by the Legendre three-term recurrence
-    (`kernellib.functional.legendre_series`), stable for any $J$; $\phi$ is in
+    (`functax.basis.polynomial.legendre_series`), stable for any $J$; $\phi$ is in
     **radians** and may be a scalar or an array. The output follows the
     dtype of ``weights`` and ``phi``.
 

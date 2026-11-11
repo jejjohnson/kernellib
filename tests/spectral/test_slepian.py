@@ -8,7 +8,7 @@ import einx
 import equinox as eqx
 import jax.numpy as jnp
 import pytest
-from geonnax.basis import harmonic_degrees, real_spherical_harmonics
+from functax.basis.sphere import harmonic_degrees, real_spherical_harmonics
 
 import kernellib as kl
 from kernellib._einx import einsum
@@ -83,7 +83,7 @@ def test_fit_rejects_an_ard_kernel():
         sf.fit(ard, jnp.zeros((4, 2)))
 
 
-# --- numerics (slow: geonnax builds the basis and harmonics eagerly) --------
+# --- numerics (slow: functax builds the basis and harmonics eagerly) --------
 
 
 @pytest.mark.slow

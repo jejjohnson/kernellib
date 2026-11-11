@@ -22,7 +22,7 @@ import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from geonnax.randfeat import rff_forward
+from functax.basis.features import rff_forward
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from kernellib._einx import rearrange, reduce
@@ -146,7 +146,7 @@ class RandomFourierFeatures(AbstractFeatureMap):
     $\phi(x)^\top\phi(x') = \frac{\sigma^2}{F}\sum_j \cos(w_j^\top(x - x'))$
     is an unbiased estimate of $k(x, x')$. The feature matrix has
     ``2 * n_features`` columns. The arithmetic is
-    ``geonnax.randfeat.rff_forward``.
+    ``functax.basis.features.rff_forward``.
 
     Accepts a `Scaled` or `Sum` of stationary kernels (see the module
     docstring for how the frequencies are shared between the parts).

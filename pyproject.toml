@@ -27,8 +27,8 @@ dependencies = [
     "einx>=0.4.3",
     "lineax>=0.1.1",
     "gaussx>=0.6.5",
-    # geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
-    "geonnax @ git+https://github.com/jejjohnson/geonnax.git@v0.0.8",
+    # functax is declared via a PEP 508 direct URL until it ships to PyPI.
+    "functax[jax] @ git+https://github.com/jejjohnson/functax.git@v0.0.6",
 ]
 
 [project.optional-dependencies]
@@ -102,7 +102,7 @@ build-backend = "hatchling.build"
 packages = ["src/kernellib"]
 
 [tool.hatch.metadata]
-# geonnax is declared via a PEP 508 direct URL until it ships to PyPI.
+# functax is declared via a PEP 508 direct URL until it ships to PyPI.
 allow-direct-references = true
 
 [tool.ruff]

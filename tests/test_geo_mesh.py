@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from geonnax.basis import icosphere
+from functax.geometry import icosphere
 
 import kernellib as kl
 from kernellib._einx import einsum, rearrange

@@ -4,7 +4,7 @@ Agents and contributors search the index before writing a helper ("Reuse
 before you write" in AGENTS.md), so a stale index sends them to
 re-implement something that exists. ``scripts/capabilities.py`` regenerates
 it; this runs its ``--check``. It imports ``kernellib.sklearn``, so it sits
-in the integration tier. The upstream sections (gaussx, geonnax) are compared
+in the integration tier. The upstream sections (gaussx, functax) are compared
 only at the versions the index records.
 """
 
@@ -41,6 +41,6 @@ def test_no_name_is_bound_to_two_objects() -> None:
     _, clashes = capabilities.collect()
     assert not clashes, (
         "a name is exported for different objects by two kernellib homes, or "
-        f"shadows a gaussx / geonnax name: {clashes}. Rename it, or add it to "
+        f"shadows a gaussx / functax name: {clashes}. Rename it, or add it to "
         "ALLOWED_SHARED_NAMES in scripts/capabilities.py with a reason."
     )

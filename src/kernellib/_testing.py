@@ -10,7 +10,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from geonnax.basis import fibonacci_sphere
+from functax.geometry import fibonacci_sphere
 from jaxtyping import Array, Bool, Float
 
 from kernellib._einx import einsum
@@ -65,7 +65,7 @@ def random_pd_matrix(
 def fibonacci_lonlat(n: int, *, degrees: bool = True) -> Float[Array, "n 2"]:
     """``n`` near-uniform ``(lon, lat)`` points on the sphere (Fibonacci lattice).
 
-    A thin wrapper over `geonnax.basis.fibonacci_sphere`, for
+    A thin wrapper over `functax.geometry.fibonacci_sphere`, for
     positive-definiteness tests of kernels on the sphere.
 
     Examples:
@@ -74,6 +74,6 @@ def fibonacci_lonlat(n: int, *, degrees: bool = True) -> Float[Array, "n 2"]:
         (100, 2)
     """
     points, _ = fibonacci_sphere(
-        n, output="lonlat", output_unit="degrees" if degrees else "radians"
+        n, output="lonlat", unit="degrees" if degrees else "radians"
     )
     return points
