@@ -1,0 +1,5 @@
+- **Provides.** Kernels as Equinox modules whose hyperparameters are array leaves, Gram matrices as gaussx operators, and random-feature and Nyström approximations.
+- **Start from.** `kernellib.RBF`, `kernellib.Matern`, `kernellib.Periodic` (compose with `+` and `*`), `kernellib.to_operator(kernel, X, noise=...)`, `kernellib.RandomFourierFeatures`, `kernellib.NystromFeatures`, `kernellib.estimate_lengthscale`.
+- **Keep.** Rebuild a kernel with new hyperparameters or use `eqx.tree_at`; a fit returns a new object; every random routine takes a `key`.
+- **Never.** Call `jnp.linalg.solve` or `cho_solve` on a Gram matrix; build the operator with `to_operator` and solve through gaussx.
+- **Open the skill when.** You write a new kernel, need matrix-free products or a preconditioned solve at large N, or use its estimators (`KRR`, `Falkon`) and dependence measures.
