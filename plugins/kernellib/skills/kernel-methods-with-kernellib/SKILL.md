@@ -190,6 +190,14 @@ Each card below says what a library under this skill guarantees.
 A card is enough to call it.
 Load a skill only when its card's last line applies.
 
+### functax · base dependency · no skill yet
+
+- **Provides.** Function approximation for JAX: CRS-free axes and grids, interpolation plans, quadrature rules, bases, differential operators, projection and gap filling.
+- **Start from.** `functax.geometry.Axis`, `functax.geometry.Points`, `functax.geometry.RectilinearGrid`, `functax.interp.Linear`, `functax.interp.Plan`, `functax.quad.gauss_legendre`, `functax.quad.Rule`, `functax.project.fill_gaps`.
+- **Keep.** Build a plan once with `scheme.plan(source, target)` and call it on many fields; every error is a `functax.FunctaxError` that is also the closest standard exception, so `except ValueError` still works.
+- **Never.** Import a functax module other than `functax`, `functax.geometry` and `functax.geometry.affine` on a NumPy-only path; the rest need the `functax[jax]` extra and raise `MissingExtraError` without it.
+- **Open the repository when.** You write a new scheme, basis or rule, or need more than these names: it has no skill yet, so read its `AGENTS.md` and its section of GeoStack's capability index.
+
 ### gaussx · base dependency · 2 of 7 units
 
 #### Structures and primitives · ⓪ ① · skill `gaussx:structured-gaussian-linalg`
@@ -211,14 +219,6 @@ Load a skill only when its card's last line applies.
 - **Keep.** A function above gaussx takes `solver: gaussx.AbstractSolverStrategy | None = None` and hands it down unchanged; `None` means structural dispatch.
 - **Never.** Write a CG, Lanczos or Hutchinson loop, or fix a solver inside a function that could take one.
 - **One rung down.** Open `gaussx:solvers-and-preconditioners` to choose between strategies, tune a preconditioner or build a randomized factorisation.
-
-### geonnax · base dependency · skill `geonnax:build-models-with-geonnax`
-
-- **Provides.** Deterministic neural-network building blocks and bases for geoscience: neural operators, U-Nets, implicit representations, lon/lat encoders and random features.
-- **Start from.** `geonnax.FNO`, `geonnax.UNet`, `geonnax.SIREN`, `geonnax.layers`, `geonnax.basis.fourier_basis`, `geonnax.rff_forward`, `geonnax.geo.lonlat_to_cartesian3d`.
-- **Keep.** A module acts on one example, so batch with `jax.vmap`; build it with `Model.init(..., key=key)`; modules are immutable.
-- **Never.** Put a prior or a sample site inside a geonnax module; it stays deterministic and the caller wraps it.
-- **Open the skill when.** You choose between operator families, compose your own model from `geonnax.layers`, or need a basis together with its eigenvalues.
 
 Used by (pointers, not skills to load): manipy, pyrox.
 
