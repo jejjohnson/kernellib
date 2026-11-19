@@ -190,13 +190,17 @@ Each card below says what a library under this skill guarantees.
 A card is enough to call it.
 Load a skill only when its card's last line applies.
 
-### functax · base dependency · no skill yet
+### functax · base dependency · 1 of 8 units
 
-- **Provides.** Function approximation for JAX: CRS-free axes and grids, interpolation plans, quadrature rules, bases, differential operators, projection and gap filling.
-- **Start from.** `functax.geometry.Axis`, `functax.geometry.Points`, `functax.geometry.RectilinearGrid`, `functax.interp.Linear`, `functax.interp.Plan`, `functax.quad.gauss_legendre`, `functax.quad.Rule`, `functax.project.fill_gaps`.
-- **Keep.** Build a plan once with `scheme.plan(source, target)` and call it on many fields; every error is a `functax.FunctaxError` that is also the closest standard exception, so `except ValueError` still works.
-- **Never.** Import a functax module other than `functax`, `functax.geometry` and `functax.geometry.affine` on a NumPy-only path; the rest need the `functax[jax]` extra and raise `MissingExtraError` without it.
-- **Open the repository when.** You write a new scheme, basis or rule, or need more than these names: it has no skill yet, so read its `AGENTS.md` and its section of GeoStack's capability index.
+#### Bases · ① · skill `functax:bases-quadrature-and-transforms`
+
+- **Provides.** Basis functions evaluated at points, as a design matrix Φ of shape `(N, D)`: f̂(x) = ∑ⱼ cⱼ φⱼ(x).
+- **Nouns.** On a box: `functax.basis.fourier.fourier_basis`, `functax.basis.local.rbf_basis`, `functax.basis.local.wavelet_basis_1d`, `functax.basis.features.fourier_features`. On the sphere: `functax.basis.sphere.real_spherical_harmonics`, `functax.basis.sphere.needlet_basis`, `functax.basis.slepian.slepian_cap_basis`. From data: `functax.basis.eigen.eof_basis`.
+- **Verbs.** Call the function with the points to get Φ; fit with `functax.project.least_squares(Φ, y)`; evaluate with `Φ @ c`.
+- **Adverbs.** `boundary=` on the box eigenfunctions (`"dirichlet"` by default); `l_max=` sets the degree on the sphere, and `(l_max + 1)²` columns.
+- **Keep.** Points on the sphere go in as unit vectors `(N, 3)`, from `functax.geometry.lonlat_to_unit`; several constructors return the eigenvalues or the degrees with Φ, so unpack the tuple.
+- **Never.** Import a family from `functax.basis` itself: each lives in its submodule, `functax.basis.fourier`, `functax.basis.sphere` and so on.
+- **One rung down.** Open `functax:bases-quadrature-and-transforms` to choose a family or to build a Slepian basis for a region.
 
 ### gaussx · base dependency · 2 of 7 units
 
@@ -220,6 +224,6 @@ Load a skill only when its card's last line applies.
 - **Never.** Write a CG, Lanczos or Hutchinson loop, or fix a solver inside a function that could take one.
 - **One rung down.** Open `gaussx:solvers-and-preconditioners` to choose between strategies, tune a preconditioner or build a randomized factorisation.
 
-Used by (pointers, not skills to load): manipy, pyrox.
+Used by (pointers, not skills to load): manipy, plumax, pyrox.
 
 <!-- skill-tree:end -->
