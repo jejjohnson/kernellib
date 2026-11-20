@@ -817,6 +817,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "geophysix"
+version = "0.0.3"
+source = { git = "https://github.com/jejjohnson/geophysix.git?tag=v0.0.3#65b1faab906a4b2abfc743eacac4f21745c00d67" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[[package]]
 name = "ghp-import"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1175,6 +1183,7 @@ sklearn = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "geophysix" },
     { name = "pre-commit" },
     { name = "pynndescent" },
     { name = "pytest" },
@@ -1222,6 +1231,7 @@ provides-extras = ["sklearn", "neighbors"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "geophysix", git = "https://github.com/jejjohnson/geophysix.git?tag=v0.0.3" },
     { name = "pre-commit", specifier = ">=4.6.0" },
     { name = "pynndescent", specifier = ">=0.5.13" },
     { name = "pytest", specifier = ">=9.1.1" },

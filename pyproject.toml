@@ -48,6 +48,9 @@ dev = [
     "pytest-cov>=7.1.0",
     "pre-commit>=4.6.0",
     "pytest-xdist>=3.8",
+    # Test-only: tests/test_geophysix_constants.py compares EARTH_RADIUS_KM with
+    # geophysix's. kernellib sits below geophysix and never imports it at run time.
+    "geophysix",
 ]
 lint = [
     "ruff>=0.15.22",
@@ -86,6 +89,8 @@ docs = [
 # gaussx is not yet on PyPI; resolve the release tag from GitHub. The
 # `>=` floor in `dependencies` is what a PyPI release will satisfy later.
 gaussx = { git = "https://github.com/jejjohnson/gaussx.git", tag = "v0.6.5" }
+# geophysix is a test-only dependency, pinned by release tag.
+geophysix = { git = "https://github.com/jejjohnson/geophysix.git", tag = "v0.0.3" }
 # pipekit is a docs-only dependency, pinned by release tag (roadmap decision 7).
 # Every pipekit source uses the one tag pipekit-ops-v0.2.1, which carries the
 # current release of each workspace package (train 0.2.0, ops 0.2.1): the

@@ -21,8 +21,13 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 
-EARTH_RADIUS_KM: float = 6371.0088
-"""IUGG mean Earth radius, in kilometres."""
+EARTH_RADIUS_KM: float = 6371.008771415059
+"""IUGG mean Earth radius R₁ = (2a + b) / 3 of WGS84, in kilometres.
+
+Equals ``geophysix.earth.SPHERE.semi_major`` / 1000, checked by
+``tests/test_geophysix_constants.py``. kernellib sits below geophysix, so it
+repeats the value instead of importing it.
+"""
 
 
 def _safe_sqrt(s: Float[Array, ...]) -> Float[Array, ...]:
