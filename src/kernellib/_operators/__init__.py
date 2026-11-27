@@ -71,6 +71,12 @@ for _cls in _KERNEL_OPERATORS:
     lx.is_lower_triangular.register(_cls)(lambda _operator: False)
     lx.is_upper_triangular.register(_cls)(lambda _operator: False)
     lx.linearise.register(_cls)(lambda operator: operator)
+    # A kernel matrix is real, so its conjugate is the operator itself. The
+    # operators are already matrix-free and concrete, so ``materialise`` is
+    # the operator too (as lineax does for ``FunctionLinearOperator``);
+    # neither forms the dense matrix. ``lineax.LSMR`` needs both.
+    lx.conj.register(_cls)(lambda operator: operator)
+    lx.materialise.register(_cls)(lambda operator: operator)
 
 del _cls
 

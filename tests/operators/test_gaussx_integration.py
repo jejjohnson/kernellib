@@ -121,3 +121,62 @@ def test_preconditioned_cg_on_implicit_operator_matches_dense():
         preconditioner_rank=10, shift=NOISE, rtol=1e-10, atol=1e-10
     )
     assert jnp.allclose(solver.solve(op, y), _dense_solution(X, y), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# lineax.conj and lineax.materialise, needed by lineax.LSMR
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", [c[0] for c in _diag_cases()], ids=lambda name: name)
+def test_lineax_structure_functions(case):
+    op = dict(_diag_cases())[case]
+    assert lx.conj(op) is op
+    assert lx.materialise(op) is op
+    assert lx.linearise(op) is op
+    expected = jnp.diagonal(op.as_matrix(), axis1=-2, axis2=-1)
+    assert jnp.allclose(lx.diagonal(op), expected, atol=1e-12)
+
+
+def _lsmr_cases():
+    from kernellib import ImplicitCrossKernelOperator
+
+    X, y = _problem()
+    Z = X[:8]
+    tags = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    return {
+        "implicit": (
+            ImplicitKernelOperator(_rbf, X, NOISE, params=PARAMS, tags=tags),
+            y,
+        ),
+        # Full column rank (40 x 8); a square noise-free RBF matrix is
+        # numerically singular and would trip LSMR's condition-number guard.
+        "kernel": (KernelOperator(_rbf, X, Z, PARAMS), y),
+        # Full column rank (40 x 8): LSMR returns the least-squares solution.
+        "cross": (ImplicitCrossKernelOperator(_rbf, X, Z, 16, params=PARAMS), y),
+    }
+
+
+@pytest.mark.parametrize("name", ["implicit", "kernel", "cross"])
+def test_lsmr_solver_matches_dense(name):
+    op, y = _lsmr_cases()[name]
+    solver = gx.LSMRSolver(atol=1e-10, btol=1e-10, max_steps=2000)
+    x = solver.solve(op, y)
+    expected = jnp.linalg.lstsq(op.as_matrix(), y)[0]
+    assert jnp.allclose(x, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        gx.CGSolver(rtol=1e-10, atol=1e-10, max_steps=500),
+        gx.MINRESSolver(rtol=1e-10, atol=1e-10, max_steps=500),
+        gx.LSMRSolver(atol=1e-10, btol=1e-10, max_steps=2000),
+    ],
+    ids=["cg", "minres", "lsmr"],
+)
+def test_solvers_on_implicit_kernel(solver):
+    X, y = _problem()
+    tags = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    op = ImplicitKernelOperator(_rbf, X, NOISE, params=PARAMS, tags=tags)
+    assert jnp.allclose(solver.solve(op, y), _dense_solution(X, y), atol=1e-5)
