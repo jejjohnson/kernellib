@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.23](https://github.com/jejjohnson/kernellib/compare/v0.0.22...v0.0.23) (2026-11-28)
+
+
+### Bug Fixes
+
+* **operators:** register lineax.conj and lineax.materialise for the kernel operators ([#316](https://github.com/jejjohnson/kernellib/issues/316)) ([26943cb](https://github.com/jejjohnson/kernellib/commit/26943cbcbe0d40ca0f1aeda079a86e4009045215)), closes [#314](https://github.com/jejjohnson/kernellib/issues/314)
+
 ## [0.0.22](https://github.com/jejjohnson/kernellib/compare/v0.0.21...v0.0.22) (2026-10-21)
 
 
